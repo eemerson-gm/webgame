@@ -10,13 +10,14 @@ export class GameServer {
   private sockets: { id: string; ws: WebSocket }[];
   private playerData: Record<string, Data>;
 
-  constructor() {
-    this.wss = new WebSocketServer({ port: 8081 });
+  constructor(port: number) {
+    this.wss = new WebSocketServer({ port });
     this.sockets = [];
     this.playerData = {};
   }
 
   public listen(messages: MessageEvents) {
+    console.log("Waiting for connections...");
     this.wss.on("connection", (ws) => {
       const id = uuidv4();
       this.sockets.push({ id, ws });

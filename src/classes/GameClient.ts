@@ -8,7 +8,7 @@ export class GameClient {
   public clientId: string;
 
   constructor() {
-    this.socket = new WebSocket("ws://localhost:8081");
+    this.socket = new WebSocket(`wss://${location.hostname}:8081`);
     this.clientId = "";
   }
 
@@ -38,8 +38,8 @@ export class GameClient {
       console.log("Connected to server");
     });
     this.socket.addEventListener("message", (message) => {
-      console.log("Received:", message.data);
       const data = JSON.parse(message.data) as Message;
+      console.log("Received:", data);
       const { _t: type, _p: payload } = data;
       if (type in events) {
         events[type](payload);
