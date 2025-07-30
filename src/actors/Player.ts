@@ -1,6 +1,7 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-import { GameClient } from "../classes/GameClient";
+import { Data, GameClient } from "../classes/GameClient";
+import { clamp } from "lodash";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -42,34 +43,57 @@ export class Player extends ex.Actor {
     this.graphics.use(Resources.Player.toSprite());
   }
 
-  private sendClientUpdates() {
+  private sendPosition() {
     if (!this.client) {
       return;
     }
+    this.sendClient(
+      "update_player",
+      {
+        id: this.client.clientId,
+        k: {
+          l: this.keyLeft,
+          r: this.keyRight,
+          j: this.keyJump,
+        },
+        x: this.pos.x.toFixed(1),
+        y: this.pos.y.toFixed(1),
+      },
+      {
+        x: this.pos.x.toFixed(1),
+        y: this.pos.y.toFixed(1),
+      }
+    );
+  }
 
+  private onJump() {
+    if (this.vspeed < 0) {
+      return;
+    }
+    this.vspeed = -4;
+    this.sendPosition();
+  }
+
+  private onLand() {
+    this.sendPosition();
+  }
+
+  private onMove() {
     if (
       this.keyLeft !== this.previousKeyLeft ||
-      this.keyRight !== this.previousKeyRight ||
-      this.keyJump !== this.previousKeyJump
+      this.keyRight !== this.previousKeyRight
     ) {
+      this.sendPosition();
       this.previousKeyLeft = this.keyLeft;
       this.previousKeyRight = this.keyRight;
-      this.previousKeyJump = this.keyJump;
-      this.client.send(
-        "update_player",
-        {
-          id: this.client.clientId,
-          keys: {
-            left: this.keyLeft,
-            right: this.keyRight,
-            jump: this.keyJump,
-          },
-          x: this.pos.x,
-          y: this.pos.y,
-        },
-        { x: this.pos.x, y: this.pos.y }
-      );
     }
+  }
+
+  private sendClient(type: string, payload: Data, playerData?: Data) {
+    if (!this.client) {
+      return;
+    }
+    this.client.send(type, payload, playerData);
   }
 
   private updateControls(engine: ex.Engine) {
@@ -112,7 +136,7 @@ export class Player extends ex.Actor {
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateControls(engine);
-    this.sendClientUpdates();
+    this.onMove();
 
     const speed = 1.5;
     const accel = 0.3;
@@ -165,13 +189,20 @@ export class Player extends ex.Actor {
       this.vspeed = 0;
     }
 
+    const previousGrounded = this.isGrounded;
     this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
 
     if (this.isGrounded && this.keyJump) {
-      this.vspeed = -4;
+      this.onJump();
+    }
+    if (!previousGrounded && this.isGrounded) {
+      this.onLand();
     }
 
     this.pos.x += moveX;
     this.pos.y += moveY;
+
+    this.pos.x = clamp(this.pos.x, 0, 320 - this.width);
+    this.pos.y = clamp(this.pos.y, 0, 180 - this.height);
   }
 }

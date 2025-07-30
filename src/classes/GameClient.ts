@@ -8,7 +8,11 @@ export class GameClient {
   public clientId: string;
 
   constructor() {
-    this.socket = new WebSocket(`wss://${location.hostname}/game`);
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const port = location.hostname === "localhost" ? `:8080` : "";
+    const url = `${protocol}://${location.hostname}${port}/game`;
+    console.log("Connecting to", url);
+    this.socket = new WebSocket(url);
     this.clientId = "";
   }
 

@@ -7,6 +7,7 @@ import { Server } from "http";
 type MessageEvents = Record<string, "player" | "others">;
 
 export class GameServer {
+  private index: number = 0;
   private wss: WebSocketServer;
   private players: Record<string, WebSocket>;
   private playerData: Record<string, Data>;
@@ -18,9 +19,9 @@ export class GameServer {
   }
 
   public listen(messages: MessageEvents) {
-    console.log("Waiting for connections...");
+    console.log("[WS] Waiting for connections...");
     this.wss.on("connection", (ws) => {
-      const id = uuidv4();
+      const id = (this.index++).toString();
       this.players[id] = ws;
       this.playerData[id] = {};
       console.log(

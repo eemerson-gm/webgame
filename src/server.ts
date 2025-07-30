@@ -6,7 +6,7 @@ const app = express();
 app.use(express.static("dist"));
 
 const server = app.listen(port, () => {
-  console.log(`HTTP server listening on port ${port}`);
+  console.log(`[HTTP] Listening on port ${port}`);
 });
 
 const gameServer = new GameServer(server);

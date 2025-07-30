@@ -6,7 +6,9 @@ import { Data, GameClient, MessageEvents } from "./classes/GameClient";
 let localPlayer: Player | null = null;
 const players: Record<string, Player> = {};
 
-const loader = new ex.Loader(Object.values(Resources));
+const loader = new ex.DefaultLoader({
+  loadables: Object.values(Resources),
+});
 const gameWidth = 320;
 const gameHeight = 180;
 const game = new ex.Engine({
@@ -47,7 +49,7 @@ game.start(loader).then(() => {
       console.log("Players:", playersData);
       for (const [id, data] of Object.entries(playersData)) {
         const { x, y } = data;
-        addPlayer(id, x, y);
+        addPlayer(id, Number(x), Number(y));
       }
     },
     onDisconnect: (id) => {
@@ -60,16 +62,16 @@ game.start(loader).then(() => {
         addPlayer(id, x, y);
       },
       update_player: (payload) => {
-        const { id, x, y, keys } = payload;
+        const { id, x, y, k } = payload;
         const player = players[id];
         if (!player) {
           return;
         }
-        player.keyLeft = keys.left;
-        player.keyRight = keys.right;
-        player.keyJump = keys.jump;
-        player.pos.x = x;
-        player.pos.y = y;
+        player.keyLeft = k.l;
+        player.keyRight = k.r;
+        player.keyJump = k.j;
+        player.pos.x = Number(x);
+        player.pos.y = Number(y);
       },
     }),
   });
