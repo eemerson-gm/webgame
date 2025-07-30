@@ -62,14 +62,22 @@ game.start(loader).then(() => {
         addPlayer(id, x, y);
       },
       update_player: (payload) => {
-        const { id, x, y, k } = payload;
+        const { id, x, y, k, s } = payload;
+        const { l: left, r: right, j: jump } = k;
+        const { h: hspeed, v: vspeed } = s;
+
         const player = players[id];
         if (!player) {
           return;
         }
-        player.keyLeft = k.l;
-        player.keyRight = k.r;
-        player.keyJump = k.j;
+
+        player.keyLeft = left;
+        player.keyRight = right;
+        player.keyJump = jump;
+
+        player.hspeed = Number(hspeed);
+        player.vspeed = Number(vspeed);
+
         player.pos.x = Number(x);
         player.pos.y = Number(y);
       },

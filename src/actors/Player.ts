@@ -56,6 +56,10 @@ export class Player extends ex.Actor {
           r: this.keyRight,
           j: this.keyJump,
         },
+        s: {
+          h: this.hspeed.toFixed(1),
+          v: this.vspeed.toFixed(1),
+        },
         x: this.pos.x.toFixed(1),
         y: this.pos.y.toFixed(1),
       },
