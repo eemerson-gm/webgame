@@ -8,7 +8,7 @@ export class GameClient {
   public clientId: string;
 
   constructor() {
-    this.socket = new WebSocket(`wss://${location.hostname}:8081`);
+    this.socket = new WebSocket(`ws://${location.hostname}/game`);
     this.clientId = "";
   }
 

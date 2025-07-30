@@ -2,17 +2,18 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Data } from "./GameClient";
 import { v4 as uuidv4 } from "uuid";
 import { merge } from "lodash";
+import { Server } from "http";
 
 type MessageEvents = Record<string, "player" | "others">;
 
 export class GameServer {
   private wss: WebSocketServer;
-  private sockets: { id: string; ws: WebSocket }[];
+  private players: Record<string, WebSocket>;
   private playerData: Record<string, Data>;
 
-  constructor(port: number) {
-    this.wss = new WebSocketServer({ port });
-    this.sockets = [];
+  constructor(server: Server) {
+    this.wss = new WebSocketServer({ server, path: "/game" });
+    this.players = {};
     this.playerData = {};
   }
 
@@ -20,9 +21,11 @@ export class GameServer {
     console.log("Waiting for connections...");
     this.wss.on("connection", (ws) => {
       const id = uuidv4();
-      this.sockets.push({ id, ws });
+      this.players[id] = ws;
       this.playerData[id] = {};
-      console.log(`[${id}]: Connected (${this.sockets.length} players)`);
+      console.log(
+        `[${id}]: Connected (${Object.keys(this.players).length} players)`
+      );
       this.sendToPlayer(id, "_connected", {
         id,
         playersData: this.playerData,
@@ -45,12 +48,11 @@ export class GameServer {
         console.log(`[${id}]: ${raw}`);
       });
       ws.on("close", () => {
-        this.sockets.splice(
-          this.sockets.findIndex((s) => s.id === id),
-          1
-        );
+        delete this.players[id];
         delete this.playerData[id];
-        console.log(`[${id}]: Disconnected (${this.sockets.length} players)`);
+        console.log(
+          `[${id}]: Disconnected (${Object.keys(this.players).length} players)`
+        );
         this.sendToOthers(id, "_disconnected", { id });
       });
       ws.on("error", (error) => {
@@ -60,17 +62,17 @@ export class GameServer {
   }
 
   public sendToPlayer(id: string, type: string, payload: Data) {
-    const player = this.sockets.find((s) => s.id === id);
+    const player = this.players[id];
     if (!player) {
       console.error("Socket not found:", id);
       return;
     }
-    player.ws.send(JSON.stringify({ _t: type, _p: payload }));
+    player.send(JSON.stringify({ _t: type, _p: payload }));
   }
 
   public sendToOthers(id: string, type: string, payload: Data) {
-    this.sockets
-      .filter((player) => player.id !== id)
-      .forEach((player) => this.sendToPlayer(player.id, type, payload));
+    Object.keys(this.players)
+      .filter((playerId) => playerId !== id)
+      .forEach((playerId) => this.sendToPlayer(playerId, type, payload));
   }
 }
