@@ -13,7 +13,7 @@ export class GameServer {
   private playerData: Record<string, Data>;
 
   constructor(server: Server) {
-    this.wss = new WebSocketServer({ server, path: "/game" });
+    this.wss = new WebSocketServer({ server });
     this.players = {};
     this.playerData = {};
   }
@@ -38,9 +38,10 @@ export class GameServer {
         const { _t: type, _p: payload, _d: playerData } = data;
         this.playerData[id] = merge(this.playerData[id], playerData);
         if (type in messages) {
+          const payloadWithId = { ...payload, id };
           const events = {
-            player: () => this.sendToPlayer(id, type, payload),
-            others: () => this.sendToOthers(id, type, payload),
+            player: () => this.sendToPlayer(id, type, payloadWithId),
+            others: () => this.sendToOthers(id, type, payloadWithId),
           };
           events[messages[type]]();
         } else {

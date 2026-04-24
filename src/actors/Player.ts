@@ -1,7 +1,7 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
 import { Data, GameClient } from "../classes/GameClient";
-import { clamp } from "lodash";
+import { clamp, merge } from "lodash";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -43,31 +43,11 @@ export class Player extends ex.Actor {
     this.graphics.use(Resources.Player.toSprite());
   }
 
-  private sendPosition() {
+  private sendClient(type: string, payload: Data, playerData?: Data) {
     if (!this.client) {
       return;
     }
-    this.sendClient(
-      "update_player",
-      {
-        id: this.client.clientId,
-        k: {
-          l: this.keyLeft,
-          r: this.keyRight,
-          j: this.keyJump,
-        },
-        s: {
-          h: this.hspeed.toFixed(1),
-          v: this.vspeed.toFixed(1),
-        },
-        x: this.pos.x.toFixed(1),
-        y: this.pos.y.toFixed(1),
-      },
-      {
-        x: this.pos.x.toFixed(1),
-        y: this.pos.y.toFixed(1),
-      }
-    );
+    this.client.send(type, payload, playerData);
   }
 
   private onJump() {
@@ -75,29 +55,39 @@ export class Player extends ex.Actor {
       return;
     }
     this.vspeed = -4;
-    this.sendPosition();
+    this.sendClient("update_player", {
+      kj: true,
+    });
   }
 
   private onLand() {
-    this.sendPosition();
+    this.sendClient("update_player", {
+      x: this.pos.x.toFixed(1),
+      y: this.pos.y.toFixed(1),
+    });
   }
 
   private onMove() {
     if (
       this.keyLeft !== this.previousKeyLeft ||
-      this.keyRight !== this.previousKeyRight
+      this.keyRight !== this.previousKeyRight ||
+      this.keyJump !== this.previousKeyJump
     ) {
-      this.sendPosition();
+      let payload = {
+        kl: this.keyLeft,
+        kr: this.keyRight,
+        kj: this.keyJump,
+      };
+      if (this.isGrounded) {
+        payload = merge(payload, {
+          x: this.pos.x.toFixed(1),
+        });
+      }
+      this.sendClient("update_player", payload);
       this.previousKeyLeft = this.keyLeft;
       this.previousKeyRight = this.keyRight;
+      this.previousKeyJump = this.keyJump;
     }
-  }
-
-  private sendClient(type: string, payload: Data, playerData?: Data) {
-    if (!this.client) {
-      return;
-    }
-    this.client.send(type, payload, playerData);
   }
 
   private updateControls(engine: ex.Engine) {
