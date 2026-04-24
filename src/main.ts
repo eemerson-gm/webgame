@@ -1,16 +1,18 @@
 import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Resources } from "./resource";
-import { Data, GameClient, MessageEvents } from "./classes/GameClient";
+import { Data, GameClient } from "./classes/GameClient";
 
-let localPlayer: Player | null = null;
-const players: Record<string, Player> = {};
+const localPlayerSlot = { player: null as Player | null };
+const playerById: Record<string, Player> = {};
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
 });
+
 const gameWidth = 320;
 const gameHeight = 180;
+
 const game = new ex.Engine({
   width: gameWidth,
   height: gameHeight,
@@ -19,6 +21,67 @@ const game = new ex.Engine({
   pixelArt: true,
   displayMode: ex.DisplayMode.FitScreen,
 });
+
+const placeGroundTiles = (tilemap: ex.TileMap) => {
+  const groundRowStart = tilemap.rows - 4;
+  tilemap.tiles.forEach((tile) => {
+    if (tile.y <= groundRowStart) {
+      return;
+    }
+    tile.addGraphic(Resources.Block.toSprite());
+  });
+};
+
+const spawnPlayerAt = (
+  game: ex.Engine,
+  tilemap: ex.TileMap,
+  playerId: string,
+  x: number,
+  y: number,
+) => {
+  playerById[playerId] = new Player(ex.vec(x, y), tilemap);
+  game.add(playerById[playerId]);
+};
+
+const applyPositionFromPayloadIfPresent = (player: Player, payload: Data) => {
+  if (payload.x) {
+    player.pos.x = Number(payload.x);
+  }
+  if (payload.y) {
+    player.pos.y = Number(payload.y);
+  }
+};
+
+const syncMovementFieldsFromPayload = (player: Player, payload: Data) => {
+  player.keyLeft = payload.kl ?? player.keyLeft;
+  player.keyRight = payload.kr ?? player.keyRight;
+  player.keyJump = payload.kj ?? player.keyJump;
+  player.hspeed = payload.sh ?? player.hspeed;
+  player.vspeed = payload.sv ?? player.vspeed;
+};
+
+const applyRemotePlayerUpdate = (payload: Data) => {
+  const playerId = payload.id as string;
+  const player = playerById[playerId];
+  if (!player) {
+    return;
+  }
+  applyPositionFromPayloadIfPresent(player, payload);
+  syncMovementFieldsFromPayload(player, payload);
+};
+
+const joinExistingRemotePlayers = (
+  game: ex.Engine,
+  tilemap: ex.TileMap,
+  playersData: Data,
+) => {
+  Object.entries(playersData).forEach(([peerId, row]) => {
+    const x = Number(row.x);
+    const y = Number(row.y);
+    spawnPlayerAt(game, tilemap, peerId, x, y);
+  });
+};
+
 game.start(loader).then(() => {
   const tilemap = new ex.TileMap({
     pos: ex.vec(0, 0),
@@ -28,67 +91,32 @@ game.start(loader).then(() => {
     rows: Math.floor(gameHeight / 16),
     renderFromTopOfGraphic: true,
   });
-  for (const tile of tilemap.tiles) {
-    if (tile.y > tilemap.rows - 4) {
-      tile.addGraphic(Resources.Block.toSprite());
-    }
-  }
+  placeGroundTiles(tilemap);
   game.add(tilemap);
-
-  const addPlayer = (id: string, x: number, y: number) => {
-    players[id] = new Player(ex.vec(x, y), tilemap);
-    game.add(players[id]);
-  };
 
   const client = new GameClient();
   client.listen({
-    onConnect: (id, playersData) => {
-      localPlayer = new Player(ex.vec(0, 0), tilemap, client);
-      game.add(localPlayer);
-      client.send("create_player", { id, x: 0, y: 0 }, { x: 0, y: 0 });
+    onConnect: (myPlayerId, playersData) => {
+      localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
+      game.add(localPlayerSlot.player);
+      client.send(
+        "create_player",
+        { id: myPlayerId, x: 0, y: 0 },
+        { x: 0, y: 0 },
+      );
       console.log("Players:", playersData);
-      for (const [id, data] of Object.entries(playersData)) {
-        const { x, y } = data;
-        addPlayer(id, Number(x), Number(y));
-      }
+      joinExistingRemotePlayers(game, tilemap, playersData);
     },
-    onDisconnect: (id) => {
-      players[id].kill();
-      delete players[id];
+    onDisconnect: (gonePlayerId) => {
+      playerById[gonePlayerId].kill();
+      delete playerById[gonePlayerId];
     },
     listener: () => ({
       create_player: (payload) => {
         const { id, x, y } = payload;
-        addPlayer(id, x, y);
+        spawnPlayerAt(game, tilemap, id, x, y);
       },
-      update_player: (payload) => {
-        const { id } = payload;
-
-        const player = players[id];
-        if (!player) {
-          return;
-        }
-
-        const keys = {
-          kl: "keyLeft",
-          kr: "keyRight",
-          kj: "keyJump",
-          sh: "hspeed",
-          sv: "vspeed",
-        };
-
-        if (payload.x) {
-          player.pos.x = Number(payload.x);
-        }
-        if (payload.y) {
-          player.pos.y = Number(payload.y);
-        }
-
-        for (const [key, value] of Object.entries(keys)) {
-          console.log(key, value);
-          player[value] = payload[key] ?? player[value];
-        }
-      },
+      update_player: applyRemotePlayerUpdate,
     }),
   });
 });

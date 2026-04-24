@@ -1,80 +1,103 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Data } from "./GameClient";
-import { v4 as uuidv4 } from "uuid";
 import { merge } from "lodash";
 import { Server } from "http";
 
-type MessageEvents = Record<string, "player" | "others">;
+type MessageRouting = Record<string, "player" | "others">;
+
+type SocketMessage = {
+  _t: string;
+  _p: Data;
+  _d?: Data;
+};
 
 export class GameServer {
-  private index: number = 0;
+  private nextPlayerIndex = 0;
   private wss: WebSocketServer;
-  private players: Record<string, WebSocket>;
-  private playerData: Record<string, Data>;
+  private playerSockets: Record<string, WebSocket>;
+  private playersData: Record<string, Data>;
 
   constructor(server: Server) {
     this.wss = new WebSocketServer({ server });
-    this.players = {};
-    this.playerData = {};
+    this.playerSockets = {};
+    this.playersData = {};
   }
 
-  public listen(messages: MessageEvents) {
+  public listen(messages: MessageRouting) {
     console.log("[WS] Waiting for connections...");
-    this.wss.on("connection", (ws) => {
-      const id = (this.index++).toString();
-      this.players[id] = ws;
-      this.playerData[id] = {};
-      console.log(
-        `[${id}]: Connected (${Object.keys(this.players).length} players)`
-      );
-      this.sendToPlayer(id, "_connected", {
-        id,
-        playersData: this.playerData,
-      });
-
-      ws.on("message", (message) => {
-        const raw = message.toString();
-        const data = JSON.parse(raw);
-        const { _t: type, _p: payload, _d: playerData } = data;
-        this.playerData[id] = merge(this.playerData[id], playerData);
-        if (type in messages) {
-          const payloadWithId = { ...payload, id };
-          const events = {
-            player: () => this.sendToPlayer(id, type, payloadWithId),
-            others: () => this.sendToOthers(id, type, payloadWithId),
-          };
-          events[messages[type]]();
-        } else {
-          console.error("Unknown message type:", type);
-        }
-        console.log(`[${id}]: ${raw}`);
-      });
-      ws.on("close", () => {
-        delete this.players[id];
-        delete this.playerData[id];
-        console.log(
-          `[${id}]: Disconnected (${Object.keys(this.players).length} players)`
-        );
-        this.sendToOthers(id, "_disconnected", { id });
-      });
-      ws.on("error", (error) => {
-        console.error(`${id}:`, error);
-      });
+    this.wss.on("connection", (socket) => {
+      this.attachPlayer(socket, messages);
     });
   }
 
-  public sendToPlayer(id: string, type: string, payload: Data) {
-    const player = this.players[id];
-    if (!player) {
-      console.error("Socket not found:", id);
+  public sendToPlayer(playerId: string, type: string, payload: Data) {
+    const playerSocket = this.playerSockets[playerId];
+    if (!playerSocket) {
+      console.error("Socket not found:", playerId);
       return;
     }
-    player.send(JSON.stringify({ _t: type, _p: payload }));
+    playerSocket.send(JSON.stringify({ _t: type, _p: payload }));
   }
 
-  public sendToOthers(id: string, type: string, payload: Data) {
-    Object.keys(this.players)
-      .filter((playerId) => playerId !== id)
-      .forEach((playerId) => this.sendToPlayer(playerId, type, payload));
+  public sendToOthers(fromPlayerId: string, type: string, payload: Data) {
+    Object.keys(this.playerSockets)
+      .filter((otherPlayerId) => otherPlayerId !== fromPlayerId)
+      .forEach((otherPlayerId) =>
+        this.sendToPlayer(otherPlayerId, type, payload)
+      );
+  }
+
+  private attachPlayer(socket: WebSocket, messages: MessageRouting) {
+    const playerId = (this.nextPlayerIndex++).toString();
+    this.playerSockets[playerId] = socket;
+    this.playersData[playerId] = {};
+    console.log(
+      `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`
+    );
+    this.sendToPlayer(playerId, "_connected", {
+      id: playerId,
+      playersData: this.playersData,
+    });
+    socket.on("message", (data) =>
+      this.handleSocketMessage(playerId, data, messages)
+    );
+    socket.on("close", () => this.removePlayer(playerId));
+    socket.on("error", (error) => console.error(`${playerId}:`, error));
+  }
+
+  private handleSocketMessage(
+    playerId: string,
+    data: WebSocket.RawData,
+    messages: MessageRouting
+  ) {
+    const json = data.toString();
+    const message = JSON.parse(json) as SocketMessage;
+    const type = message._t;
+    const payload = message._p;
+    const patch = message._d ?? {};
+    this.playersData[playerId] = merge(this.playersData[playerId], patch);
+    if (!(type in messages)) {
+      console.error("Unknown message type:", type);
+      console.log(`[${playerId}]: ${json}`);
+      return;
+    }
+    const payloadWithPlayerId = { ...payload, id: playerId };
+    const target = messages[type];
+    const send: Record<"player" | "others", () => void> = {
+      player: () => this.sendToPlayer(playerId, type, payloadWithPlayerId),
+      others: () =>
+        this.sendToOthers(playerId, type, payloadWithPlayerId),
+    };
+    send[target]();
+    console.log(`[${playerId}]: ${json}`);
+  }
+
+  private removePlayer(playerId: string) {
+    delete this.playerSockets[playerId];
+    delete this.playersData[playerId];
+    console.log(
+      `[${playerId}]: Disconnected (${Object.keys(this.playerSockets).length} players)`
+    );
+    this.sendToOthers(playerId, "_disconnected", { id: playerId });
   }
 }
