@@ -2,20 +2,19 @@ import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
-import {
+import { messageTypes } from "./classes/GameProtocol";
+import type {
   Data,
   PlayerState,
-  messageTypes,
-} from "./classes/GameProtocol";
-import {
-  TerrainTileMap,
+  TerrainBlockUpdate,
   WorldTerrainPayload,
-} from "./classes/TerrainTileMap";
+} from "./classes/GameProtocol";
+import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
-const worldSession = { tilemap: null as ex.TileMap | null };
+const worldSession = { terrain: null as TerrainTileMap | null };
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
@@ -113,6 +112,26 @@ const joinExistingRemotePlayers = (
   });
 };
 
+const tilePositionAt = (worldPos: ex.Vector, tilemap: ex.TileMap) => ({
+  column: Math.floor((worldPos.x - tilemap.pos.x) / tilemap.tileWidth),
+  row: Math.floor((worldPos.y - tilemap.pos.y) / tilemap.tileHeight),
+});
+
+const applyTerrainBlockUpdate = (payload: Data) => {
+  const terrain = worldSession.terrain;
+  if (!terrain) {
+    return;
+  }
+  terrain.applyBlockUpdate(payload as TerrainBlockUpdate);
+};
+
+const attachTestBlockBreaking = (terrain: TerrainTileMap, client: GameClient) => {
+  game.input.pointers.primary.on("down", (event) => {
+    const { column, row } = tilePositionAt(event.worldPos, terrain.map);
+    client.send(messageTypes.updateBlock, { column, row, solid: false });
+  });
+};
+
 game.start(loader).then(() => {
   const client = new GameClient();
   client.listen({
@@ -128,11 +147,14 @@ game.start(loader).then(() => {
         columns: world.columns,
         rows: world.rows,
         surfaceStartByColumn: world.surfaceStartByColumn,
+        solidTiles: world.solidTiles,
+        terrainTiles: world.terrainTiles,
       });
       const tilemap = terrain.map;
-      worldSession.tilemap = tilemap;
+      worldSession.terrain = terrain;
       game.add(tilemap);
       terrain.borders.forEach((border) => game.add(border));
+      attachTestBlockBreaking(terrain, client);
 
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);
@@ -146,17 +168,18 @@ game.start(loader).then(() => {
     },
     listener: () => ({
       [messageTypes.createPlayer]: (payload) => {
-        const t = worldSession.tilemap;
-        if (!t) {
+        const terrain = worldSession.terrain;
+        if (!terrain) {
           return;
         }
         const { id, x, y } = payload as PlayerState;
         if (!id) {
           return;
         }
-        spawnPlayerAt(game, t, id, Number(x), Number(y));
+        spawnPlayerAt(game, terrain.map, id, Number(x), Number(y));
       },
       [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
+      [messageTypes.updateBlock]: applyTerrainBlockUpdate,
     }),
   });
 });

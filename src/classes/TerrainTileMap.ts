@@ -1,12 +1,14 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-
-export type WorldTerrainPayload = {
-  columns: number;
-  rows: number;
-  surfaceStartByColumn: number[];
-  solidTiles?: string[];
-};
+import type {
+  TerrainBlockUpdate,
+  TerrainTileKind,
+  WorldTerrainPayload,
+} from "./GameProtocol";
+import {
+  buildTerrainTilesFromSurface,
+  terrainTileKey,
+} from "../world/terrainTiles";
 
 type TerrainTileMapOptions = {
   pos?: ex.Vector;
@@ -42,28 +44,19 @@ const assertWorldMatchesLayout = (options: TerrainTileMapOptions) => {
 };
 
 const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
-const tileKey = (column: number, row: number) => `${column},${row}`;
 const chunkKey = (chunkColumn: number, chunkRow: number) => `${chunkColumn},${chunkRow}`;
 const chunkStartTile = (chunkIndex: number) => chunkIndex * terrainChunkSize;
 const chunkCount = (tiles: number) => Math.ceil(tiles / terrainChunkSize);
 const chunkIndexForTile = (tile: number) => Math.floor(tile / terrainChunkSize);
 
-const solidTilesFromSurface = (
-  columns: number,
-  rows: number,
-  surfaceStartByColumn: number[],
-) =>
-  indexes(columns).flatMap((column) =>
-    indexes(rows)
-      .filter((row) => row >= surfaceStartByColumn[column])
-      .map((row) => tileKey(column, row)),
-  );
+const initialTerrainTiles = (options: TerrainTileMapOptions) =>
+  options.terrainTiles ??
+  buildTerrainTilesFromSurface(options.columns, options.rows, options.surfaceStartByColumn);
 
-const initialSolidTiles = (options: TerrainTileMapOptions) =>
-  new Set(
-    options.solidTiles ??
-      solidTilesFromSurface(options.columns, options.rows, options.surfaceStartByColumn),
-  );
+const initialSolidTiles = (
+  options: TerrainTileMapOptions,
+  terrainTiles: Record<string, TerrainTileKind>,
+) => new Set(options.solidTiles ?? Object.keys(terrainTiles));
 
 const isInsideTerrain = (column: number, row: number, columns: number, rows: number) => {
   if (column < 0 || column >= columns) {
@@ -85,17 +78,15 @@ const isSolidTerrainTile = (
   if (!isInsideTerrain(column, row, columns, rows)) {
     return false;
   }
-  return solidTiles.has(tileKey(column, row));
+  return solidTiles.has(terrainTileKey(column, row));
 };
 
 const terrainGraphicFor = (
   column: number,
   row: number,
-  columns: number,
-  rows: number,
-  solidTiles: Set<string>,
+  terrainTiles: Record<string, TerrainTileKind>,
 ) => {
-  if (!isSolidTerrainTile(column, row - 1, columns, rows, solidTiles)) {
+  if (terrainTiles[terrainTileKey(column, row)] === "grass") {
     return Resources.Grass.toSprite();
   }
   return Resources.Dirt.toSprite();
@@ -244,6 +235,7 @@ export class TerrainTileMap {
   private readonly columns: number;
   private readonly rows: number;
   private readonly solidTiles: Set<string>;
+  private readonly terrainTiles: Record<string, TerrainTileKind>;
   private readonly borderActorsByChunkKey: Record<string, ex.Actor>;
 
   constructor(options: TerrainTileMapOptions) {
@@ -262,7 +254,9 @@ export class TerrainTileMap {
     this.tileHeight = tileHeight;
     this.columns = columns;
     this.rows = rows;
-    this.solidTiles = initialSolidTiles(options);
+    const terrainTiles = initialTerrainTiles(options);
+    this.terrainTiles = terrainTiles;
+    this.solidTiles = initialSolidTiles(options, terrainTiles);
     this.borderActorsByChunkKey = {};
 
     this.map = new ex.TileMap({
@@ -282,16 +276,27 @@ export class TerrainTileMap {
     this.setBlockSolid(column, row, false);
   }
 
-  public setBlockSolid(column: number, row: number, solid: boolean) {
+  public applyBlockUpdate(update: TerrainBlockUpdate) {
+    this.setBlockSolid(update.column, update.row, update.solid, update.kind);
+  }
+
+  public setBlockSolid(
+    column: number,
+    row: number,
+    solid: boolean,
+    kind: TerrainTileKind = "dirt",
+  ) {
     if (!isInsideTerrain(column, row, this.columns, this.rows)) {
       return;
     }
-    const key = tileKey(column, row);
+    const key = terrainTileKey(column, row);
     if (solid) {
       this.solidTiles.add(key);
+      this.terrainTiles[key] = kind;
     }
     if (!solid) {
       this.solidTiles.delete(key);
+      delete this.terrainTiles[key];
     }
     this.syncTileNeighborhood(column, row);
     adjacentChunkKeysForTile(column, row, this.columns, this.rows).forEach((chunk) =>
@@ -319,7 +324,7 @@ export class TerrainTileMap {
       return;
     }
     tile.addGraphic(
-      terrainGraphicFor(column, row, this.columns, this.rows, this.solidTiles),
+      terrainGraphicFor(column, row, this.terrainTiles),
     );
   }
 

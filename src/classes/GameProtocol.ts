@@ -23,6 +23,24 @@ export type PlayerState = {
   verticalSpeed?: number;
 };
 
+export type TerrainTileKind = "dirt" | "grass";
+
+export type WorldTerrainPayload = {
+  columns: number;
+  rows: number;
+  surfaceStartByColumn: number[];
+  solidTiles?: string[];
+  terrainTiles?: Record<string, TerrainTileKind>;
+};
+
+export type TerrainBlockUpdate = {
+  id?: string;
+  column: number;
+  row: number;
+  solid: boolean;
+  kind?: TerrainTileKind;
+};
+
 export type ConnectedPayload = {
   id: string;
   playersData: Record<string, PlayerState>;
@@ -34,6 +52,7 @@ export const messageTypes = {
   disconnected: "_disconnected",
   createPlayer: "create_player",
   updatePlayer: "update_player",
+  updateBlock: "update_block",
 } as const;
 
 const fieldAliases = [

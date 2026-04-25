@@ -14,4 +14,5 @@ const gameServer = new GameServer(server);
 gameServer.listen({
   [messageTypes.createPlayer]: "others",
   [messageTypes.updatePlayer]: "others",
+  [messageTypes.updateBlock]: "all",
 });
