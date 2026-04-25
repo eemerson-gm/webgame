@@ -23,7 +23,7 @@ export type PlayerState = {
   verticalSpeed?: number;
 };
 
-export type TerrainTileKind = "dirt" | "grass";
+export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "stone";
 
 export type WorldTerrainPayload = {
   columns: number;

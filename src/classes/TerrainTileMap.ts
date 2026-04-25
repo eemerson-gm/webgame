@@ -86,8 +86,15 @@ const terrainGraphicFor = (
   row: number,
   terrainTiles: Record<string, TerrainTileKind>,
 ) => {
-  if (terrainTiles[terrainTileKey(column, row)] === "grass") {
+  const kind = terrainTiles[terrainTileKey(column, row)];
+  if (kind === "bedrock") {
+    return Resources.Bedrock.toSprite();
+  }
+  if (kind === "grass") {
     return Resources.Grass.toSprite();
+  }
+  if (kind === "stone") {
+    return Resources.Stone.toSprite();
   }
   return Resources.Dirt.toSprite();
 };

@@ -2,19 +2,12 @@ import { WebSocketServer, WebSocket } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
 import { buildSurfaceStartByColumn } from "../world/terrainGen";
-import {
-  WORLD_TILE_COLUMNS,
-  WORLD_TILE_ROWS,
-} from "../world/worldConfig";
+import { WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
-import {
-  decodeMessage,
-  encodeMessage,
-  messageTypes,
-} from "./GameProtocol";
+import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
   TerrainBlockUpdate,
@@ -25,7 +18,13 @@ import type {
 type MessageRouting = Record<string, "all" | "player" | "others">;
 
 const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
+  if (kind === "bedrock") {
+    return true;
+  }
   if (kind === "grass") {
+    return true;
+  }
+  if (kind === "stone") {
     return true;
   }
   return kind === "dirt";
@@ -105,7 +104,7 @@ export class GameServer {
     Object.keys(this.playerSockets)
       .filter((otherPlayerId) => otherPlayerId !== fromPlayerId)
       .forEach((otherPlayerId) =>
-        this.sendToPlayer(otherPlayerId, type, payload)
+        this.sendToPlayer(otherPlayerId, type, payload),
       );
   }
 
@@ -120,7 +119,7 @@ export class GameServer {
     this.playerSockets[playerId] = socket;
     this.playersData[playerId] = {};
     console.log(
-      `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`
+      `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`,
     );
     this.sendToPlayer(playerId, messageTypes.connected, {
       id: playerId,
@@ -128,7 +127,7 @@ export class GameServer {
       world: this.worldPayload(),
     });
     socket.on("message", (data) =>
-      this.handleSocketMessage(playerId, data, messages)
+      this.handleSocketMessage(playerId, data, messages),
     );
     socket.on("close", () => this.removePlayer(playerId));
     socket.on("error", (error) => console.error(`${playerId}:`, error));
@@ -137,7 +136,7 @@ export class GameServer {
   private handleSocketMessage(
     playerId: string,
     data: WebSocket.RawData,
-    messages: MessageRouting
+    messages: MessageRouting,
   ) {
     const json = data.toString();
     const message = decodeMessage(json);
@@ -159,8 +158,7 @@ export class GameServer {
     const send: Record<"all" | "player" | "others", () => void> = {
       all: () => this.sendToAll(type, payloadWithPlayerId),
       player: () => this.sendToPlayer(playerId, type, payloadWithPlayerId),
-      others: () =>
-        this.sendToOthers(playerId, type, payloadWithPlayerId),
+      others: () => this.sendToOthers(playerId, type, payloadWithPlayerId),
     };
     send[target]();
     console.log(`[${playerId}]: ${json}`);
@@ -170,7 +168,7 @@ export class GameServer {
     delete this.playerSockets[playerId];
     delete this.playersData[playerId];
     console.log(
-      `[${playerId}]: Disconnected (${Object.keys(this.playerSockets).length} players)`
+      `[${playerId}]: Disconnected (${Object.keys(this.playerSockets).length} players)`,
     );
     this.sendToOthers(playerId, messageTypes.disconnected, { id: playerId });
   }
@@ -201,6 +199,9 @@ export class GameServer {
       return null;
     }
     const key = terrainTileKey(update.column, update.row);
+    if (this.worldTerrainTiles[key] === "bedrock") {
+      return null;
+    }
     if (!update.solid) {
       if (!this.worldTerrainTiles[key]) {
         return null;
