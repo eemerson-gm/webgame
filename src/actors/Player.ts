@@ -1,6 +1,7 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
 import { Data, GameClient } from "../classes/GameClient";
+import { TILE_PX } from "../world/worldConfig";
 import { clamp, merge } from "lodash";
 
 const approach = (start: number, end: number, amount: number) => {
@@ -35,8 +36,8 @@ export class Player extends ex.Actor {
   private facingLeft: boolean = false;
 
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
-    const width = 16;
-    const height = 16;
+    const width = TILE_PX;
+    const height = TILE_PX;
     super({
       pos,
       anchor: ex.vec(0, 0),
@@ -61,8 +62,8 @@ export class Player extends ex.Actor {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
     if (this.client && this.scene) {
-      const worldWidthPx = this.tilemap.columns * 16;
-      const worldHeightPx = this.tilemap.rows * 16;
+      const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
+      const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
       const worldBounds = new ex.BoundingBox(0, 0, worldWidthPx, worldHeightPx);
       this.scene.camera.strategy.elasticToActor(
         this,
@@ -134,6 +135,8 @@ export class Player extends ex.Actor {
   private tileMeeting(x: number, y: number) {
     const originalX = this.pos.x;
     const originalY = this.pos.y;
+    const tw = this.tilemap.tileWidth;
+    const th = this.tilemap.tileHeight;
 
     const sprite_top = y;
     const sprite_bottom = y + this.height;
@@ -142,16 +145,19 @@ export class Player extends ex.Actor {
 
     const collision =
       this.tilemap
-        .getTile(Math.floor(sprite_left / 16), Math.floor(sprite_top / 16))
+        .getTile(Math.floor(sprite_left / tw), Math.floor(sprite_top / th))
         ?.getGraphics().length ||
       this.tilemap
-        .getTile(Math.floor(sprite_right / 16), Math.floor(sprite_top / 16))
+        .getTile(Math.floor(sprite_right / tw), Math.floor(sprite_top / th))
         ?.getGraphics().length ||
       this.tilemap
-        .getTile(Math.floor(sprite_left / 16), Math.floor(sprite_bottom / 16))
+        .getTile(Math.floor(sprite_left / tw), Math.floor(sprite_bottom / th))
         ?.getGraphics().length ||
       this.tilemap
-        .getTile(Math.floor(sprite_right / 16), Math.floor(sprite_bottom / 16))
+        .getTile(
+          Math.floor(sprite_right / tw),
+          Math.floor(sprite_bottom / th),
+        )
         ?.getGraphics().length;
 
     this.pos.x = originalX;
@@ -190,6 +196,7 @@ export class Player extends ex.Actor {
   }
 
   private nudgeXUntilBlocked(moveX: number) {
+    const span = this.tilemap.tileWidth;
     const nudge = (rem: number): void => {
       if (rem <= 0) {
         return;
@@ -200,10 +207,11 @@ export class Player extends ex.Actor {
       this.pos.x += Math.sign(moveX);
       nudge(rem - 1);
     };
-    nudge(16);
+    nudge(span);
   }
 
   private nudgeYUntilBlocked(moveY: number) {
+    const span = this.tilemap.tileWidth;
     const nudge = (rem: number): void => {
       if (rem <= 0) {
         return;
@@ -214,12 +222,14 @@ export class Player extends ex.Actor {
       this.pos.y += Math.sign(moveY);
       nudge(rem - 1);
     };
-    nudge(16);
+    nudge(span);
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateControls(engine);
     this.onMove();
+    const tw = this.tilemap.tileWidth;
+    const th = this.tilemap.tileHeight;
 
     const speed = 1.5;
     const accel = 0.3;
@@ -244,7 +254,8 @@ export class Player extends ex.Actor {
         return moveX;
       }
       this.nudgeXUntilBlocked(moveX);
-      this.pos.x = Math.round(this.pos.x / 16) * 16 - Math.sign(moveX) * 0.1;
+      this.pos.x =
+        Math.round(this.pos.x / tw) * tw - Math.sign(moveX) * 0.1;
       this.hspeed = 0;
       return 0;
     })();
@@ -254,7 +265,8 @@ export class Player extends ex.Actor {
         return moveY;
       }
       this.nudgeYUntilBlocked(moveY);
-      this.pos.y = Math.round(this.pos.y / 16) * 16 - Math.sign(moveY) * 0.1;
+      this.pos.y =
+        Math.round(this.pos.y / th) * th - Math.sign(moveY) * 0.1;
       this.vspeed = 0;
       return 0;
     })();
@@ -272,8 +284,8 @@ export class Player extends ex.Actor {
     this.pos.x += moveXResult;
     this.pos.y += moveYResult;
 
-    const maxX = this.tilemap.columns * 16 - this.width;
-    const maxY = this.tilemap.rows * 16 - this.height;
+    const maxX = this.tilemap.columns * this.tilemap.tileWidth - this.width;
+    const maxY = this.tilemap.rows * this.tilemap.tileHeight - this.height;
     this.pos.x = clamp(this.pos.x, 0, maxX);
     this.pos.y = clamp(this.pos.y, 0, maxY);
 

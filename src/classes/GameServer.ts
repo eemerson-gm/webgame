@@ -2,6 +2,11 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Data } from "./GameClient";
 import { merge } from "lodash";
 import { Server } from "http";
+import { buildSurfaceStartByColumn } from "../world/terrainGen";
+import {
+  WORLD_TILE_COLUMNS,
+  WORLD_TILE_ROWS,
+} from "../world/worldConfig";
 
 type MessageRouting = Record<string, "player" | "others">;
 
@@ -16,11 +21,16 @@ export class GameServer {
   private wss: WebSocketServer;
   private playerSockets: Record<string, WebSocket>;
   private playersData: Record<string, Data>;
+  private worldSurfaceStarts: number[];
 
   constructor(server: Server) {
     this.wss = new WebSocketServer({ server });
     this.playerSockets = {};
     this.playersData = {};
+    this.worldSurfaceStarts = buildSurfaceStartByColumn({
+      columns: WORLD_TILE_COLUMNS,
+      rows: WORLD_TILE_ROWS,
+    });
   }
 
   public listen(messages: MessageRouting) {
@@ -57,6 +67,11 @@ export class GameServer {
     this.sendToPlayer(playerId, "_connected", {
       id: playerId,
       playersData: this.playersData,
+      world: {
+        columns: WORLD_TILE_COLUMNS,
+        rows: WORLD_TILE_ROWS,
+        surfaceStartByColumn: this.worldSurfaceStarts,
+      },
     });
     socket.on("message", (data) =>
       this.handleSocketMessage(playerId, data, messages)

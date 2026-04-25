@@ -2,10 +2,15 @@ import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Resources } from "./resource";
 import { Data, GameClient } from "./classes/GameClient";
-import { TerrainTileMap } from "./classes/TerrainTileMap";
+import {
+  TerrainTileMap,
+  WorldTerrainPayload,
+} from "./classes/TerrainTileMap";
+import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
+const worldSession = { tilemap: null as ex.TileMap | null };
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
@@ -13,9 +18,6 @@ const loader = new ex.DefaultLoader({
 
 const viewWidth = 320;
 const viewHeight = 180;
-const worldWidth = 64 * 16;
-const worldRows = 30;
-const worldHeight = worldRows * 16;
 
 const game = new ex.Engine({
   width: viewWidth,
@@ -28,6 +30,22 @@ const game = new ex.Engine({
   displayMode: ex.DisplayMode.FitScreen,
   fixedUpdateFps: 60,
 });
+
+const isWorldTerrainPayload = (w: Data): w is WorldTerrainPayload => {
+  if (!w) {
+    return false;
+  }
+  if (typeof w.columns !== "number" || typeof w.rows !== "number") {
+    return false;
+  }
+  if (!Array.isArray(w.surfaceStartByColumn)) {
+    return false;
+  }
+  if (w.surfaceStartByColumn.length !== w.columns) {
+    return false;
+  }
+  return true;
+};
 
 const spawnPlayerAt = (
   game: ex.Engine,
@@ -70,9 +88,13 @@ const applyRemotePlayerUpdate = (payload: Data) => {
 const joinExistingRemotePlayers = (
   game: ex.Engine,
   tilemap: ex.TileMap,
+  myPlayerId: string,
   playersData: Data,
 ) => {
   Object.entries(playersData).forEach(([peerId, row]) => {
+    if (peerId === myPlayerId) {
+      return;
+    }
     const x = Number(row.x);
     const y = Number(row.y);
     spawnPlayerAt(game, tilemap, peerId, x, y);
@@ -80,20 +102,25 @@ const joinExistingRemotePlayers = (
 };
 
 game.start(loader).then(() => {
-  const terrain = new TerrainTileMap({
-    pos: ex.vec(0, 0),
-    tileWidth: 16,
-    tileHeight: 16,
-    columns: Math.floor(worldWidth / 16),
-    rows: worldRows,
-    seed: 42,
-  });
-  const tilemap = terrain.map;
-  game.add(tilemap);
-
   const client = new GameClient();
   client.listen({
-    onConnect: (myPlayerId, playersData) => {
+    onConnect: (myPlayerId, playersData, world) => {
+      if (!isWorldTerrainPayload(world)) {
+        console.error("Invalid or missing world payload from server");
+        return;
+      }
+      const terrain = new TerrainTileMap({
+        pos: ex.vec(0, 0),
+        tileWidth: TILE_PX,
+        tileHeight: TILE_PX,
+        columns: world.columns,
+        rows: world.rows,
+        surfaceStartByColumn: world.surfaceStartByColumn,
+      });
+      const tilemap = terrain.map;
+      worldSession.tilemap = tilemap;
+      game.add(tilemap);
+
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);
       client.send(
@@ -102,7 +129,7 @@ game.start(loader).then(() => {
         { x: 0, y: 0 },
       );
       console.log("Players:", playersData);
-      joinExistingRemotePlayers(game, tilemap, playersData);
+      joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
     },
     onDisconnect: (gonePlayerId) => {
       playerById[gonePlayerId].kill();
@@ -110,8 +137,12 @@ game.start(loader).then(() => {
     },
     listener: () => ({
       create_player: (payload) => {
+        const t = worldSession.tilemap;
+        if (!t) {
+          return;
+        }
         const { id, x, y } = payload;
-        spawnPlayerAt(game, tilemap, id, x, y);
+        spawnPlayerAt(game, t, id, x, y);
       },
       update_player: applyRemotePlayerUpdate,
     }),

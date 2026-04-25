@@ -20,7 +20,7 @@ export class GameClient {
     onDisconnect,
   }: {
     listener: (playerSocket: WebSocket) => MessageEvents;
-    onConnect: (id: string, playersData: Data) => void;
+    onConnect: (id: string, playersData: Data, world: Data) => void;
     onDisconnect: (id: string) => void;
   }) {
     const appHandlers = listener(this.playerSocket);
@@ -45,16 +45,16 @@ export class GameClient {
   }
 
   private handlersWithLifecycle(
-    onConnect: (id: string, playersData: Data) => void,
+    onConnect: (id: string, playersData: Data, world: Data) => void,
     onDisconnect: (id: string) => void,
     appHandlers: MessageEvents,
   ): MessageEvents {
     return {
       ...appHandlers,
       _connected: (data: Data) => {
-        const { id, playersData } = data;
+        const { id, playersData, world } = data;
         this.clientId = id;
-        onConnect(id, playersData);
+        onConnect(id, playersData, world);
       },
       _disconnected: (data: Data) => {
         const { id } = data;
