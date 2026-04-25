@@ -9,6 +9,8 @@ import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
+import { TerrainBorderRaster } from "./TerrainBorderRaster";
+import type { TerrainBorderSegment } from "./TerrainBorderRaster";
 
 type TerrainTileMapOptions = {
   pos?: ex.Vector;
@@ -16,13 +18,6 @@ type TerrainTileMapOptions = {
   tileHeight: number;
   renderFromTopOfGraphic?: boolean;
 } & WorldTerrainPayload;
-
-type TerrainBorderSegment = {
-  width: number;
-  height: number;
-  offsetX: number;
-  offsetY: number;
-};
 
 type TerrainBorderOptions = {
   tileWidth: number;
@@ -157,32 +152,6 @@ const terrainBorderSegmentsForChunk = (options: TerrainBorderOptions) => {
       .flatMap((row) => borderSegmentsForTile(column, row, options)),
   );
 };
-
-class TerrainBorderRaster extends ex.Raster {
-  private segments: TerrainBorderSegment[];
-
-  constructor(width: number, height: number, segments: TerrainBorderSegment[]) {
-    super({
-      width,
-      height,
-      origin: ex.vec(0, 0),
-      smoothing: false,
-      filtering: ex.ImageFiltering.Pixel,
-    });
-    this.segments = segments;
-  }
-
-  override clone() {
-    return new TerrainBorderRaster(this.width, this.height, this.segments);
-  }
-
-  override execute(ctx: CanvasRenderingContext2D) {
-    ctx.fillStyle = "black";
-    this.segments.forEach((segment) =>
-      ctx.fillRect(segment.offsetX, segment.offsetY, segment.width, segment.height),
-    );
-  }
-}
 
 const createBorderGraphic = (
   tileWidth: number,

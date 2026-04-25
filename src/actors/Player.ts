@@ -4,6 +4,7 @@ import { GameClient } from "../classes/GameClient";
 import { Data, messageTypes } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { clamp } from "lodash";
+import { PlayerInputState } from "./PlayerInputState";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -28,7 +29,6 @@ const gravity = 0.2;
 const positionScale = 100;
 const flySpeed = 2.4;
 const flyAcceleration = 0.45;
-const flyToggleKeys = ["ControlLeft", "ControlRight", "Control"];
 const positionPrecision = 1000;
 const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
@@ -63,18 +63,8 @@ export class Player extends ex.Actor {
   isFlying: boolean = false;
   isUsingTool: boolean = false;
   isGrounded: boolean = false;
-  keyLeft: boolean = false;
-  keyRight: boolean = false;
-  keyJump: boolean = false;
-  keyDown: boolean = false;
-  keyUp: boolean = false;
-  previousKeyLeft: boolean = false;
-  previousKeyRight: boolean = false;
-  previousKeyJump: boolean = false;
-  previousKeyDown: boolean = false;
-  previousKeyUp: boolean = false;
-  previousIsFlying: boolean = false;
   tilemap: ex.TileMap;
+  private readonly inputState: PlayerInputState = new PlayerInputState();
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
   private crouchSprite: ex.Sprite;
@@ -134,6 +124,46 @@ export class Player extends ex.Actor {
       frameDuration: 120,
       strategy: ex.AnimationStrategy.Loop,
     });
+  }
+
+  get keyLeft() {
+    return this.inputState.keyLeft;
+  }
+
+  set keyLeft(value: boolean) {
+    this.inputState.keyLeft = value;
+  }
+
+  get keyRight() {
+    return this.inputState.keyRight;
+  }
+
+  set keyRight(value: boolean) {
+    this.inputState.keyRight = value;
+  }
+
+  get keyJump() {
+    return this.inputState.keyJump;
+  }
+
+  set keyJump(value: boolean) {
+    this.inputState.keyJump = value;
+  }
+
+  get keyDown() {
+    return this.inputState.keyDown;
+  }
+
+  set keyDown(value: boolean) {
+    this.inputState.keyDown = value;
+  }
+
+  get keyUp() {
+    return this.inputState.keyUp;
+  }
+
+  set keyUp(value: boolean) {
+    this.inputState.keyUp = value;
   }
 
   private collisionBoundsAt(x: number, y: number) {
@@ -331,72 +361,34 @@ export class Player extends ex.Actor {
   }
 
   private onMove() {
-    if (
-      this.keyLeft !== this.previousKeyLeft ||
-      this.keyRight !== this.previousKeyRight ||
-      this.keyJump !== this.previousKeyJump ||
-      this.keyDown !== this.previousKeyDown ||
-      this.keyUp !== this.previousKeyUp ||
-      this.isFlying !== this.previousIsFlying
-    ) {
-      const shouldSyncPosition =
-        this.isGrounded ||
-        this.isFlying ||
-        this.isFlying !== this.previousIsFlying;
-      const movementState = shouldSyncPosition
-        ? this.currentMovementState()
-        : {};
-      const payload = {
-        keyLeft: this.keyLeft,
-        keyRight: this.keyRight,
-        keyJump: this.keyJump,
-        keyDown: this.keyDown,
-        keyUp: this.keyUp,
-        isFlying: this.isFlying,
-        ...movementState,
-      };
-      const statePatch = shouldSyncPosition
-        ? payload
-        : {
-            keyDown: this.keyDown,
-            keyUp: this.keyUp,
-            isFlying: this.isFlying,
-          };
-      this.sendClient(messageTypes.updatePlayer, payload, statePatch);
-      this.previousKeyLeft = this.keyLeft;
-      this.previousKeyRight = this.keyRight;
-      this.previousKeyJump = this.keyJump;
-      this.previousKeyDown = this.keyDown;
-      this.previousKeyUp = this.keyUp;
-      this.previousIsFlying = this.isFlying;
+    if (!this.inputState.hasChanged(this.isFlying)) {
+      return;
     }
+    const shouldSyncPosition = this.inputState.shouldSyncPosition(
+      this.isGrounded,
+      this.isFlying,
+    );
+    const movementState = shouldSyncPosition ? this.currentMovementState() : {};
+    const payload = this.inputState.payload(this.isFlying, movementState);
+    const statePatch = this.inputState.statePatch(
+      this.isFlying,
+      shouldSyncPosition,
+      payload,
+    );
+    this.sendClient(messageTypes.updatePlayer, payload, statePatch);
+    this.inputState.remember(this.isFlying);
   }
 
   private updateControls(engine: ex.Engine) {
     if (!this.client) {
       return;
     }
-    if (
-      flyToggleKeys.some((key) =>
-        engine.input.keyboard.wasPressed(key as ex.Keys),
-      )
-    ) {
-      this.isFlying = !this.isFlying;
+    const controlState = this.inputState.readKeyboard(engine, this.isFlying);
+    this.isFlying = controlState.isFlying;
+    if (controlState.didToggleFlying) {
       this.hspeed = 0;
       this.vspeed = 0;
     }
-    this.keyLeft = engine.input.keyboard.isHeld(ex.Keys.A);
-    this.keyRight = engine.input.keyboard.isHeld(ex.Keys.D);
-    this.keyJump =
-      engine.input.keyboard.isHeld(ex.Keys.Space) ||
-      (this.isFlying && engine.input.keyboard.isHeld(ex.Keys.W));
-    this.keyDown =
-      engine.input.keyboard.isHeld(ex.Keys.S) ||
-      engine.input.keyboard.isHeld(ex.Keys.ArrowDown);
-    this.keyUp =
-      !this.isFlying &&
-      (engine.input.keyboard.isHeld(ex.Keys.W) ||
-        engine.input.keyboard.isHeld(ex.Keys.ArrowUp));
   }
 
   private tileMeeting(x: number, y: number) {
@@ -536,7 +528,7 @@ export class Player extends ex.Actor {
   }
 
   private flyVerticalInput() {
-    return Number(this.keyDown) - Number(this.keyJump);
+    return this.inputState.flyingVerticalSign();
   }
 
   private moveWithFlying(dt: number, keySign: number) {
@@ -587,7 +579,7 @@ export class Player extends ex.Actor {
 
     const dt = delta / 1000;
 
-    const keySign = Number(this.keyRight) - Number(this.keyLeft);
+    const keySign = this.inputState.horizontalSign();
 
     const previousGrounded = this.isGrounded;
     if (this.isFlying) {
