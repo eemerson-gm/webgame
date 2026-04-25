@@ -10,6 +10,7 @@ import {
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
+  TerrainBlockBreakUpdate,
   TerrainBlockUpdate,
   TerrainTileKind,
   WorldTerrainPayload,
@@ -57,6 +58,22 @@ const blockUpdateFromPayload = (payload: Data): TerrainBlockUpdate | null => {
     row,
     solid: payload.solid,
     kind: payload.kind,
+  };
+};
+
+const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | null => {
+  const column = Number(payload.column);
+  const row = Number(payload.row);
+  if (!Number.isInteger(column) || !Number.isInteger(row)) {
+    return null;
+  }
+  if (typeof payload.isBreaking !== "boolean") {
+    return null;
+  }
+  return {
+    column,
+    row,
+    isBreaking: payload.isBreaking,
   };
 };
 
@@ -187,7 +204,21 @@ export class GameServer {
     if (type === messageTypes.updateBlock) {
       return this.applyWorldBlockUpdate(payload, playerId);
     }
+    if (type === messageTypes.updateBlockBreak) {
+      return this.blockBreakPayload(payload, playerId);
+    }
     return { ...payload, id: playerId };
+  }
+
+  private blockBreakPayload(payload: Data, playerId: string) {
+    const update = blockBreakUpdateFromPayload(payload);
+    if (!update) {
+      return null;
+    }
+    if (!isInsideWorld(update.column, update.row)) {
+      return null;
+    }
+    return { ...update, id: playerId };
   }
 
   private applyWorldBlockUpdate(payload: Data, playerId: string) {

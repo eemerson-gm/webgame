@@ -1,6 +1,7 @@
 import * as ex from "excalibur";
 import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
+import type { TerrainBlockBreakUpdate } from "../classes/GameProtocol";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
@@ -57,6 +58,9 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly highlightGraphic: BlockHighlightRaster;
   private readonly breakAnimation: ex.Animation;
   private readonly breakAnimationActor: ex.Actor;
+  private readonly remoteBreakAnimationsByPlayerId: Record<string, ex.Animation>;
+  private readonly remoteBreakAnimationActorsByPlayerId: Record<string, ex.Actor>;
+  private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
   private breakingTarget: TargetBlockPosition | null = null;
@@ -80,16 +84,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
-    this.breakAnimation = new ex.Animation({
-      frames: [
-        { graphic: Resources.BlockBreak1.toSprite() },
-        { graphic: Resources.BlockBreak2.toSprite() },
-        { graphic: Resources.BlockBreak3.toSprite() },
-        { graphic: Resources.BlockBreak4.toSprite() },
-      ],
-      frameDuration: blockBreakFrameDurationMs,
-      strategy: ex.AnimationStrategy.End,
-    });
+    this.breakAnimation = this.createBlockBreakAnimation();
     this.breakAnimationActor = new ex.Actor({
       pos: hiddenActorPosition(),
       anchor: ex.vec(0, 0),
@@ -99,9 +94,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     });
     this.breakAnimationActor.graphics.anchor = ex.vec(0, 0);
     this.breakAnimationActor.graphics.use(this.breakAnimation);
+    this.remoteBreakAnimationsByPlayerId = {};
+    this.remoteBreakAnimationActorsByPlayerId = {};
   }
 
   override onInitialize(engine: ex.Engine) {
+    this.engine = engine;
     engine.add(this.breakAnimationActor);
     engine.input.pointers.primary.on("down", (event) => {
       this.isPointerHeld = true;
@@ -123,6 +121,24 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.moveToTarget(target);
     this.updateHighlightColor(delta);
     this.updateBreakingTarget(target, delta);
+  }
+
+  public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
+    if (!update.id) {
+      return;
+    }
+    if (!update.isBreaking) {
+      this.hideRemoteBreakAnimation(update.id);
+      return;
+    }
+    this.showRemoteBreakAnimation(update.id, {
+      column: update.column,
+      row: update.row,
+    });
+  }
+
+  public removeRemoteBreakAnimation(playerId: string) {
+    this.hideRemoteBreakAnimation(playerId);
   }
 
   private currentMouseWorldPosition(engine: ex.Engine) {
@@ -205,6 +221,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!localPlayer.isUsingTool && !localPlayer.useTool(Number.POSITIVE_INFINITY)) {
       return;
     }
+    this.sendBlockBreakUpdate(target, true);
     this.breakingTarget = target;
     this.breakProgressMs = 0;
     this.moveBreakAnimationToTarget(target);
@@ -241,13 +258,84 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private cancelBreakingTarget() {
-    const wasBreakingTarget = !!this.breakingTarget;
+    const target = this.breakingTarget;
+    const wasBreakingTarget = !!target;
+    if (target) {
+      this.sendBlockBreakUpdate(target, false);
+    }
     this.breakingTarget = null;
     this.breakProgressMs = 0;
     this.breakAnimationActor.pos = hiddenActorPosition();
     if (wasBreakingTarget) {
       this.getLocalPlayer()?.stopUsingToolAction();
     }
+  }
+
+  private sendBlockBreakUpdate(target: TargetBlockPosition, isBreaking: boolean) {
+    this.client.send(messageTypes.updateBlockBreak, {
+      column: target.column,
+      row: target.row,
+      isBreaking,
+    });
+  }
+
+  private showRemoteBreakAnimation(playerId: string, target: TargetBlockPosition) {
+    const actor = this.remoteBreakAnimationActorFor(playerId);
+    const animation = this.remoteBreakAnimationFor(playerId);
+    actor.pos.x = this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
+    actor.pos.y = this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+    animation.reset();
+    animation.play();
+  }
+
+  private hideRemoteBreakAnimation(playerId: string) {
+    const actor = this.remoteBreakAnimationActorsByPlayerId[playerId];
+    if (!actor) {
+      return;
+    }
+    actor.pos = hiddenActorPosition();
+  }
+
+  private remoteBreakAnimationActorFor(playerId: string) {
+    const existingActor = this.remoteBreakAnimationActorsByPlayerId[playerId];
+    if (existingActor) {
+      return existingActor;
+    }
+    const actor = new ex.Actor({
+      pos: hiddenActorPosition(),
+      anchor: ex.vec(0, 0),
+      width: TILE_PX,
+      height: TILE_PX,
+      z: blockBreakAnimationZ,
+    });
+    actor.graphics.anchor = ex.vec(0, 0);
+    actor.graphics.use(this.remoteBreakAnimationFor(playerId));
+    this.remoteBreakAnimationActorsByPlayerId[playerId] = actor;
+    this.engine?.add(actor);
+    return actor;
+  }
+
+  private remoteBreakAnimationFor(playerId: string) {
+    const existingAnimation = this.remoteBreakAnimationsByPlayerId[playerId];
+    if (existingAnimation) {
+      return existingAnimation;
+    }
+    const animation = this.createBlockBreakAnimation();
+    this.remoteBreakAnimationsByPlayerId[playerId] = animation;
+    return animation;
+  }
+
+  private createBlockBreakAnimation() {
+    return new ex.Animation({
+      frames: [
+        { graphic: Resources.BlockBreak1.toSprite() },
+        { graphic: Resources.BlockBreak2.toSprite() },
+        { graphic: Resources.BlockBreak3.toSprite() },
+        { graphic: Resources.BlockBreak4.toSprite() },
+      ],
+      frameDuration: blockBreakFrameDurationMs,
+      strategy: ex.AnimationStrategy.End,
+    });
   }
 
   private moveBreakAnimationToTarget(target: TargetBlockPosition) {

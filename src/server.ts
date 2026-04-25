@@ -15,4 +15,5 @@ gameServer.listen({
   [messageTypes.createPlayer]: "others",
   [messageTypes.updatePlayer]: "others",
   [messageTypes.updateBlock]: "all",
+  [messageTypes.updateBlockBreak]: "others",
 });

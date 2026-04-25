@@ -6,6 +6,7 @@ import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
 import type {
   Data,
+  TerrainBlockBreakUpdate,
   PlayerState,
   TerrainBlockUpdate,
   WorldTerrainPayload,
@@ -16,6 +17,7 @@ import { TILE_PX } from "./world/worldConfig";
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
+const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
@@ -129,6 +131,12 @@ const applyTerrainBlockUpdate = (payload: Data) => {
   terrain.applyBlockUpdate(payload as TerrainBlockUpdate);
 };
 
+const applyTerrainBlockBreakUpdate = (payload: Data) => {
+  blockTargetingSlot.highlight?.applyRemoteBreakUpdate(
+    payload as TerrainBlockBreakUpdate,
+  );
+};
+
 game.start(loader).then(() => {
   const client = new GameClient();
   client.listen({
@@ -154,14 +162,18 @@ game.start(loader).then(() => {
 
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);
-      game.add(
-        new BlockTargetingHighlight(terrain, client, () => localPlayerSlot.player),
+      blockTargetingSlot.highlight = new BlockTargetingHighlight(
+        terrain,
+        client,
+        () => localPlayerSlot.player,
       );
+      game.add(blockTargetingSlot.highlight);
       client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
     },
     onDisconnect: (gonePlayerId) => {
+      blockTargetingSlot.highlight?.removeRemoteBreakAnimation(gonePlayerId);
       playerById[gonePlayerId].kill();
       delete playerById[gonePlayerId];
     },
@@ -179,6 +191,7 @@ game.start(loader).then(() => {
       },
       [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
       [messageTypes.updateBlock]: applyTerrainBlockUpdate,
+      [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
     }),
   });
 });
