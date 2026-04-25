@@ -81,6 +81,8 @@ const syncMovementFieldsFromPayload = (
   player.keyLeft = payload.keyLeft ?? player.keyLeft;
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
+  player.keyDown = payload.keyDown ?? player.keyDown;
+  player.isFlying = payload.isFlying ?? player.isFlying;
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
 };

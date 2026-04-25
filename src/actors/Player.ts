@@ -26,6 +26,13 @@ const stopDeceleration = 0.22;
 const turnAcceleration = 0.32;
 const gravity = 0.2;
 const positionScale = 100;
+const flySpeed = 2.4;
+const flyAcceleration = 0.45;
+const flyToggleKeys = ["ControlLeft", "ControlRight", "Control"];
+const positionPrecision = 1000;
+
+const syncedPositionValue = (value: number) =>
+  Math.round(value * positionPrecision) / positionPrecision;
 
 export class Player extends ex.Actor {
   private client?: GameClient;
@@ -34,13 +41,17 @@ export class Player extends ex.Actor {
   isLocal: boolean;
   isRunning: boolean = false;
   isJumping: boolean = false;
+  isFlying: boolean = false;
   isGrounded: boolean = false;
   keyLeft: boolean = false;
   keyRight: boolean = false;
   keyJump: boolean = false;
+  keyDown: boolean = false;
   previousKeyLeft: boolean = false;
   previousKeyRight: boolean = false;
   previousKeyJump: boolean = false;
+  previousKeyDown: boolean = false;
+  previousIsFlying: boolean = false;
   tilemap: ex.TileMap;
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
@@ -114,10 +125,27 @@ export class Player extends ex.Actor {
   }
 
   private onLand() {
-    const position = {
-      x: this.pos.x.toFixed(1),
-      y: this.pos.y.toFixed(1),
+    this.syncPosition();
+  }
+
+  private currentPosition() {
+    return {
+      x: syncedPositionValue(this.pos.x),
+      y: syncedPositionValue(this.pos.y),
     };
+  }
+
+  private currentMovementState() {
+    const position = this.currentPosition();
+    return {
+      ...position,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+    };
+  }
+
+  private syncPosition() {
+    const position = this.currentPosition();
     this.sendClient(messageTypes.updatePlayer, position, position);
   }
 
@@ -125,24 +153,30 @@ export class Player extends ex.Actor {
     if (
       this.keyLeft !== this.previousKeyLeft ||
       this.keyRight !== this.previousKeyRight ||
-      this.keyJump !== this.previousKeyJump
+      this.keyJump !== this.previousKeyJump ||
+      this.keyDown !== this.previousKeyDown ||
+      this.isFlying !== this.previousIsFlying
     ) {
-      const position = this.isGrounded
-        ? {
-            x: this.pos.x.toFixed(1),
-          }
-        : {};
+      const shouldSyncPosition =
+        this.isGrounded || this.isFlying || this.isFlying !== this.previousIsFlying;
+      const movementState = shouldSyncPosition ? this.currentMovementState() : {};
       const payload = {
         keyLeft: this.keyLeft,
         keyRight: this.keyRight,
         keyJump: this.keyJump,
-        ...position,
+        keyDown: this.keyDown,
+        isFlying: this.isFlying,
+        ...movementState,
       };
-      const statePatch = this.isGrounded ? position : undefined;
+      const statePatch = shouldSyncPosition
+        ? payload
+        : { keyDown: this.keyDown, isFlying: this.isFlying };
       this.sendClient(messageTypes.updatePlayer, payload, statePatch);
       this.previousKeyLeft = this.keyLeft;
       this.previousKeyRight = this.keyRight;
       this.previousKeyJump = this.keyJump;
+      this.previousKeyDown = this.keyDown;
+      this.previousIsFlying = this.isFlying;
     }
   }
 
@@ -150,9 +184,17 @@ export class Player extends ex.Actor {
     if (!this.client) {
       return;
     }
+    if (flyToggleKeys.some((key) => engine.input.keyboard.wasPressed(key as ex.Keys))) {
+      this.isFlying = !this.isFlying;
+      this.hspeed = 0;
+      this.vspeed = 0;
+    }
     this.keyLeft = engine.input.keyboard.isHeld(ex.Keys.A);
     this.keyRight = engine.input.keyboard.isHeld(ex.Keys.D);
-    this.keyJump = engine.input.keyboard.isHeld(ex.Keys.Space);
+    this.keyJump =
+      engine.input.keyboard.isHeld(ex.Keys.Space) ||
+      (this.isFlying && engine.input.keyboard.isHeld(ex.Keys.W));
+    this.keyDown = this.isFlying && engine.input.keyboard.isHeld(ex.Keys.S);
   }
 
   private tileMeeting(x: number, y: number) {
@@ -277,13 +319,28 @@ export class Player extends ex.Actor {
     return walkAcceleration;
   }
 
-  override onPostUpdate(engine: ex.Engine, delta: number) {
-    this.updateControls(engine);
-    this.onMove();
+  private flyVerticalInput() {
+    return Number(this.keyDown) - Number(this.keyJump);
+  }
 
-    const dt = delta / 1000;
+  private moveWithFlying(dt: number, keySign: number) {
+    const verticalSign = this.flyVerticalInput();
+    this.hspeed = approach(
+      this.hspeed,
+      keySign * flySpeed,
+      flyAcceleration * 60 * dt,
+    );
+    this.vspeed = approach(
+      this.vspeed,
+      verticalSign * flySpeed,
+      flyAcceleration * 60 * dt,
+    );
+    this.pos.x += this.hspeed * positionScale * dt;
+    this.pos.y += this.vspeed * positionScale * dt;
+    this.isGrounded = false;
+  }
 
-    const keySign = Number(this.keyRight) - Number(this.keyLeft);
+  private moveWithGravity(dt: number, keySign: number) {
     const targetHspeed =
       keySign * walkSpeed * (this.isRunning ? runSpeedMultiplier : 1);
     const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
@@ -301,13 +358,29 @@ export class Player extends ex.Actor {
     this.moveHorizontally(moveX);
     this.moveVertically(moveY);
 
-    const previousGrounded = this.isGrounded;
     this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
+  }
 
-    if (this.isGrounded && this.keyJump) {
+  override onPostUpdate(engine: ex.Engine, delta: number) {
+    this.updateControls(engine);
+    this.onMove();
+
+    const dt = delta / 1000;
+
+    const keySign = Number(this.keyRight) - Number(this.keyLeft);
+
+    const previousGrounded = this.isGrounded;
+    if (this.isFlying) {
+      this.moveWithFlying(dt, keySign);
+    }
+    if (!this.isFlying) {
+      this.moveWithGravity(dt, keySign);
+    }
+
+    if (!this.isFlying && this.isGrounded && this.keyJump) {
       this.onJump();
     }
-    if (!previousGrounded && this.isGrounded) {
+    if (!this.isFlying && !previousGrounded && this.isGrounded) {
       this.onLand();
     }
 
