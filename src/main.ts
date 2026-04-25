@@ -60,6 +60,7 @@ const spawnPlayerAt = (
 ) => {
   playerById[playerId] = new Player(ex.vec(x, y), tilemap);
   game.add(playerById[playerId]);
+  return playerById[playerId];
 };
 
 const applyPositionFromPayloadIfPresent = (
@@ -82,6 +83,7 @@ const syncMovementFieldsFromPayload = (
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
   player.keyDown = payload.keyDown ?? player.keyDown;
+  player.keyUp = payload.keyUp ?? player.keyUp;
   player.isFlying = payload.isFlying ?? player.isFlying;
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
@@ -110,7 +112,8 @@ const joinExistingRemotePlayers = (
     }
     const x = Number(row.x);
     const y = Number(row.y);
-    spawnPlayerAt(game, tilemap, peerId, x, y);
+    const player = spawnPlayerAt(game, tilemap, peerId, x, y);
+    syncMovementFieldsFromPayload(player, row);
   });
 };
 

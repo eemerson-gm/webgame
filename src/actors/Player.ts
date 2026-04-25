@@ -30,6 +30,7 @@ const flySpeed = 2.4;
 const flyAcceleration = 0.45;
 const flyToggleKeys = ["ControlLeft", "ControlRight", "Control"];
 const positionPrecision = 1000;
+type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "lookUp";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
@@ -47,16 +48,20 @@ export class Player extends ex.Actor {
   keyRight: boolean = false;
   keyJump: boolean = false;
   keyDown: boolean = false;
+  keyUp: boolean = false;
   previousKeyLeft: boolean = false;
   previousKeyRight: boolean = false;
   previousKeyJump: boolean = false;
   previousKeyDown: boolean = false;
+  previousKeyUp: boolean = false;
   previousIsFlying: boolean = false;
   tilemap: ex.TileMap;
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
+  private crouchSprite: ex.Sprite;
+  private lookUpSprite: ex.Sprite;
   private walkAnimation: ex.Animation;
-  private currentVisual: "idle" | "walk" | "jump" = "idle";
+  private currentVisual: PlayerVisual = "idle";
   private facingLeft: boolean = false;
 
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
@@ -72,6 +77,8 @@ export class Player extends ex.Actor {
     this.tilemap = tilemap;
     this.idleSprite = Resources.Player.toSprite();
     this.jumpSprite = Resources.PlayerJump.toSprite();
+    this.crouchSprite = Resources.PlayerCrouch.toSprite();
+    this.lookUpSprite = Resources.PlayerLookUp.toSprite();
     this.walkAnimation = new ex.Animation({
       frames: [
         { graphic: Resources.PlayerWalk1.toSprite() },
@@ -155,6 +162,7 @@ export class Player extends ex.Actor {
       this.keyRight !== this.previousKeyRight ||
       this.keyJump !== this.previousKeyJump ||
       this.keyDown !== this.previousKeyDown ||
+      this.keyUp !== this.previousKeyUp ||
       this.isFlying !== this.previousIsFlying
     ) {
       const shouldSyncPosition =
@@ -165,17 +173,23 @@ export class Player extends ex.Actor {
         keyRight: this.keyRight,
         keyJump: this.keyJump,
         keyDown: this.keyDown,
+        keyUp: this.keyUp,
         isFlying: this.isFlying,
         ...movementState,
       };
       const statePatch = shouldSyncPosition
         ? payload
-        : { keyDown: this.keyDown, isFlying: this.isFlying };
+        : {
+            keyDown: this.keyDown,
+            keyUp: this.keyUp,
+            isFlying: this.isFlying,
+          };
       this.sendClient(messageTypes.updatePlayer, payload, statePatch);
       this.previousKeyLeft = this.keyLeft;
       this.previousKeyRight = this.keyRight;
       this.previousKeyJump = this.keyJump;
       this.previousKeyDown = this.keyDown;
+      this.previousKeyUp = this.keyUp;
       this.previousIsFlying = this.isFlying;
     }
   }
@@ -194,7 +208,13 @@ export class Player extends ex.Actor {
     this.keyJump =
       engine.input.keyboard.isHeld(ex.Keys.Space) ||
       (this.isFlying && engine.input.keyboard.isHeld(ex.Keys.W));
-    this.keyDown = this.isFlying && engine.input.keyboard.isHeld(ex.Keys.S);
+    this.keyDown =
+      engine.input.keyboard.isHeld(ex.Keys.S) ||
+      engine.input.keyboard.isHeld(ex.Keys.ArrowDown);
+    this.keyUp =
+      !this.isFlying &&
+      (engine.input.keyboard.isHeld(ex.Keys.W) ||
+        engine.input.keyboard.isHeld(ex.Keys.ArrowUp));
   }
 
   private tileMeeting(x: number, y: number) {
@@ -233,11 +253,15 @@ export class Player extends ex.Actor {
   }
 
   private syncPlayerVisuals(keySign: number) {
-    const nextVisual: "idle" | "walk" | "jump" = !this.isGrounded
+    const nextVisual: PlayerVisual = !this.isGrounded
       ? "jump"
-      : keySign !== 0
-        ? "walk"
-        : "idle";
+      : this.keyDown && !this.isFlying
+        ? "crouch"
+        : this.keyUp
+          ? "lookUp"
+          : keySign !== 0
+            ? "walk"
+            : "idle";
     if (nextVisual !== this.currentVisual) {
       if (this.currentVisual === "walk") {
         this.walkAnimation.pause();
@@ -253,6 +277,12 @@ export class Player extends ex.Actor {
       }
       if (nextVisual === "jump") {
         this.graphics.use(this.jumpSprite);
+      }
+      if (nextVisual === "crouch") {
+        this.graphics.use(this.crouchSprite);
+      }
+      if (nextVisual === "lookUp") {
+        this.graphics.use(this.lookUpSprite);
       }
     }
     if (keySign !== 0) {
