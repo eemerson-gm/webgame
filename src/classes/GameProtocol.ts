@@ -21,6 +21,7 @@ export type PlayerState = {
   keyJump?: boolean;
   keyDown?: boolean;
   keyUp?: boolean;
+  isUsingTool?: boolean;
   isFlying?: boolean;
   horizontalSpeed?: number;
   verticalSpeed?: number;
@@ -64,6 +65,7 @@ const fieldAliases = [
   { readable: "keyJump", wire: "kj" },
   { readable: "keyDown", wire: "kd" },
   { readable: "keyUp", wire: "ku" },
+  { readable: "isUsingTool", wire: "ut" },
   { readable: "isFlying", wire: "fl" },
   { readable: "horizontalSpeed", wire: "sh" },
   { readable: "verticalSpeed", wire: "sv" },

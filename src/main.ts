@@ -84,6 +84,9 @@ const syncMovementFieldsFromPayload = (
   player.keyJump = payload.keyJump ?? player.keyJump;
   player.keyDown = payload.keyDown ?? player.keyDown;
   player.keyUp = payload.keyUp ?? player.keyUp;
+  if (payload.isUsingTool !== undefined) {
+    player.syncToolUseState(payload.isUsingTool);
+  }
   player.isFlying = payload.isFlying ?? player.isFlying;
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
@@ -132,6 +135,10 @@ const applyTerrainBlockUpdate = (payload: Data) => {
 
 const attachTestBlockBreaking = (terrain: TerrainTileMap, client: GameClient) => {
   game.input.pointers.primary.on("down", (event) => {
+    const localPlayer = localPlayerSlot.player;
+    if (!localPlayer?.useTool()) {
+      return;
+    }
     const { column, row } = tilePositionAt(event.worldPos, terrain.map);
     client.send(messageTypes.updateBlock, { column, row, solid: false });
   });

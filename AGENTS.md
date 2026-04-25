@@ -14,6 +14,9 @@ The **ultimate goal is readability**: someone reading the file should understand
 
 - **Do not run `npm run build`** (or any Vite production build) after making changes unless the user explicitly asks for a build.
 - **Do not start the game** — do not run `npm run dev`, `npm run start`, `npm run serve`, or otherwise launch the dev server, preview server, or open the game in a browser unless the user explicitly asks.
+- **Do not review your own changes after editing** unless the user explicitly asks for a review.
+- **Use the Excalibur MCP for engine information** when unsure about Excalibur APIs, behavior, or recommended patterns.
+  - Available commands: `excaliburjs_list_doc_pages`, `excaliburjs_search_doc_pages`, `excaliburjs_get_doc_source`.
 
 ## Code constraints (required)
 
@@ -70,6 +73,8 @@ eslint.config.mts   # ESLint 9 flat config
 4. **`main.ts`** starts the engine, loads **`Resources`**, builds a tilemap, instantiates **`GameClient`**, and on connect spawns the local **`Player`** and reconciles existing **`playersData`**.
 
 When changing networking, keep **client `send` / `listen` payloads** and **server `listen(messages)` keys** in sync.
+
+When designing gameplay changes, think through the browser client, Node server, and WebSocket protocol together. Player behavior that other players can see should usually have a client input/state path, a server storage/broadcast path, and remote-client reconciliation.
 
 ## Wire protocol (convention)
 
