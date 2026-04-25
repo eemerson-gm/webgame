@@ -13,6 +13,11 @@ const approach = (start: number, end: number, amount: number) => {
 
 const localCameraFollowElasticity = 0.14;
 const localCameraFollowFriction = 0.22;
+const collisionWidth = TILE_PX - 4;
+const collisionHeight = TILE_PX - 2;
+const collisionOffsetX = (TILE_PX - collisionWidth) / 2;
+const collisionOffsetY = TILE_PX - collisionHeight;
+const collisionEdgeInset = 0.1;
 
 export class Player extends ex.Actor {
   private client?: GameClient;
@@ -58,7 +63,16 @@ export class Player extends ex.Actor {
     });
   }
 
-  override onInitialize(engine: ex.Engine) {
+  private collisionBoundsAt(x: number, y: number) {
+    return {
+      left: x + collisionOffsetX,
+      right: x + collisionOffsetX + collisionWidth - collisionEdgeInset,
+      top: y + collisionOffsetY,
+      bottom: y + collisionOffsetY + collisionHeight - collisionEdgeInset,
+    };
+  }
+
+  override onInitialize() {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
     if (this.client && this.scene) {
@@ -133,35 +147,36 @@ export class Player extends ex.Actor {
   }
 
   private tileMeeting(x: number, y: number) {
-    const originalX = this.pos.x;
-    const originalY = this.pos.y;
     const tw = this.tilemap.tileWidth;
     const th = this.tilemap.tileHeight;
 
-    const sprite_top = y;
-    const sprite_bottom = y + this.height;
-    const sprite_left = x;
-    const sprite_right = x + this.width;
+    const collisionBounds = this.collisionBoundsAt(x, y);
 
     const collision =
       this.tilemap
-        .getTile(Math.floor(sprite_left / tw), Math.floor(sprite_top / th))
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(Math.floor(sprite_right / tw), Math.floor(sprite_top / th))
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(Math.floor(sprite_left / tw), Math.floor(sprite_bottom / th))
+        .getTile(
+          Math.floor(collisionBounds.left / tw),
+          Math.floor(collisionBounds.top / th),
+        )
         ?.getGraphics().length ||
       this.tilemap
         .getTile(
-          Math.floor(sprite_right / tw),
-          Math.floor(sprite_bottom / th),
+          Math.floor(collisionBounds.right / tw),
+          Math.floor(collisionBounds.top / th),
+        )
+        ?.getGraphics().length ||
+      this.tilemap
+        .getTile(
+          Math.floor(collisionBounds.left / tw),
+          Math.floor(collisionBounds.bottom / th),
+        )
+        ?.getGraphics().length ||
+      this.tilemap
+        .getTile(
+          Math.floor(collisionBounds.right / tw),
+          Math.floor(collisionBounds.bottom / th),
         )
         ?.getGraphics().length;
-
-    this.pos.x = originalX;
-    this.pos.y = originalY;
 
     return !!collision;
   }
@@ -225,11 +240,27 @@ export class Player extends ex.Actor {
     nudge(span);
   }
 
+  private moveHorizontally(moveX: number) {
+    if (!this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
+      this.pos.x += moveX;
+      return;
+    }
+    this.nudgeXUntilBlocked(moveX);
+    this.hspeed = 0;
+  }
+
+  private moveVertically(moveY: number) {
+    if (!this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
+      this.pos.y += moveY;
+      return;
+    }
+    this.nudgeYUntilBlocked(moveY);
+    this.vspeed = 0;
+  }
+
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateControls(engine);
     this.onMove();
-    const tw = this.tilemap.tileWidth;
-    const th = this.tilemap.tileHeight;
 
     const speed = 1.5;
     const accel = 0.3;
@@ -249,27 +280,8 @@ export class Player extends ex.Actor {
     const moveX = this.hspeed * positionScale * dt;
     const moveY = this.vspeed * positionScale * dt;
 
-    const moveXResult = (() => {
-      if (!this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
-        return moveX;
-      }
-      this.nudgeXUntilBlocked(moveX);
-      this.pos.x =
-        Math.round(this.pos.x / tw) * tw - Math.sign(moveX) * 0.1;
-      this.hspeed = 0;
-      return 0;
-    })();
-
-    const moveYResult = (() => {
-      if (!this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
-        return moveY;
-      }
-      this.nudgeYUntilBlocked(moveY);
-      this.pos.y =
-        Math.round(this.pos.y / th) * th - Math.sign(moveY) * 0.1;
-      this.vspeed = 0;
-      return 0;
-    })();
+    this.moveHorizontally(moveX);
+    this.moveVertically(moveY);
 
     const previousGrounded = this.isGrounded;
     this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
@@ -281,13 +293,16 @@ export class Player extends ex.Actor {
       this.onLand();
     }
 
-    this.pos.x += moveXResult;
-    this.pos.y += moveYResult;
-
-    const maxX = this.tilemap.columns * this.tilemap.tileWidth - this.width;
-    const maxY = this.tilemap.rows * this.tilemap.tileHeight - this.height;
-    this.pos.x = clamp(this.pos.x, 0, maxX);
-    this.pos.y = clamp(this.pos.y, 0, maxY);
+    const maxX =
+      this.tilemap.columns * this.tilemap.tileWidth -
+      collisionOffsetX -
+      collisionWidth;
+    const maxY =
+      this.tilemap.rows * this.tilemap.tileHeight -
+      collisionOffsetY -
+      collisionHeight;
+    this.pos.x = clamp(this.pos.x, -collisionOffsetX, maxX);
+    this.pos.y = clamp(this.pos.y, -collisionOffsetY, maxY);
 
     this.syncPlayerVisuals(keySign);
   }
