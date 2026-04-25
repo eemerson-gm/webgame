@@ -30,14 +30,28 @@ const flySpeed = 2.4;
 const flyAcceleration = 0.45;
 const flyToggleKeys = ["ControlLeft", "ControlRight", "Control"];
 const positionPrecision = 1000;
-const useToolFrameDurationMs = 90;
+const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
 const useToolSpeedMultiplier = 0.35;
+const useToolPickaxeAnchor = ex.vec(0, 1);
+const useToolPickaxeMirroredAnchor = ex.vec(1, 1);
+const useToolPickaxeHiddenOffset = () => ex.vec(-100000, -100000);
+const useToolPickaxeFrames = [
+  { offset: ex.vec(12, 8), rotation: -0.9 },
+  { offset: ex.vec(14, 10), rotation: -0.45 },
+  { offset: ex.vec(14, 12), rotation: 0.35 },
+  { offset: ex.vec(14, 12), rotation: 0.45 },
+  { offset: ex.vec(13, 12), rotation: 0.75 },
+];
 type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "lookUp" | "useTool";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
+
+const useToolPickaxeFrameIndexAt = (elapsedMs: number) =>
+  Math.floor((elapsedMs % useToolDurationMs) / useToolFrameDurationMs) %
+  useToolFrameCount;
 
 export class Player extends ex.Actor {
   private client?: GameClient;
@@ -65,11 +79,14 @@ export class Player extends ex.Actor {
   private jumpSprite: ex.Sprite;
   private crouchSprite: ex.Sprite;
   private lookUpSprite: ex.Sprite;
+  private pickaxeSprite: ex.Sprite;
+  private pickaxeActor: ex.Actor;
   private walkAnimation: ex.Animation;
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
   private facingLeft: boolean = false;
   private useToolTimeRemainingMs: number = 0;
+  private useToolElapsedMs: number = 0;
 
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
     const width = TILE_PX;
@@ -86,6 +103,18 @@ export class Player extends ex.Actor {
     this.jumpSprite = Resources.PlayerJump.toSprite();
     this.crouchSprite = Resources.PlayerCrouch.toSprite();
     this.lookUpSprite = Resources.PlayerLookUp.toSprite();
+    this.pickaxeSprite = Resources.BronzePickaxe.toSprite();
+    this.pickaxeActor = new ex.Actor({
+      pos: useToolPickaxeHiddenOffset(),
+      anchor: ex.vec(0, 0),
+      width: TILE_PX,
+      height: TILE_PX,
+      z: -1,
+    });
+    this.pickaxeActor.graphics.anchor = useToolPickaxeAnchor;
+    this.pickaxeActor.graphics.use(this.pickaxeSprite);
+    this.pickaxeActor.graphics.visible = false;
+    this.pickaxeActor.graphics.opacity = 0;
     this.useToolAnimation = new ex.Animation({
       frames: [
         { graphic: Resources.PlayerUseTool1.toSprite() },
@@ -119,6 +148,7 @@ export class Player extends ex.Actor {
   override onInitialize() {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
+    this.addChild(this.pickaxeActor);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -187,7 +217,7 @@ export class Player extends ex.Actor {
 
   public syncToolUseState(isUsingTool: boolean) {
     if (isUsingTool && !this.isUsingTool) {
-      this.beginUsingTool(Number.POSITIVE_INFINITY);
+      this.beginUsingTool(useToolDurationMs);
       return;
     }
     if (!isUsingTool && this.isUsingTool) {
@@ -198,6 +228,7 @@ export class Player extends ex.Actor {
   private beginUsingTool(durationMs: number) {
     this.isUsingTool = true;
     this.useToolTimeRemainingMs = durationMs;
+    this.useToolElapsedMs = 0;
     this.hspeed *= useToolSpeedMultiplier;
     this.vspeed *= this.isFlying ? useToolSpeedMultiplier : 1;
     if (this.currentVisual === "walk") {
@@ -212,6 +243,9 @@ export class Player extends ex.Actor {
   private stopUsingTool() {
     this.isUsingTool = false;
     this.useToolTimeRemainingMs = 0;
+    this.pickaxeActor.pos = useToolPickaxeHiddenOffset();
+    this.pickaxeActor.graphics.visible = false;
+    this.pickaxeActor.graphics.opacity = 0;
     if (this.currentVisual === "useTool") {
       this.currentVisual = "idle";
       this.graphics.use(this.idleSprite);
@@ -228,6 +262,51 @@ export class Player extends ex.Actor {
     }
     this.stopUsingTool();
     this.sendToolUseState(false);
+  }
+
+  private currentPickaxeFrame() {
+    return useToolPickaxeFrames[
+      useToolPickaxeFrameIndexAt(this.useToolElapsedMs)
+    ];
+  }
+
+  private currentPickaxeOffset() {
+    const frame = this.currentPickaxeFrame();
+    if (this.facingLeft) {
+      return ex.vec(TILE_PX - frame.offset.x, frame.offset.y);
+    }
+    return ex.vec(frame.offset.x, frame.offset.y);
+  }
+
+  private currentPickaxeRotation() {
+    const frame = this.currentPickaxeFrame();
+    return this.facingLeft ? -frame.rotation : frame.rotation;
+  }
+
+  private syncPickaxeOverlay() {
+    if (!this.isUsingTool) {
+      this.pickaxeActor.pos = useToolPickaxeHiddenOffset();
+      this.pickaxeActor.graphics.visible = false;
+      this.pickaxeActor.graphics.opacity = 0;
+      return;
+    }
+    this.pickaxeActor.pos = this.currentPickaxeOffset();
+    this.pickaxeActor.rotation = this.currentPickaxeRotation();
+    this.pickaxeActor.graphics.anchor = this.facingLeft
+      ? useToolPickaxeMirroredAnchor
+      : useToolPickaxeAnchor;
+    this.pickaxeActor.graphics.flipHorizontal = this.facingLeft;
+    this.pickaxeActor.graphics.opacity = 1;
+    this.pickaxeActor.graphics.visible = true;
+  }
+
+  private updatePickaxeOverlay(delta: number) {
+    if (!this.isUsingTool) {
+      this.syncPickaxeOverlay();
+      return;
+    }
+    this.useToolElapsedMs += delta;
+    this.syncPickaxeOverlay();
   }
 
   private currentPosition() {
@@ -261,8 +340,12 @@ export class Player extends ex.Actor {
       this.isFlying !== this.previousIsFlying
     ) {
       const shouldSyncPosition =
-        this.isGrounded || this.isFlying || this.isFlying !== this.previousIsFlying;
-      const movementState = shouldSyncPosition ? this.currentMovementState() : {};
+        this.isGrounded ||
+        this.isFlying ||
+        this.isFlying !== this.previousIsFlying;
+      const movementState = shouldSyncPosition
+        ? this.currentMovementState()
+        : {};
       const payload = {
         keyLeft: this.keyLeft,
         keyRight: this.keyRight,
@@ -293,7 +376,11 @@ export class Player extends ex.Actor {
     if (!this.client) {
       return;
     }
-    if (flyToggleKeys.some((key) => engine.input.keyboard.wasPressed(key as ex.Keys))) {
+    if (
+      flyToggleKeys.some((key) =>
+        engine.input.keyboard.wasPressed(key as ex.Keys),
+      )
+    ) {
       this.isFlying = !this.isFlying;
       this.hspeed = 0;
       this.vspeed = 0;
@@ -348,6 +435,9 @@ export class Player extends ex.Actor {
   }
 
   private syncPlayerVisuals(keySign: number) {
+    if (keySign !== 0) {
+      this.facingLeft = keySign === -1;
+    }
     if (this.isUsingTool) {
       this.graphics.flipHorizontal = this.facingLeft;
       return;
@@ -383,9 +473,6 @@ export class Player extends ex.Actor {
       if (nextVisual === "lookUp") {
         this.graphics.use(this.lookUpSprite);
       }
-    }
-    if (keySign !== 0) {
-      this.facingLeft = keySign === -1;
     }
     this.graphics.flipHorizontal = this.facingLeft;
   }
@@ -529,6 +616,7 @@ export class Player extends ex.Actor {
     this.pos.y = clamp(this.pos.y, -collisionOffsetY, maxY);
 
     this.syncPlayerVisuals(keySign);
+    this.updatePickaxeOverlay(delta);
     this.updateToolUseTimer(delta);
   }
 }
