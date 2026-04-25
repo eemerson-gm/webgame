@@ -30,10 +30,10 @@ const flySpeed = 2.4;
 const flyAcceleration = 0.45;
 const flyToggleKeys = ["ControlLeft", "ControlRight", "Control"];
 const positionPrecision = 1000;
-const useToolFrameDurationMs = 80;
-const useToolFrameCount = 6;
+const useToolFrameDurationMs = 90;
+const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
-const useToolSpeedMultiplier = 0.08;
+const useToolSpeedMultiplier = 0.35;
 type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "lookUp" | "useTool";
 
 const syncedPositionValue = (value: number) =>
@@ -88,7 +88,6 @@ export class Player extends ex.Actor {
     this.lookUpSprite = Resources.PlayerLookUp.toSprite();
     this.useToolAnimation = new ex.Animation({
       frames: [
-        { graphic: Resources.PlayerUseTool.toSprite() },
         { graphic: Resources.PlayerUseTool1.toSprite() },
         { graphic: Resources.PlayerUseTool2.toSprite() },
         { graphic: Resources.PlayerUseTool3.toSprite() },
@@ -96,7 +95,7 @@ export class Player extends ex.Actor {
         { graphic: Resources.PlayerUseTool5.toSprite() },
       ],
       frameDuration: useToolFrameDurationMs,
-      strategy: ex.AnimationStrategy.End,
+      strategy: ex.AnimationStrategy.Loop,
     });
     this.walkAnimation = new ex.Animation({
       frames: [
@@ -169,18 +168,26 @@ export class Player extends ex.Actor {
     );
   }
 
-  public useTool() {
+  public useTool(durationMs: number = useToolDurationMs) {
     if (this.isUsingTool) {
       return false;
     }
-    this.startUsingTool();
+    this.beginUsingTool(durationMs);
     this.sendToolUseState(true);
     return true;
   }
 
+  public stopUsingToolAction() {
+    if (!this.isUsingTool) {
+      return;
+    }
+    this.stopUsingTool();
+    this.sendToolUseState(false);
+  }
+
   public syncToolUseState(isUsingTool: boolean) {
     if (isUsingTool && !this.isUsingTool) {
-      this.startUsingTool();
+      this.beginUsingTool(Number.POSITIVE_INFINITY);
       return;
     }
     if (!isUsingTool && this.isUsingTool) {
@@ -188,9 +195,9 @@ export class Player extends ex.Actor {
     }
   }
 
-  private startUsingTool() {
+  private beginUsingTool(durationMs: number) {
     this.isUsingTool = true;
-    this.useToolTimeRemainingMs = useToolDurationMs;
+    this.useToolTimeRemainingMs = durationMs;
     this.hspeed *= useToolSpeedMultiplier;
     this.vspeed *= this.isFlying ? useToolSpeedMultiplier : 1;
     if (this.currentVisual === "walk") {
@@ -503,7 +510,7 @@ export class Player extends ex.Actor {
       this.moveWithGravity(dt, keySign);
     }
 
-    if (!this.isFlying && !this.isUsingTool && this.isGrounded && this.keyJump) {
+    if (!this.isFlying && this.isGrounded && this.keyJump) {
       this.onJump();
     }
     if (!this.isFlying && !previousGrounded && this.isGrounded) {
