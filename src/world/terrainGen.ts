@@ -83,6 +83,8 @@ const fbm2d = (
 };
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+const averageSurfaceRadius = 2;
+const maxSurfaceStep = 1;
 
 export type TerrainGenConfig = {
   columns: number;
@@ -117,14 +119,52 @@ const defaultGenConfig: Required<
 > = {
   seed: TERRAIN_SEED,
   noiseOffsetY: 0,
-  noiseScaleX: 0.11,
-  minGroundDepth: 2,
-  fractalOctaves: 5,
-  persistence: 0.44,
-  lacunarity: 2.2,
-  warpScale: 0.07,
-  warpAmplitude: 0.9,
-  sampleYWobble: 0.8,
+  noiseScaleX: 0.055,
+  minGroundDepth: 3,
+  fractalOctaves: 3,
+  persistence: 0.34,
+  lacunarity: 1.85,
+  warpScale: 0.035,
+  warpAmplitude: 0.35,
+  sampleYWobble: 0.25,
+};
+
+const clampSurfaceStep = (previous: number, next: number) => {
+  if (next > previous + maxSurfaceStep) {
+    return previous + maxSurfaceStep;
+  }
+  if (next < previous - maxSurfaceStep) {
+    return previous - maxSurfaceStep;
+  }
+  return next;
+};
+
+const averageSurfaceAt = (surfaceStarts: number[], col: number) => {
+  const sampleColumns = range(averageSurfaceRadius * 2 + 1)
+    .map((i) => col + i - averageSurfaceRadius)
+    .filter((sampleCol) => sampleCol >= 0 && sampleCol < surfaceStarts.length);
+  const total = sampleColumns.reduce(
+    (sum, sampleCol) => sum + surfaceStarts[sampleCol],
+    0,
+  );
+  return Math.round(total / sampleColumns.length);
+};
+
+const averageSurface = (surfaceStarts: number[]) => {
+  return surfaceStarts.map((_, col) => averageSurfaceAt(surfaceStarts, col));
+};
+
+const limitSurfaceSteps = (surfaceStarts: number[]) => {
+  return surfaceStarts.reduce<number[]>((limitedSurface, nextSurfaceStart) => {
+    if (limitedSurface.length === 0) {
+      return [nextSurfaceStart];
+    }
+    const previousSurfaceStart = limitedSurface[limitedSurface.length - 1];
+    return [
+      ...limitedSurface,
+      clampSurfaceStep(previousSurfaceStart, nextSurfaceStart),
+    ];
+  }, []);
 };
 
 export const buildSurfaceStartByColumn = (options: TerrainGenConfig) => {
@@ -178,10 +218,11 @@ export const buildSurfaceStartByColumn = (options: TerrainGenConfig) => {
     return clamp01(0.5 + (spread - 0.5) * 1.12);
   };
 
-  return range(columns).map((col) => {
+  const roughSurfaceStarts = range(columns).map((col) => {
     const t = toSurfaceT(col);
     const numGroundRows =
       minDepthCapped + Math.floor(t * (variationCapped + 0.0001));
     return rows - numGroundRows;
   });
+  return limitSurfaceSteps(averageSurface(averageSurface(roughSurfaceStarts)));
 };

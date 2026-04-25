@@ -19,6 +19,13 @@ const collisionHeight = TILE_PX - 2;
 const collisionOffsetX = (TILE_PX - collisionWidth) / 2;
 const collisionOffsetY = TILE_PX - collisionHeight;
 const collisionEdgeInset = 0.1;
+const walkSpeed = 1.25;
+const runSpeedMultiplier = 2;
+const walkAcceleration = 0.25;
+const stopDeceleration = 0.22;
+const turnAcceleration = 0.32;
+const gravity = 0.2;
+const positionScale = 100;
 
 export class Player extends ex.Actor {
   private client?: GameClient;
@@ -260,22 +267,31 @@ export class Player extends ex.Actor {
     this.vspeed = 0;
   }
 
+  private horizontalAccelerationFor(keySign: number) {
+    if (keySign === 0) {
+      return stopDeceleration;
+    }
+    if (Math.sign(this.hspeed) !== 0 && Math.sign(this.hspeed) !== keySign) {
+      return turnAcceleration;
+    }
+    return walkAcceleration;
+  }
+
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateControls(engine);
     this.onMove();
 
-    const speed = 1.5;
-    const accel = 0.3;
-    const gravity = 0.2;
     const dt = delta / 1000;
-    const positionScale = 100;
 
     const keySign = Number(this.keyRight) - Number(this.keyLeft);
+    const targetHspeed =
+      keySign * walkSpeed * (this.isRunning ? runSpeedMultiplier : 1);
+    const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
 
     this.hspeed = approach(
       this.hspeed,
-      keySign * (speed * (this.isRunning ? 2 : 1)),
-      accel * 60 * dt,
+      targetHspeed,
+      horizontalAcceleration * 60 * dt,
     );
     this.vspeed += gravity * 60 * dt;
 

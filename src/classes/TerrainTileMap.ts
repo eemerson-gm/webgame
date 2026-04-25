@@ -20,6 +20,13 @@ const assertWorldMatchesLayout = (options: TerrainTileMapOptions) => {
   }
 };
 
+const terrainGraphicFor = (tile: ex.Tile, surfaceStartByColumn: number[]) => {
+  if (tile.y === surfaceStartByColumn[tile.x]) {
+    return Resources.Grass.toSprite();
+  }
+  return Resources.Dirt.toSprite();
+};
+
 export class TerrainTileMap {
   public readonly map: ex.TileMap;
 
@@ -47,7 +54,7 @@ export class TerrainTileMap {
 
     this.map.tiles.forEach((tile) => {
       if (tile.y >= surfaceStartByColumn[tile.x]) {
-        tile.addGraphic(Resources.Block.toSprite());
+        tile.addGraphic(terrainGraphicFor(tile, surfaceStartByColumn));
       }
     });
   }
