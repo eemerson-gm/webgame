@@ -20,6 +20,7 @@ const game = new ex.Engine({
   backgroundColor: ex.Color.fromHex("#54C0CA"),
   pixelArt: true,
   displayMode: ex.DisplayMode.FitScreen,
+  fixedUpdateFps: 60,
 });
 
 const placeGroundTiles = (tilemap: ex.TileMap) => {

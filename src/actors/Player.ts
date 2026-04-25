@@ -25,6 +25,11 @@ export class Player extends ex.Actor {
   previousKeyRight: boolean = false;
   previousKeyJump: boolean = false;
   tilemap: ex.TileMap;
+  private idleSprite: ex.Sprite;
+  private jumpSprite: ex.Sprite;
+  private walkAnimation: ex.Animation;
+  private currentVisual: "idle" | "walk" | "jump" = "idle";
+  private facingLeft: boolean = false;
 
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
     const width = 16;
@@ -37,10 +42,21 @@ export class Player extends ex.Actor {
     });
     this.client = client;
     this.tilemap = tilemap;
+    this.idleSprite = Resources.Player.toSprite();
+    this.jumpSprite = Resources.PlayerJump.toSprite();
+    this.walkAnimation = new ex.Animation({
+      frames: [
+        { graphic: Resources.PlayerWalk1.toSprite() },
+        { graphic: Resources.PlayerWalk2.toSprite() },
+      ],
+      frameDuration: 120,
+      strategy: ex.AnimationStrategy.Loop,
+    });
   }
 
   override onInitialize(engine: ex.Engine) {
-    this.graphics.use(Resources.Player.toSprite());
+    this.walkAnimation.pause();
+    this.graphics.use(this.idleSprite);
   }
 
   private sendClient(type: string, payload: Data, playerData?: Data) {
@@ -73,16 +89,18 @@ export class Player extends ex.Actor {
       this.keyRight !== this.previousKeyRight ||
       this.keyJump !== this.previousKeyJump
     ) {
-      let payload = {
-        kl: this.keyLeft,
-        kr: this.keyRight,
-        kj: this.keyJump,
-      };
-      if (this.isGrounded) {
-        payload = merge(payload, {
-          x: this.pos.x.toFixed(1),
-        });
-      }
+      const payload = merge(
+        {
+          kl: this.keyLeft,
+          kr: this.keyRight,
+          kj: this.keyJump,
+        },
+        this.isGrounded
+          ? {
+              x: this.pos.x.toFixed(1),
+            }
+          : {},
+      );
       this.sendClient("update_player", payload);
       this.previousKeyLeft = this.keyLeft;
       this.previousKeyRight = this.keyRight;
@@ -128,6 +146,63 @@ export class Player extends ex.Actor {
     return !!collision;
   }
 
+  private syncPlayerVisuals(keySign: number) {
+    const nextVisual: "idle" | "walk" | "jump" = !this.isGrounded
+      ? "jump"
+      : keySign !== 0
+        ? "walk"
+        : "idle";
+    if (nextVisual !== this.currentVisual) {
+      if (this.currentVisual === "walk") {
+        this.walkAnimation.pause();
+      }
+      this.currentVisual = nextVisual;
+      if (nextVisual === "idle") {
+        this.graphics.use(this.idleSprite);
+      }
+      if (nextVisual === "walk") {
+        this.walkAnimation.reset();
+        this.graphics.use(this.walkAnimation);
+        this.walkAnimation.play();
+      }
+      if (nextVisual === "jump") {
+        this.graphics.use(this.jumpSprite);
+      }
+    }
+    if (keySign !== 0) {
+      this.facingLeft = keySign === -1;
+    }
+    this.graphics.flipHorizontal = this.facingLeft;
+  }
+
+  private nudgeXUntilBlocked(moveX: number) {
+    const nudge = (rem: number): void => {
+      if (rem <= 0) {
+        return;
+      }
+      if (this.tileMeeting(this.pos.x + Math.sign(moveX), this.pos.y)) {
+        return;
+      }
+      this.pos.x += Math.sign(moveX);
+      nudge(rem - 1);
+    };
+    nudge(16);
+  }
+
+  private nudgeYUntilBlocked(moveY: number) {
+    const nudge = (rem: number): void => {
+      if (rem <= 0) {
+        return;
+      }
+      if (this.tileMeeting(this.pos.x, this.pos.y + Math.sign(moveY))) {
+        return;
+      }
+      this.pos.y += Math.sign(moveY);
+      nudge(rem - 1);
+    };
+    nudge(16);
+  }
+
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateControls(engine);
     this.onMove();
@@ -135,53 +210,40 @@ export class Player extends ex.Actor {
     const speed = 1.5;
     const accel = 0.3;
     const gravity = 0.2;
-    const deltaTime = delta / 10;
+    const dt = delta / 1000;
+    const positionScale = 100;
 
     const keySign = Number(this.keyRight) - Number(this.keyLeft);
 
-    if (keySign !== 0 && this.isGrounded) {
-      //changeSprite(objId, "player_walk");
-      this.graphics.flipHorizontal = keySign === -1;
-    } else if (this.isGrounded) {
-      //changeSprite(objId, "player");
-    } else {
-      //changeSprite(objId, "player_jump");
-    }
     this.hspeed = approach(
       this.hspeed,
       keySign * (speed * (this.isRunning ? 2 : 1)),
-      accel
+      accel * 60 * dt,
     );
-    this.vspeed += gravity;
+    this.vspeed += gravity * 60 * dt;
 
-    let moveX = this.hspeed * deltaTime;
-    let moveY = this.vspeed * deltaTime;
+    const moveX = this.hspeed * positionScale * dt;
+    const moveY = this.vspeed * positionScale * dt;
 
-    if (this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
-      let counter = 0;
-      while (
-        !this.tileMeeting(this.pos.x + Math.sign(moveX), this.pos.y) &&
-        counter++ < 16
-      ) {
-        this.pos.x += Math.sign(moveX);
+    const moveXResult = (() => {
+      if (!this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
+        return moveX;
       }
+      this.nudgeXUntilBlocked(moveX);
       this.pos.x = Math.round(this.pos.x / 16) * 16 - Math.sign(moveX) * 0.1;
-      moveX = 0;
       this.hspeed = 0;
-    }
+      return 0;
+    })();
 
-    if (this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
-      let counter = 0;
-      while (
-        !this.tileMeeting(this.pos.x, this.pos.y + Math.sign(moveY)) &&
-        counter++ < 16
-      ) {
-        this.pos.y += Math.sign(moveY);
+    const moveYResult = (() => {
+      if (!this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
+        return moveY;
       }
+      this.nudgeYUntilBlocked(moveY);
       this.pos.y = Math.round(this.pos.y / 16) * 16 - Math.sign(moveY) * 0.1;
-      moveY = 0;
       this.vspeed = 0;
-    }
+      return 0;
+    })();
 
     const previousGrounded = this.isGrounded;
     this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
@@ -193,10 +255,12 @@ export class Player extends ex.Actor {
       this.onLand();
     }
 
-    this.pos.x += moveX;
-    this.pos.y += moveY;
+    this.pos.x += moveXResult;
+    this.pos.y += moveYResult;
 
     this.pos.x = clamp(this.pos.x, 0, 320 - this.width);
     this.pos.y = clamp(this.pos.y, 0, 180 - this.height);
+
+    this.syncPlayerVisuals(keySign);
   }
 }

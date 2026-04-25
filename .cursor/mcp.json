@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "excaliburjs-docs": {
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/excaliburjs-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "EXCALIBUR_DOCS_GIT_REF": "main"
+      }
+    }
+  }
+}
