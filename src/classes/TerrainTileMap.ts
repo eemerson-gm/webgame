@@ -5,6 +5,7 @@ export type WorldTerrainPayload = {
   columns: number;
   rows: number;
   surfaceStartByColumn: number[];
+  solidTiles?: string[];
 };
 
 type TerrainTileMapOptions = {
@@ -15,22 +16,24 @@ type TerrainTileMapOptions = {
 } & WorldTerrainPayload;
 
 type TerrainBorderSegment = {
-  x: number;
-  y: number;
   width: number;
   height: number;
+  offsetX: number;
+  offsetY: number;
 };
 
 type TerrainBorderOptions = {
-  pos: ex.Vector;
   tileWidth: number;
   tileHeight: number;
   columns: number;
   rows: number;
-  surfaceStartByColumn: number[];
+  solidTiles: Set<string>;
+  chunkColumn: number;
+  chunkRow: number;
 };
 
 const terrainBorderThickness = 1;
+const terrainChunkSize = 16;
 
 const assertWorldMatchesLayout = (options: TerrainTileMapOptions) => {
   if (options.surfaceStartByColumn.length !== options.columns) {
@@ -38,29 +41,64 @@ const assertWorldMatchesLayout = (options: TerrainTileMapOptions) => {
   }
 };
 
-const terrainGraphicFor = (tile: ex.Tile, surfaceStartByColumn: number[]) => {
-  if (tile.y === surfaceStartByColumn[tile.x]) {
-    return Resources.Grass.toSprite();
-  }
-  return Resources.Dirt.toSprite();
-};
-
 const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
+const tileKey = (column: number, row: number) => `${column},${row}`;
+const chunkKey = (chunkColumn: number, chunkRow: number) => `${chunkColumn},${chunkRow}`;
+const chunkStartTile = (chunkIndex: number) => chunkIndex * terrainChunkSize;
+const chunkCount = (tiles: number) => Math.ceil(tiles / terrainChunkSize);
+const chunkIndexForTile = (tile: number) => Math.floor(tile / terrainChunkSize);
 
-const isSolidTerrainTile = (
-  column: number,
-  row: number,
+const solidTilesFromSurface = (
   columns: number,
   rows: number,
   surfaceStartByColumn: number[],
-) => {
+) =>
+  indexes(columns).flatMap((column) =>
+    indexes(rows)
+      .filter((row) => row >= surfaceStartByColumn[column])
+      .map((row) => tileKey(column, row)),
+  );
+
+const initialSolidTiles = (options: TerrainTileMapOptions) =>
+  new Set(
+    options.solidTiles ??
+      solidTilesFromSurface(options.columns, options.rows, options.surfaceStartByColumn),
+  );
+
+const isInsideTerrain = (column: number, row: number, columns: number, rows: number) => {
   if (column < 0 || column >= columns) {
     return false;
   }
   if (row < 0 || row >= rows) {
     return false;
   }
-  return row >= surfaceStartByColumn[column];
+  return true;
+};
+
+const isSolidTerrainTile = (
+  column: number,
+  row: number,
+  columns: number,
+  rows: number,
+  solidTiles: Set<string>,
+) => {
+  if (!isInsideTerrain(column, row, columns, rows)) {
+    return false;
+  }
+  return solidTiles.has(tileKey(column, row));
+};
+
+const terrainGraphicFor = (
+  column: number,
+  row: number,
+  columns: number,
+  rows: number,
+  solidTiles: Set<string>,
+) => {
+  if (!isSolidTerrainTile(column, row - 1, columns, rows, solidTiles)) {
+    return Resources.Grass.toSprite();
+  }
+  return Resources.Dirt.toSprite();
 };
 
 const borderSegmentsForTile = (
@@ -68,62 +106,145 @@ const borderSegmentsForTile = (
   row: number,
   options: TerrainBorderOptions,
 ) => {
-  const { tileWidth, tileHeight, columns, rows, surfaceStartByColumn } = options;
-  const x = column * tileWidth;
-  const y = row * tileHeight;
-  const above = isSolidTerrainTile(column, row - 1, columns, rows, surfaceStartByColumn);
-  const left = isSolidTerrainTile(column - 1, row, columns, rows, surfaceStartByColumn);
-  const right = isSolidTerrainTile(column + 1, row, columns, rows, surfaceStartByColumn);
-  const below = isSolidTerrainTile(column, row + 1, columns, rows, surfaceStartByColumn);
+  const { tileWidth, tileHeight, columns, rows, solidTiles, chunkColumn, chunkRow } = options;
+  const x = (column - chunkStartTile(chunkColumn)) * tileWidth;
+  const y = (row - chunkStartTile(chunkRow)) * tileHeight;
+  const above = isSolidTerrainTile(column, row - 1, columns, rows, solidTiles);
+  const left = isSolidTerrainTile(column - 1, row, columns, rows, solidTiles);
+  const right = isSolidTerrainTile(column + 1, row, columns, rows, solidTiles);
+  const below = isSolidTerrainTile(column, row + 1, columns, rows, solidTiles);
 
   return [
-    above ? [] : [{ x, y, width: tileWidth, height: terrainBorderThickness }],
-    left ? [] : [{ x, y, width: terrainBorderThickness, height: tileHeight }],
+    above
+      ? []
+      : [{ width: tileWidth, height: terrainBorderThickness, offsetX: x, offsetY: y }],
+    left
+      ? []
+      : [{ width: terrainBorderThickness, height: tileHeight, offsetX: x, offsetY: y }],
     right
       ? []
-      : [{ x: x + tileWidth - terrainBorderThickness, y, width: terrainBorderThickness, height: tileHeight }],
+      : [
+          {
+            width: terrainBorderThickness,
+            height: tileHeight,
+            offsetX: x + tileWidth - terrainBorderThickness,
+            offsetY: y,
+          },
+        ],
     below
       ? []
-      : [{ x, y: y + tileHeight - terrainBorderThickness, width: tileWidth, height: terrainBorderThickness }],
+      : [
+          {
+            width: tileWidth,
+            height: terrainBorderThickness,
+            offsetX: x,
+            offsetY: y + tileHeight - terrainBorderThickness,
+          },
+        ],
   ].flat();
 };
 
-const terrainBorderSegments = (options: TerrainBorderOptions) => {
-  const { columns, rows, surfaceStartByColumn } = options;
+const chunkTileRange = (chunkIndex: number, totalTiles: number) => {
+  const start = chunkStartTile(chunkIndex);
+  const count = Math.min(terrainChunkSize, totalTiles - start);
+  return indexes(count).map((index) => start + index);
+};
 
-  return indexes(columns).flatMap((column) =>
-    indexes(rows)
-      .filter((row) => isSolidTerrainTile(column, row, columns, rows, surfaceStartByColumn))
+const terrainBorderSegmentsForChunk = (options: TerrainBorderOptions) => {
+  const { columns, rows, solidTiles, chunkColumn, chunkRow } = options;
+
+  return chunkTileRange(chunkColumn, columns).flatMap((column) =>
+    chunkTileRange(chunkRow, rows)
+      .filter((row) => isSolidTerrainTile(column, row, columns, rows, solidTiles))
       .flatMap((row) => borderSegmentsForTile(column, row, options)),
   );
 };
 
-const createBorderGraphic = (segments: TerrainBorderSegment[]) =>
-  new ex.GraphicsGroup({
-    members: segments.map((segment) => ({
-      graphic: new ex.Rectangle({
-        width: segment.width,
-        height: segment.height,
-        color: ex.Color.Black,
-      }),
-      offset: ex.vec(segment.x, segment.y),
-    })),
-  });
+class TerrainBorderRaster extends ex.Raster {
+  private segments: TerrainBorderSegment[];
 
-const createTerrainBorder = (options: TerrainBorderOptions) => {
+  constructor(width: number, height: number, segments: TerrainBorderSegment[]) {
+    super({
+      width,
+      height,
+      origin: ex.vec(0, 0),
+      smoothing: false,
+      filtering: ex.ImageFiltering.Pixel,
+    });
+    this.segments = segments;
+  }
+
+  override clone() {
+    return new TerrainBorderRaster(this.width, this.height, this.segments);
+  }
+
+  override execute(ctx: CanvasRenderingContext2D) {
+    ctx.fillStyle = "black";
+    this.segments.forEach((segment) =>
+      ctx.fillRect(segment.offsetX, segment.offsetY, segment.width, segment.height),
+    );
+  }
+}
+
+const createBorderGraphic = (
+  tileWidth: number,
+  tileHeight: number,
+  segments: TerrainBorderSegment[],
+) =>
+  new TerrainBorderRaster(terrainChunkSize * tileWidth, terrainChunkSize * tileHeight, segments);
+
+const createBorderActor = (
+  pos: ex.Vector,
+  tileWidth: number,
+  tileHeight: number,
+  chunkColumn: number,
+  chunkRow: number,
+  graphic: TerrainBorderRaster,
+) => {
   const border = new ex.Actor({
-    pos: options.pos,
+    pos: ex.vec(
+      pos.x + chunkStartTile(chunkColumn) * tileWidth,
+      pos.y + chunkStartTile(chunkRow) * tileHeight,
+    ),
     anchor: ex.vec(0, 0),
   });
 
   border.graphics.anchor = ex.vec(0, 0);
-  border.graphics.use(createBorderGraphic(terrainBorderSegments(options)));
+  border.graphics.use(graphic);
   return border;
 };
 
+const adjacentChunkKeysForTile = (column: number, row: number, columns: number, rows: number) =>
+  adjacentTilePositions(column, row)
+    .filter(([neighborColumn, neighborRow]) =>
+      isInsideTerrain(neighborColumn, neighborRow, columns, rows),
+    )
+    .map(([neighborColumn, neighborRow]) =>
+      chunkKey(chunkIndexForTile(neighborColumn), chunkIndexForTile(neighborRow)),
+    )
+    .filter((key, index, keys) => keys.indexOf(key) === index);
+
+const adjacentTilePositions = (column: number, row: number) =>
+  [
+    [column, row],
+    [column - 1, row],
+    [column + 1, row],
+    [column, row - 1],
+    [column, row + 1],
+  ];
+
+const parseChunkKey = (key: string) => key.split(",").map(Number);
+
 export class TerrainTileMap {
   public readonly map: ex.TileMap;
-  public readonly border: ex.Actor;
+  public readonly borders: ex.Actor[];
+  private readonly pos: ex.Vector;
+  private readonly tileWidth: number;
+  private readonly tileHeight: number;
+  private readonly columns: number;
+  private readonly rows: number;
+  private readonly solidTiles: Set<string>;
+  private readonly borderActorsByChunkKey: Record<string, ex.Actor>;
 
   constructor(options: TerrainTileMapOptions) {
     const {
@@ -132,11 +253,17 @@ export class TerrainTileMap {
       tileHeight,
       columns,
       rows,
-      surfaceStartByColumn,
       renderFromTopOfGraphic = true,
     } = options;
 
     assertWorldMatchesLayout(options);
+    this.pos = pos;
+    this.tileWidth = tileWidth;
+    this.tileHeight = tileHeight;
+    this.columns = columns;
+    this.rows = rows;
+    this.solidTiles = initialSolidTiles(options);
+    this.borderActorsByChunkKey = {};
 
     this.map = new ex.TileMap({
       pos,
@@ -147,19 +274,99 @@ export class TerrainTileMap {
       renderFromTopOfGraphic,
     });
 
-    this.map.tiles.forEach((tile) => {
-      if (tile.y >= surfaceStartByColumn[tile.x]) {
-        tile.addGraphic(terrainGraphicFor(tile, surfaceStartByColumn));
-      }
-    });
+    this.map.tiles.forEach((tile) => this.syncTileGraphic(tile.x, tile.y));
+    this.borders = this.createAllBorderActors();
+  }
 
-    this.border = createTerrainBorder({
-      pos,
-      tileWidth,
-      tileHeight,
-      columns,
-      rows,
-      surfaceStartByColumn,
-    });
+  public removeBlock(column: number, row: number) {
+    this.setBlockSolid(column, row, false);
+  }
+
+  public setBlockSolid(column: number, row: number, solid: boolean) {
+    if (!isInsideTerrain(column, row, this.columns, this.rows)) {
+      return;
+    }
+    const key = tileKey(column, row);
+    if (solid) {
+      this.solidTiles.add(key);
+    }
+    if (!solid) {
+      this.solidTiles.delete(key);
+    }
+    this.syncTileNeighborhood(column, row);
+    adjacentChunkKeysForTile(column, row, this.columns, this.rows).forEach((chunk) =>
+      this.rebuildBorderChunk(chunk),
+    );
+  }
+
+  private syncTileNeighborhood(column: number, row: number) {
+    adjacentTilePositions(column, row)
+      .filter(([neighborColumn, neighborRow]) =>
+        isInsideTerrain(neighborColumn, neighborRow, this.columns, this.rows),
+      )
+      .forEach(([neighborColumn, neighborRow]) =>
+        this.syncTileGraphic(neighborColumn, neighborRow),
+      );
+  }
+
+  private syncTileGraphic(column: number, row: number) {
+    const tile = this.map.getTile(column, row);
+    if (!tile) {
+      return;
+    }
+    tile.clearGraphics();
+    if (!isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles)) {
+      return;
+    }
+    tile.addGraphic(
+      terrainGraphicFor(column, row, this.columns, this.rows, this.solidTiles),
+    );
+  }
+
+  private createAllBorderActors() {
+    return indexes(chunkCount(this.columns)).flatMap((chunkColumn) =>
+      indexes(chunkCount(this.rows)).map((chunkRow) =>
+        this.createBorderActorForChunk(chunkColumn, chunkRow),
+      ),
+    );
+  }
+
+  private createBorderActorForChunk(chunkColumn: number, chunkRow: number) {
+    const key = chunkKey(chunkColumn, chunkRow);
+    const actor = createBorderActor(
+      this.pos,
+      this.tileWidth,
+      this.tileHeight,
+      chunkColumn,
+      chunkRow,
+      this.createBorderGraphicForChunk(chunkColumn, chunkRow),
+    );
+    this.borderActorsByChunkKey[key] = actor;
+    return actor;
+  }
+
+  private createBorderGraphicForChunk(chunkColumn: number, chunkRow: number) {
+    return createBorderGraphic(
+      this.tileWidth,
+      this.tileHeight,
+      terrainBorderSegmentsForChunk({
+        tileWidth: this.tileWidth,
+        tileHeight: this.tileHeight,
+        columns: this.columns,
+        rows: this.rows,
+        solidTiles: this.solidTiles,
+        chunkColumn,
+        chunkRow,
+      }),
+    );
+  }
+
+  private rebuildBorderChunk(key: string) {
+    const actor = this.borderActorsByChunkKey[key];
+    if (!actor) {
+      return;
+    }
+    const [chunkColumn, chunkRow] = parseChunkKey(key);
+    actor.graphics.use(this.createBorderGraphicForChunk(chunkColumn, chunkRow));
   }
 }
