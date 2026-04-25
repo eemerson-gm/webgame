@@ -10,6 +10,9 @@ const approach = (start: number, end: number, amount: number) => {
   return Math.max(start - amount, end);
 };
 
+const localCameraFollowElasticity = 0.14;
+const localCameraFollowFriction = 0.22;
+
 export class Player extends ex.Actor {
   private client?: GameClient;
   hspeed: number = 0;
@@ -57,6 +60,17 @@ export class Player extends ex.Actor {
   override onInitialize(engine: ex.Engine) {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
+    if (this.client && this.scene) {
+      const worldWidthPx = this.tilemap.columns * 16;
+      const worldHeightPx = this.tilemap.rows * 16;
+      const worldBounds = new ex.BoundingBox(0, 0, worldWidthPx, worldHeightPx);
+      this.scene.camera.strategy.elasticToActor(
+        this,
+        localCameraFollowElasticity,
+        localCameraFollowFriction,
+      );
+      this.scene.camera.strategy.limitCameraBounds(worldBounds);
+    }
   }
 
   private sendClient(type: string, payload: Data, playerData?: Data) {
@@ -258,8 +272,10 @@ export class Player extends ex.Actor {
     this.pos.x += moveXResult;
     this.pos.y += moveYResult;
 
-    this.pos.x = clamp(this.pos.x, 0, 320 - this.width);
-    this.pos.y = clamp(this.pos.y, 0, 180 - this.height);
+    const maxX = this.tilemap.columns * 16 - this.width;
+    const maxY = this.tilemap.rows * 16 - this.height;
+    this.pos.x = clamp(this.pos.x, 0, maxX);
+    this.pos.y = clamp(this.pos.y, 0, maxY);
 
     this.syncPlayerVisuals(keySign);
   }

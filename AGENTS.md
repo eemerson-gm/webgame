@@ -2,6 +2,10 @@
 
 This file summarizes the app for AI assistants and contributors: stack, layout, conventions, and how pieces fit together.
 
+## Environment
+
+This project runs on a windows environment.
+
 ## Goal when writing code
 
 The **ultimate goal is readability**: someone reading the file should understand **what happens and why** with minimal effort. Prefer **clear names**, **small focused functions**, and **straightforward control flow** over cleverness. Where you can, shape code so it **reads like a sentence**: verb-like function names (`connectToServer`, `mergePlayerState`), subject–verb–object ordering, and steps in **top-to-bottom** order that match how you would describe the behavior aloud. The **Code constraints** section exists to keep style consistent and to push meaning into the code itself (for example, no comments means names and structure must do the explaining).

@@ -2,6 +2,7 @@ import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Resources } from "./resource";
 import { Data, GameClient } from "./classes/GameClient";
+import { TerrainTileMap } from "./classes/TerrainTileMap";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
@@ -10,28 +11,23 @@ const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
 });
 
-const gameWidth = 320;
-const gameHeight = 180;
+const viewWidth = 320;
+const viewHeight = 180;
+const worldWidth = 64 * 16;
+const worldRows = 30;
+const worldHeight = worldRows * 16;
 
 const game = new ex.Engine({
-  width: gameWidth,
-  height: gameHeight,
+  width: viewWidth,
+  height: viewHeight,
   antialiasing: false,
   backgroundColor: ex.Color.fromHex("#54C0CA"),
   pixelArt: true,
+  snapToPixel: false,
+  pixelRatio: 3,
   displayMode: ex.DisplayMode.FitScreen,
   fixedUpdateFps: 60,
 });
-
-const placeGroundTiles = (tilemap: ex.TileMap) => {
-  const groundRowStart = tilemap.rows - 4;
-  tilemap.tiles.forEach((tile) => {
-    if (tile.y <= groundRowStart) {
-      return;
-    }
-    tile.addGraphic(Resources.Block.toSprite());
-  });
-};
 
 const spawnPlayerAt = (
   game: ex.Engine,
@@ -84,15 +80,15 @@ const joinExistingRemotePlayers = (
 };
 
 game.start(loader).then(() => {
-  const tilemap = new ex.TileMap({
+  const terrain = new TerrainTileMap({
     pos: ex.vec(0, 0),
     tileWidth: 16,
     tileHeight: 16,
-    columns: Math.floor(gameWidth / 16),
-    rows: Math.floor(gameHeight / 16),
-    renderFromTopOfGraphic: true,
+    columns: Math.floor(worldWidth / 16),
+    rows: worldRows,
+    seed: 42,
   });
-  placeGroundTiles(tilemap);
+  const tilemap = terrain.map;
   game.add(tilemap);
 
   const client = new GameClient();
