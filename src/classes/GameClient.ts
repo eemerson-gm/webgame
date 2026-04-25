@@ -1,5 +1,11 @@
-export type Data = Record<string, any>;
-export type Message = { _t: string; _p: Data };
+import {
+  ConnectedPayload,
+  Data,
+  decodeMessage,
+  encodeMessage,
+  messageTypes,
+} from "./GameProtocol";
+
 export type Event = (data: Data) => void;
 export type MessageEvents = Record<string, Event>;
 
@@ -34,7 +40,7 @@ export class GameClient {
 
   public send(type: string, payload: Data, patch?: Data) {
     this.playerSocket.send(
-      JSON.stringify({ _t: type, _p: payload, _d: patch ?? {} }),
+      encodeMessage({ type, payload, statePatch: patch }),
     );
   }
 
@@ -51,12 +57,13 @@ export class GameClient {
   ): MessageEvents {
     return {
       ...appHandlers,
-      _connected: (data: Data) => {
-        const { id, playersData, world } = data;
+      [messageTypes.connected]: (data: Data) => {
+        const connectedPayload = data as ConnectedPayload;
+        const { id, playersData, world } = connectedPayload;
         this.clientId = id;
         onConnect(id, playersData, world);
       },
-      _disconnected: (data: Data) => {
+      [messageTypes.disconnected]: (data: Data) => {
         const { id } = data;
         onDisconnect(id);
       },
@@ -82,10 +89,9 @@ export class GameClient {
     wsEvent: MessageEvent,
     handlers: MessageEvents,
   ) {
-    const message = JSON.parse(wsEvent.data as string) as Message;
+    const message = decodeMessage(wsEvent.data as string);
     console.log("Received:", message);
-    const type = message._t;
-    const payload = message._p;
+    const { type, payload } = message;
     if (!(type in handlers)) {
       console.error("Unknown event:", type);
       return;

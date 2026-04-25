@@ -1,7 +1,12 @@
 import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Resources } from "./resource";
-import { Data, GameClient } from "./classes/GameClient";
+import { GameClient } from "./classes/GameClient";
+import {
+  Data,
+  PlayerState,
+  messageTypes,
+} from "./classes/GameProtocol";
 import {
   TerrainTileMap,
   WorldTerrainPayload,
@@ -58,7 +63,10 @@ const spawnPlayerAt = (
   game.add(playerById[playerId]);
 };
 
-const applyPositionFromPayloadIfPresent = (player: Player, payload: Data) => {
+const applyPositionFromPayloadIfPresent = (
+  player: Player,
+  payload: PlayerState,
+) => {
   if (payload.x) {
     player.pos.x = Number(payload.x);
   }
@@ -67,29 +75,33 @@ const applyPositionFromPayloadIfPresent = (player: Player, payload: Data) => {
   }
 };
 
-const syncMovementFieldsFromPayload = (player: Player, payload: Data) => {
-  player.keyLeft = payload.kl ?? player.keyLeft;
-  player.keyRight = payload.kr ?? player.keyRight;
-  player.keyJump = payload.kj ?? player.keyJump;
-  player.hspeed = payload.sh ?? player.hspeed;
-  player.vspeed = payload.sv ?? player.vspeed;
+const syncMovementFieldsFromPayload = (
+  player: Player,
+  payload: PlayerState,
+) => {
+  player.keyLeft = payload.keyLeft ?? player.keyLeft;
+  player.keyRight = payload.keyRight ?? player.keyRight;
+  player.keyJump = payload.keyJump ?? player.keyJump;
+  player.hspeed = payload.horizontalSpeed ?? player.hspeed;
+  player.vspeed = payload.verticalSpeed ?? player.vspeed;
 };
 
 const applyRemotePlayerUpdate = (payload: Data) => {
-  const playerId = payload.id as string;
+  const playerState = payload as PlayerState;
+  const playerId = playerState.id as string;
   const player = playerById[playerId];
   if (!player) {
     return;
   }
-  applyPositionFromPayloadIfPresent(player, payload);
-  syncMovementFieldsFromPayload(player, payload);
+  applyPositionFromPayloadIfPresent(player, playerState);
+  syncMovementFieldsFromPayload(player, playerState);
 };
 
 const joinExistingRemotePlayers = (
   game: ex.Engine,
   tilemap: ex.TileMap,
   myPlayerId: string,
-  playersData: Data,
+  playersData: Record<string, PlayerState>,
 ) => {
   Object.entries(playersData).forEach(([peerId, row]) => {
     if (peerId === myPlayerId) {
@@ -123,11 +135,7 @@ game.start(loader).then(() => {
 
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);
-      client.send(
-        "create_player",
-        { id: myPlayerId, x: 0, y: 0 },
-        { x: 0, y: 0 },
-      );
+      client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
     },
@@ -136,15 +144,18 @@ game.start(loader).then(() => {
       delete playerById[gonePlayerId];
     },
     listener: () => ({
-      create_player: (payload) => {
+      [messageTypes.createPlayer]: (payload) => {
         const t = worldSession.tilemap;
         if (!t) {
           return;
         }
-        const { id, x, y } = payload;
-        spawnPlayerAt(game, t, id, x, y);
+        const { id, x, y } = payload as PlayerState;
+        if (!id) {
+          return;
+        }
+        spawnPlayerAt(game, t, id, Number(x), Number(y));
       },
-      update_player: applyRemotePlayerUpdate,
+      [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
     }),
   });
 });

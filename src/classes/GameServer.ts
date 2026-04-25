@@ -1,5 +1,4 @@
 import { WebSocketServer, WebSocket } from "ws";
-import { Data } from "./GameClient";
 import { merge } from "lodash";
 import { Server } from "http";
 import { buildSurfaceStartByColumn } from "../world/terrainGen";
@@ -7,14 +6,14 @@ import {
   WORLD_TILE_COLUMNS,
   WORLD_TILE_ROWS,
 } from "../world/worldConfig";
+import {
+  Data,
+  decodeMessage,
+  encodeMessage,
+  messageTypes,
+} from "./GameProtocol";
 
 type MessageRouting = Record<string, "player" | "others">;
-
-type SocketMessage = {
-  _t: string;
-  _p: Data;
-  _d?: Data;
-};
 
 export class GameServer {
   private nextPlayerIndex = 0;
@@ -46,7 +45,7 @@ export class GameServer {
       console.error("Socket not found:", playerId);
       return;
     }
-    playerSocket.send(JSON.stringify({ _t: type, _p: payload }));
+    playerSocket.send(encodeMessage({ type, payload }));
   }
 
   public sendToOthers(fromPlayerId: string, type: string, payload: Data) {
@@ -64,7 +63,7 @@ export class GameServer {
     console.log(
       `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`
     );
-    this.sendToPlayer(playerId, "_connected", {
+    this.sendToPlayer(playerId, messageTypes.connected, {
       id: playerId,
       playersData: this.playersData,
       world: {
@@ -86,10 +85,9 @@ export class GameServer {
     messages: MessageRouting
   ) {
     const json = data.toString();
-    const message = JSON.parse(json) as SocketMessage;
-    const type = message._t;
-    const payload = message._p;
-    const patch = message._d ?? {};
+    const message = decodeMessage(json);
+    const { type, payload } = message;
+    const patch = message.statePatch ?? {};
     this.playersData[playerId] = merge(this.playersData[playerId], patch);
     if (!(type in messages)) {
       console.error("Unknown message type:", type);
@@ -113,6 +111,6 @@ export class GameServer {
     console.log(
       `[${playerId}]: Disconnected (${Object.keys(this.playerSockets).length} players)`
     );
-    this.sendToOthers(playerId, "_disconnected", { id: playerId });
+    this.sendToOthers(playerId, messageTypes.disconnected, { id: playerId });
   }
 }

@@ -1,8 +1,9 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-import { Data, GameClient } from "../classes/GameClient";
+import { GameClient } from "../classes/GameClient";
+import { Data, messageTypes } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
-import { clamp, merge } from "lodash";
+import { clamp } from "lodash";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -100,16 +101,17 @@ export class Player extends ex.Actor {
       return;
     }
     this.vspeed = -4;
-    this.sendClient("update_player", {
-      kj: true,
+    this.sendClient(messageTypes.updatePlayer, {
+      keyJump: true,
     });
   }
 
   private onLand() {
-    this.sendClient("update_player", {
+    const position = {
       x: this.pos.x.toFixed(1),
       y: this.pos.y.toFixed(1),
-    });
+    };
+    this.sendClient(messageTypes.updatePlayer, position, position);
   }
 
   private onMove() {
@@ -118,19 +120,19 @@ export class Player extends ex.Actor {
       this.keyRight !== this.previousKeyRight ||
       this.keyJump !== this.previousKeyJump
     ) {
-      const payload = merge(
-        {
-          kl: this.keyLeft,
-          kr: this.keyRight,
-          kj: this.keyJump,
-        },
-        this.isGrounded
-          ? {
-              x: this.pos.x.toFixed(1),
-            }
-          : {},
-      );
-      this.sendClient("update_player", payload);
+      const position = this.isGrounded
+        ? {
+            x: this.pos.x.toFixed(1),
+          }
+        : {};
+      const payload = {
+        keyLeft: this.keyLeft,
+        keyRight: this.keyRight,
+        keyJump: this.keyJump,
+        ...position,
+      };
+      const statePatch = this.isGrounded ? position : undefined;
+      this.sendClient(messageTypes.updatePlayer, payload, statePatch);
       this.previousKeyLeft = this.keyLeft;
       this.previousKeyRight = this.keyRight;
       this.previousKeyJump = this.keyJump;
