@@ -132,6 +132,7 @@ game.start(loader).then(() => {
       const tilemap = terrain.map;
       worldSession.tilemap = tilemap;
       game.add(tilemap);
+      game.add(terrain.border);
 
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);
