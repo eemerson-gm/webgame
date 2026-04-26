@@ -29,6 +29,11 @@ const walkAcceleration = 0.25;
 const stopDeceleration = 0.22;
 const turnAcceleration = 0.32;
 const gravity = 0.2;
+const jumpSpeed = -2.8;
+const jumpHoldDurationMs = 220;
+const jumpHeldGravityMultiplier = 0.3;
+const jumpReleasedGravityMultiplier = 1.15;
+const jumpFallGravityMultiplier = 0.85;
 const positionScale = 100;
 const flySpeed = 2.4;
 const flyAcceleration = 0.45;
@@ -100,6 +105,7 @@ export class Player extends MovingActor {
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
   private knockbackTimeRemainingMs: number = 0;
+  private jumpHoldTimeRemainingMs: number = 0;
   private serverMovementSyncElapsedMs: number = 0;
   private lastServerMovementState?: Data;
 
@@ -242,15 +248,17 @@ export class Player extends MovingActor {
   }
 
   private onJump() {
-    if (!this.jump(-4)) {
+    if (!this.jump(jumpSpeed)) {
       return;
     }
+    this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
     this.sendClient(messageTypes.updatePlayer, {
       keyJump: true,
     });
   }
 
   private onLand() {
+    this.jumpHoldTimeRemainingMs = 0;
     this.syncPosition();
   }
 
@@ -297,6 +305,7 @@ export class Player extends MovingActor {
     this.hspeed = playerKnockbackHorizontalSpeed * direction;
     this.vspeed = playerKnockbackVerticalSpeed;
     this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
+    this.jumpHoldTimeRemainingMs = 0;
     const movementState = {
       ...this.currentMovementState(),
       isFlying: this.isFlying,
@@ -385,6 +394,7 @@ export class Player extends MovingActor {
     this.hspeed = 0;
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
+    this.jumpHoldTimeRemainingMs = 0;
     this.stopUsingTool();
     this.walkAnimation.pause();
     this.currentVisual = "idle";
@@ -723,7 +733,7 @@ export class Player extends MovingActor {
     this.moveFreely(positionScale, dt);
   }
 
-  private moveWithGravity(dt: number, keySign: number) {
+  private moveWithGravity(delta: number, dt: number, keySign: number) {
     const targetHspeed =
       keySign *
       walkSpeed *
@@ -736,9 +746,41 @@ export class Player extends MovingActor {
       targetHspeed,
       horizontalAcceleration * 60 * dt,
     );
-    this.applyGravity(gravity, dt);
+    this.applyGravity(this.currentJumpGravity(delta), dt);
 
     this.moveWithVelocity(positionScale, dt);
+  }
+
+  private currentJumpGravity(delta: number) {
+    if (!this.isJumping) {
+      this.jumpHoldTimeRemainingMs = 0;
+      return gravity;
+    }
+    if (this.shouldHoldJump()) {
+      this.jumpHoldTimeRemainingMs = Math.max(
+        this.jumpHoldTimeRemainingMs - delta,
+        0,
+      );
+      return gravity * jumpHeldGravityMultiplier;
+    }
+    this.jumpHoldTimeRemainingMs = 0;
+    if (this.vspeed < 0) {
+      return gravity * jumpReleasedGravityMultiplier;
+    }
+    return gravity * jumpFallGravityMultiplier;
+  }
+
+  private shouldHoldJump() {
+    if (!this.keyJump) {
+      return false;
+    }
+    if (!this.isJumping) {
+      return false;
+    }
+    if (this.vspeed >= 0) {
+      return false;
+    }
+    return this.jumpHoldTimeRemainingMs > 0;
   }
 
   private moveWithKnockback(delta: number, dt: number) {
@@ -772,7 +814,7 @@ export class Player extends MovingActor {
       this.moveWithFlying(dt, keySign);
     }
     if (!isKnockbackActive && !this.isFlying) {
-      this.moveWithGravity(dt, keySign);
+      this.moveWithGravity(delta, dt, keySign);
     }
 
     if (!isKnockbackActive && !this.isFlying && this.isGrounded && this.keyJump) {

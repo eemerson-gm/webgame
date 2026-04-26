@@ -8,7 +8,11 @@ import {
   stepEntityWithVelocity,
   tileMeeting,
 } from "./entityPhysics";
-import type { CollisionBounds, EntityPhysicsState } from "./entityPhysics";
+import type {
+  CollisionBounds,
+  EntityPhysicsState,
+  TileCollisionWorld,
+} from "./entityPhysics";
 import type { EntitySimulationContext } from "./entitySimulation";
 
 type TargetPlayerState = {
@@ -17,6 +21,21 @@ type TargetPlayerState = {
   y: number;
   width: number;
   height: number;
+};
+
+type PathNode = {
+  column: number;
+  row: number;
+};
+
+type PathEntry = {
+  node: PathNode;
+  path: PathNode[];
+};
+
+type SlimePathStep = {
+  horizontalSign: number;
+  shouldJump: boolean;
 };
 
 const slimeCollisionBounds: CollisionBounds = {
@@ -30,26 +49,34 @@ const slimeWidth = TILE_PX;
 const slimeHeight = TILE_PX;
 const slimeGravity = 0.2;
 const slimePositionScale = 100;
-const slimeChaseSpeed = 1.25;
+const slimeChaseSpeed = 0.625;
 const slimeChaseAcceleration = 0.25;
 const slimeStopDistance = TILE_PX * 0.4;
 const slimeJumpSpeed = -4;
 const slimeFriction = 0.9;
+const maxPathSearchNodes = 128;
+const pathVerticalOffsets = [0, -1, -2, -3, 1, 2, 3];
+const pathHorizontalOffsets = [-1, 1];
+const standNodeVerticalOffsets = [0, 1, 2, 3, -1, -2, -3];
 
 export const stepSlimeEntity = (
   entity: EntityState,
   context: EntitySimulationContext,
 ) => {
   const target = nearestTargetPlayer(entity, context.playersData);
-  const body = slimeBody(entity);
-  const horizontalSign = target ? horizontalSignBetween(body, target) : 0;
+  const pathStep = slimePathStep(entity, target, context);
+  const horizontalSign = pathStep.horizontalSign;
   const isKnockedBack = entity.knockbackMs > 0;
   const knockbackMs = Math.max(entity.knockbackMs - context.dt * 1000, 0);
   const horizontalSpeed = isKnockedBack
     ? entity.horizontalSpeed * slimeFriction
     : slimeHorizontalSpeed(entity, target, horizontalSign, context.dt);
-  const shouldJump =
-    !isKnockedBack && shouldSlimeJump(entity, target, horizontalSign, context);
+  const shouldJump = !isKnockedBack && shouldSlimeJump(
+    entity,
+    target,
+    pathStep,
+    context,
+  );
   const verticalSpeed = shouldJump
     ? slimeJumpSpeed
     : applyGravity(entity.verticalSpeed, slimeGravity, context.dt);
@@ -109,7 +136,7 @@ const slimeHorizontalSpeed = (
 const shouldSlimeJump = (
   entity: EntityState,
   target: TargetPlayerState | null,
-  horizontalSign: number,
+  pathStep: SlimePathStep,
   context: EntitySimulationContext,
 ) => {
   if (!entity.isGrounded) {
@@ -118,17 +145,169 @@ const shouldSlimeJump = (
   if (!target) {
     return false;
   }
-  if (entityCenterY(target) < entityCenterY(slimeBody(entity)) - TILE_PX * 0.5) {
+  if (pathStep.shouldJump) {
     return true;
   }
-  if (horizontalSign === 0) {
+  if (pathStep.horizontalSign === 0) {
     return false;
   }
-  return tileMeeting(entity.x + horizontalSign * 2, entity.y, {
+  return tileMeeting(entity.x + pathStep.horizontalSign * 2, entity.y, {
     collisionBounds: slimeCollisionBounds,
     world: context.world,
   });
 };
+
+const slimePathStep = (
+  entity: EntityState,
+  target: TargetPlayerState | null,
+  context: EntitySimulationContext,
+): SlimePathStep => {
+  if (!target) {
+    return {
+      horizontalSign: 0,
+      shouldJump: false,
+    };
+  }
+  const path = slimePathToTarget(entity, target, context.world);
+  const start = path[0];
+  const next = path[1];
+  const directHorizontalSign = horizontalSignBetween(slimeBody(entity), target);
+  if (!start || !next) {
+    return {
+      horizontalSign: directHorizontalSign,
+      shouldJump: false,
+    };
+  }
+  const horizontalSign = Math.sign(next.column - start.column);
+  return {
+    horizontalSign: horizontalSign === 0 ? directHorizontalSign : horizontalSign,
+    shouldJump: next.row < start.row,
+  };
+};
+
+const slimePathToTarget = (
+  entity: EntityState,
+  target: TargetPlayerState,
+  world: TileCollisionWorld,
+) => {
+  const start = standNodeNear(slimeBody(entity), world);
+  const goal = standNodeNear(target, world);
+  if (!start || !goal) {
+    return [];
+  }
+  return findPath(
+    [{ node: start, path: [start] }],
+    new Set([pathNodeKey(start)]),
+    goal,
+    world,
+    0,
+    [start],
+  );
+};
+
+const findPath = (
+  queue: PathEntry[],
+  visited: Set<string>,
+  goal: PathNode,
+  world: TileCollisionWorld,
+  searchedNodes: number,
+  bestPath: PathNode[],
+): PathNode[] => {
+  const current = queue[0];
+  if (!current) {
+    return bestPath;
+  }
+  if (samePathNode(current.node, goal)) {
+    return current.path;
+  }
+  if (searchedNodes >= maxPathSearchNodes) {
+    return bestPath;
+  }
+  const nextBestPath =
+    pathNodeDistance(current.node, goal) <
+    pathNodeDistance(bestPath.at(-1) ?? current.node, goal)
+      ? current.path
+      : bestPath;
+  const nextNodes = pathNeighbors(current.node, world).filter((node) => {
+    const key = pathNodeKey(node);
+    if (visited.has(key)) {
+      return false;
+    }
+    visited.add(key);
+    return true;
+  });
+  const nextEntries = nextNodes.map((node) => ({
+    node,
+    path: [...current.path, node],
+  }));
+  return findPath(
+    [...queue.slice(1), ...nextEntries],
+    visited,
+    goal,
+    world,
+    searchedNodes + 1,
+    nextBestPath,
+  );
+};
+
+const pathNeighbors = (node: PathNode, world: TileCollisionWorld) =>
+  pathHorizontalOffsets
+    .flatMap((columnOffset) =>
+      pathVerticalOffsets.map((rowOffset) => ({
+        column: node.column + columnOffset,
+        row: node.row + rowOffset,
+      })),
+    )
+    .filter((neighbor) => isReachableStandNode(node, neighbor, world));
+
+const isReachableStandNode = (
+  from: PathNode,
+  to: PathNode,
+  world: TileCollisionWorld,
+) => {
+  if (!isStandNode(to, world)) {
+    return false;
+  }
+  if (to.row < from.row - 3) {
+    return false;
+  }
+  return to.row <= from.row + 3;
+};
+
+const standNodeNear = (
+  entity: Pick<EntityPhysicsState, "x" | "y" | "width" | "height">,
+  world: TileCollisionWorld,
+) => {
+  const column = Math.floor(entityCenterX(entity) / world.tileWidth);
+  const row = Math.floor((entity.y + entity.height) / world.tileHeight);
+  return standNodeVerticalOffsets
+    .map((rowOffset) => ({
+      column,
+      row: row + rowOffset,
+    }))
+    .find((node) => isStandNode(node, world));
+};
+
+const isStandNode = (node: PathNode, world: TileCollisionWorld) => {
+  if (node.column < 0 || node.column >= world.columns) {
+    return false;
+  }
+  if (node.row <= 0 || node.row >= world.rows) {
+    return false;
+  }
+  if (!world.isSolidTile(node.column, node.row)) {
+    return false;
+  }
+  return !world.isSolidTile(node.column, node.row - 1);
+};
+
+const samePathNode = (a: PathNode, b: PathNode) =>
+  a.column === b.column && a.row === b.row;
+
+const pathNodeKey = (node: PathNode) => `${node.column},${node.row}`;
+
+const pathNodeDistance = (a: PathNode, b: PathNode) =>
+  Math.abs(a.column - b.column) + Math.abs(a.row - b.row);
 
 const facingLeftAfterStep = (entity: EntityState, horizontalSign: number) => {
   if (horizontalSign === 0) {
