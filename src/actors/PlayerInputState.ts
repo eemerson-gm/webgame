@@ -1,7 +1,7 @@
 import * as ex from "excalibur";
 import type { Data } from "../classes/GameProtocol";
 
-const flyToggleKeys = ["ControlLeft", "ControlRight", "Control"];
+const flyToggleKeys = ["Backquote"];
 
 export class PlayerInputState {
   public keyLeft: boolean = false;

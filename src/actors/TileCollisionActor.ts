@@ -12,7 +12,7 @@ export class TileCollisionActor extends ex.Actor {
   public hspeed: number = 0;
   public vspeed: number = 0;
   public readonly tilemap: ex.TileMap;
-  private readonly collisionBounds: CollisionBounds;
+  protected readonly collisionBounds: CollisionBounds;
 
   constructor(
     pos: ex.Vector,

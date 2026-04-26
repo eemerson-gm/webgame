@@ -1,12 +1,12 @@
 import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { Player } from "./actors/Player";
-import { Slime } from "./actors/Slime";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
 import type {
   Data,
+  PlayerKnockbackUpdate,
   TerrainBlockBreakUpdate,
   PlayerState,
   TerrainBlockUpdate,
@@ -19,7 +19,6 @@ const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
-const testingMobs = { slimes: [] as Slime[] };
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
@@ -125,22 +124,6 @@ const joinExistingRemotePlayers = (
   });
 };
 
-const spawnTestingSlime = (
-  game: ex.Engine,
-  tilemap: ex.TileMap,
-  world: WorldTerrainPayload,
-) => {
-  const column = Math.min(8, Math.max(0, world.columns - 1));
-  const surfaceRow = world.surfaceStartByColumn[column];
-  const slime = new Slime(
-    ex.vec(column * TILE_PX, (surfaceRow - 1) * TILE_PX),
-    tilemap,
-    () => localPlayerSlot.player,
-  );
-  testingMobs.slimes = [slime];
-  game.add(slime);
-};
-
 const applyTerrainBlockUpdate = (payload: Data) => {
   const terrain = worldSession.terrain;
   if (!terrain) {
@@ -155,8 +138,31 @@ const applyTerrainBlockBreakUpdate = (payload: Data) => {
   );
 };
 
+const playerForKnockbackId = (playerId: string) => {
+  if (clientSlot.client?.clientId === playerId) {
+    return localPlayerSlot.player;
+  }
+  return playerById[playerId] ?? null;
+};
+
+const applyPlayerKnockbackUpdate = (payload: Data) => {
+  const update = payload as PlayerKnockbackUpdate;
+  if (!update.id) {
+    return;
+  }
+  const attacker = playerForKnockbackId(update.id);
+  const target = playerForKnockbackId(update.targetId);
+  if (!attacker || !target) {
+    return;
+  }
+  target.knockBackFrom(attacker);
+};
+
+const clientSlot = { client: null as GameClient | null };
+
 game.start(loader).then(() => {
   const client = new GameClient();
+  clientSlot.client = client;
   client.listen({
     onConnect: (myPlayerId, playersData, world) => {
       if (!isWorldTerrainPayload(world)) {
@@ -185,10 +191,14 @@ game.start(loader).then(() => {
         client,
         () => localPlayerSlot.player,
         (playerId) => playerById[playerId] ?? null,
-        () => testingMobs.slimes,
+        () =>
+          Object.entries(playerById).map(([id, player]) => ({
+            id,
+            player,
+          })),
+        () => [],
       );
       game.add(blockTargetingSlot.highlight);
-      spawnTestingSlime(game, tilemap, world);
       client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
@@ -213,6 +223,7 @@ game.start(loader).then(() => {
       [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
       [messageTypes.updateBlock]: applyTerrainBlockUpdate,
       [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
+      [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
     }),
   });
 });

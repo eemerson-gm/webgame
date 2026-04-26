@@ -83,6 +83,27 @@ export class MovingActor extends TileCollisionActor {
     this.vspeed += gravity * 60 * dt;
   }
 
+  protected stayInsideWorldBounds() {
+    const worldWidth = this.tilemap.columns * this.tilemap.tileWidth;
+    const worldHeight = this.tilemap.rows * this.tilemap.tileHeight;
+    const minX = -this.collisionBounds.offsetX;
+    const maxX =
+      worldWidth - this.collisionBounds.offsetX - this.collisionBounds.width;
+    const minY = -this.collisionBounds.offsetY;
+    const maxY =
+      worldHeight - this.collisionBounds.offsetY - this.collisionBounds.height;
+    const clampedX = Math.min(Math.max(this.pos.x, minX), maxX);
+    const clampedY = Math.min(Math.max(this.pos.y, minY), maxY);
+    if (clampedX !== this.pos.x) {
+      this.hspeed = 0;
+    }
+    if (clampedY !== this.pos.y) {
+      this.vspeed = 0;
+    }
+    this.pos.x = clampedX;
+    this.pos.y = clampedY;
+  }
+
   protected moveWithVelocity(positionScale: number, dt: number) {
     const moveX = this.hspeed * positionScale * dt;
     const moveY = this.vspeed * positionScale * dt;
@@ -92,6 +113,7 @@ export class MovingActor extends TileCollisionActor {
     if (!this.moveVerticallyUntilBlocked(moveY)) {
       this.vspeed = 0;
     }
+    this.stayInsideWorldBounds();
     this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
     if (this.isGrounded) {
       this.isJumping = false;
@@ -101,6 +123,7 @@ export class MovingActor extends TileCollisionActor {
   protected moveFreely(positionScale: number, dt: number) {
     this.pos.x += this.hspeed * positionScale * dt;
     this.pos.y += this.vspeed * positionScale * dt;
+    this.stayInsideWorldBounds();
     this.isGrounded = false;
   }
 }

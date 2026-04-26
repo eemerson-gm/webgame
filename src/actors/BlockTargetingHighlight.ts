@@ -28,8 +28,14 @@ type TargetBlockPosition = {
   row: number;
 };
 
+type RemotePlayerEntry = {
+  id: string;
+  player: Player;
+};
+
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
+type RemotePlayersProvider = () => RemotePlayerEntry[];
 type SlimeProvider = () => Slime[];
 
 const colorChannelBetween = (start: number, end: number, progress: number) =>
@@ -59,6 +65,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly client: GameClient;
   private readonly getLocalPlayer: LocalPlayerProvider;
   private readonly getRemotePlayer: RemotePlayerProvider;
+  private readonly getRemotePlayers: RemotePlayersProvider;
   private readonly getSlimes: SlimeProvider;
   private readonly highlightGraphic: BlockHighlightRaster;
   private breakAnimation: ex.Animation;
@@ -72,6 +79,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     ex.Actor
   >;
   private readonly slimesHitByCurrentSwordSwing = new Set<Slime>();
+  private readonly playersHitByCurrentSwordSwing = new Set<Player>();
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
@@ -83,6 +91,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     client: GameClient,
     getLocalPlayer: LocalPlayerProvider,
     getRemotePlayer: RemotePlayerProvider,
+    getRemotePlayers: RemotePlayersProvider,
     getSlimes: SlimeProvider,
   ) {
     super({
@@ -96,6 +105,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.client = client;
     this.getLocalPlayer = getLocalPlayer;
     this.getRemotePlayer = getRemotePlayer;
+    this.getRemotePlayers = getRemotePlayers;
     this.getSlimes = getSlimes;
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
@@ -144,6 +154,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.updateHighlightColor(delta);
     this.updateBreakingTarget(target, delta);
     this.hitSlimesTouchingSword();
+    this.hitPlayersTouchingSword();
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
@@ -259,6 +270,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       return;
     }
     this.hitSlimesTouchingSword();
+    this.hitPlayersTouchingSword();
   }
 
   private hitSlimesTouchingSword() {
@@ -275,6 +287,24 @@ export class BlockTargetingHighlight extends ex.Actor {
       .forEach((slime) => {
         this.slimesHitByCurrentSwordSwing.add(slime);
         slime.knockBackFrom(localPlayer);
+      });
+  }
+
+  private hitPlayersTouchingSword() {
+    const localPlayer = this.getLocalPlayer();
+    const swordBounds = localPlayer?.swordHitBounds();
+    if (!localPlayer || !swordBounds) {
+      this.playersHitByCurrentSwordSwing.clear();
+      return;
+    }
+    this.getRemotePlayers()
+      .filter(({ player }) => !this.playersHitByCurrentSwordSwing.has(player))
+      .filter(({ player }) => player.overlapsWorldBounds(swordBounds))
+      .slice(0, 1)
+      .forEach(({ id, player }) => {
+        this.playersHitByCurrentSwordSwing.add(player);
+        player.knockBackFrom(localPlayer);
+        this.client.send(messageTypes.knockbackPlayer, { targetId: id });
       });
   }
 

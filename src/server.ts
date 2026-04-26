@@ -16,4 +16,5 @@ gameServer.listen({
   [messageTypes.updatePlayer]: "others",
   [messageTypes.updateBlock]: "all",
   [messageTypes.updateBlockBreak]: "others",
+  [messageTypes.knockbackPlayer]: "all",
 });

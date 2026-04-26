@@ -4,10 +4,10 @@ import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { Data, PlayerTool } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
-import { clamp } from "lodash";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
 import type { WorldBounds } from "./MovingActor";
+import { SwordHitboxOutlineRaster } from "./SwordHitboxOutlineRaster";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -32,6 +32,10 @@ const gravity = 0.2;
 const positionScale = 100;
 const flySpeed = 2.4;
 const flyAcceleration = 0.45;
+const playerKnockbackHorizontalSpeed = 2.2;
+const playerKnockbackVerticalSpeed = -1.4;
+const playerKnockbackDurationMs = 240;
+const playerKnockbackFriction = 0.94;
 const positionPrecision = 1000;
 const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
@@ -40,6 +44,11 @@ const useToolSpeedMultiplier = 0.7;
 const useToolAnchor = ex.vec(0, 1);
 const useToolMirroredAnchor = ex.vec(1, 1);
 const useToolHiddenOffset = () => ex.vec(-100000, -100000);
+const swordHitboxSize = TILE_PX * 0.75;
+const swordHitboxInset = (TILE_PX - swordHitboxSize) / 2;
+const swordHitboxOutlineScale = swordHitboxSize / TILE_PX;
+const swordHitboxOffset = ex.vec(14, 14);
+const swordHitboxOutlineToggleKeys = ["AltLeft", "AltRight", "Alt"];
 const useToolFrames = [
   { offset: ex.vec(12, 8), rotation: -0.9 },
   { offset: ex.vec(14, 10), rotation: -0.45 },
@@ -75,12 +84,15 @@ export class Player extends MovingActor {
   private lookUpSprite: ex.Sprite;
   private toolSprites: Record<PlayerTool, ex.Sprite>;
   private toolActor: ex.Actor;
+  private swordHitboxActor: ex.Actor;
   private walkAnimation: ex.Animation;
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
   private activeTool: PlayerTool = "pickaxe";
+  private isSwordHitboxOutlineEnabled: boolean = false;
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
+  private knockbackTimeRemainingMs: number = 0;
 
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
     const width = TILE_PX;
@@ -112,6 +124,16 @@ export class Player extends MovingActor {
     this.toolActor.graphics.use(this.toolSprites[this.activeTool]);
     this.toolActor.graphics.visible = false;
     this.toolActor.graphics.opacity = 0;
+    this.swordHitboxActor = new ex.Actor({
+      pos: useToolHiddenOffset(),
+      anchor: ex.vec(0, 0),
+      width: TILE_PX,
+      height: TILE_PX,
+      z: 10,
+    });
+    this.swordHitboxActor.graphics.use(new SwordHitboxOutlineRaster());
+    this.swordHitboxActor.graphics.visible = false;
+    this.swordHitboxActor.graphics.opacity = 0;
     this.useToolAnimation = new ex.Animation({
       frames: [
         { graphic: Resources.PlayerUseTool1.toSprite() },
@@ -177,6 +199,7 @@ export class Player extends MovingActor {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
     this.addChild(this.toolActor);
+    this.addChild(this.swordHitboxActor);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -248,20 +271,36 @@ export class Player extends MovingActor {
     return this.useTool(durationMs, "sword");
   }
 
+  public knockBackFrom(actor: ex.Actor) {
+    const actorCenterX = actor.pos.x + actor.width / 2;
+    const direction = this.centerX() < actorCenterX ? -1 : 1;
+    this.isFlying = false;
+    this.hspeed = playerKnockbackHorizontalSpeed * direction;
+    this.vspeed = playerKnockbackVerticalSpeed;
+    this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
+    const movementState = {
+      ...this.currentMovementState(),
+      isFlying: this.isFlying,
+    };
+    this.sendClient(messageTypes.updatePlayer, movementState, movementState);
+  }
+
   public swordHitBounds(): WorldBounds | null {
     if (!this.isUsingTool || this.activeTool !== "sword") {
       return null;
     }
-    const offset = this.currentToolOffset();
+    const offset = this.currentSwordHitboxOffset();
     const left = this.facingLeft
       ? this.pos.x + offset.x - TILE_PX
       : this.pos.x + offset.x;
     const top = this.pos.y + offset.y - TILE_PX;
+    const insetLeft = left + swordHitboxInset;
+    const insetTop = top + swordHitboxInset;
     return {
-      left,
-      right: left + TILE_PX,
-      top,
-      bottom: top + TILE_PX,
+      left: insetLeft,
+      right: insetLeft + swordHitboxSize,
+      top: insetTop,
+      bottom: insetTop + swordHitboxSize,
     };
   }
 
@@ -332,6 +371,9 @@ export class Player extends MovingActor {
     this.toolActor.pos = useToolHiddenOffset();
     this.toolActor.graphics.visible = false;
     this.toolActor.graphics.opacity = 0;
+    this.swordHitboxActor.pos = useToolHiddenOffset();
+    this.swordHitboxActor.graphics.visible = false;
+    this.swordHitboxActor.graphics.opacity = 0;
     if (this.currentVisual === "useTool") {
       this.currentVisual = "idle";
       this.graphics.use(this.idleSprite);
@@ -367,11 +409,39 @@ export class Player extends MovingActor {
     return this.facingLeft ? -frame.rotation : frame.rotation;
   }
 
+  private currentSwordHitboxOffset() {
+    if (this.facingLeft) {
+      return ex.vec(TILE_PX - swordHitboxOffset.x, swordHitboxOffset.y);
+    }
+    return swordHitboxOffset;
+  }
+
+  private syncSwordHitboxOutline() {
+    const swordHitBounds = this.swordHitBounds();
+    if (!this.isSwordHitboxOutlineEnabled || !swordHitBounds) {
+      this.swordHitboxActor.pos = useToolHiddenOffset();
+      this.swordHitboxActor.graphics.visible = false;
+      this.swordHitboxActor.graphics.opacity = 0;
+      return;
+    }
+    this.swordHitboxActor.pos = ex.vec(
+      swordHitBounds.left - this.pos.x,
+      swordHitBounds.top - this.pos.y,
+    );
+    this.swordHitboxActor.scale = ex.vec(
+      swordHitboxOutlineScale,
+      swordHitboxOutlineScale,
+    );
+    this.swordHitboxActor.graphics.opacity = 1;
+    this.swordHitboxActor.graphics.visible = true;
+  }
+
   private syncToolOverlay() {
     if (!this.isUsingTool) {
       this.toolActor.pos = useToolHiddenOffset();
       this.toolActor.graphics.visible = false;
       this.toolActor.graphics.opacity = 0;
+      this.syncSwordHitboxOutline();
       return;
     }
     this.toolActor.pos = this.currentToolOffset();
@@ -382,6 +452,7 @@ export class Player extends MovingActor {
     this.toolActor.graphics.flipHorizontal = this.facingLeft;
     this.toolActor.graphics.opacity = 1;
     this.toolActor.graphics.visible = true;
+    this.syncSwordHitboxOutline();
   }
 
   private updateToolOverlay(delta: number) {
@@ -437,12 +508,21 @@ export class Player extends MovingActor {
     if (!this.client) {
       return;
     }
+    if (this.didToggleSwordHitboxOutline(engine)) {
+      this.isSwordHitboxOutlineEnabled = !this.isSwordHitboxOutlineEnabled;
+    }
     const controlState = this.inputState.readKeyboard(engine, this.isFlying);
     this.isFlying = controlState.isFlying;
     if (controlState.didToggleFlying) {
       this.hspeed = 0;
       this.vspeed = 0;
     }
+  }
+
+  private didToggleSwordHitboxOutline(engine: ex.Engine) {
+    return swordHitboxOutlineToggleKeys.some((key) =>
+      engine.input.keyboard.wasPressed(key as ex.Keys),
+    );
   }
 
   private syncPlayerVisuals(keySign: number) {
@@ -534,6 +614,16 @@ export class Player extends MovingActor {
     this.moveWithVelocity(positionScale, dt);
   }
 
+  private moveWithKnockback(delta: number, dt: number) {
+    this.knockbackTimeRemainingMs = Math.max(
+      this.knockbackTimeRemainingMs - delta,
+      0,
+    );
+    this.applyGravity(gravity, dt);
+    this.moveWithVelocity(positionScale, dt);
+    this.hspeed *= playerKnockbackFriction;
+  }
+
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateControls(engine);
     this.onMove();
@@ -543,30 +633,23 @@ export class Player extends MovingActor {
     const keySign = this.inputState.horizontalSign();
 
     const previousGrounded = this.isGrounded;
-    if (this.isFlying) {
+    const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
+    if (isKnockbackActive) {
+      this.moveWithKnockback(delta, dt);
+    }
+    if (!isKnockbackActive && this.isFlying) {
       this.moveWithFlying(dt, keySign);
     }
-    if (!this.isFlying) {
+    if (!isKnockbackActive && !this.isFlying) {
       this.moveWithGravity(dt, keySign);
     }
 
-    if (!this.isFlying && this.isGrounded && this.keyJump) {
+    if (!isKnockbackActive && !this.isFlying && this.isGrounded && this.keyJump) {
       this.onJump();
     }
     if (!this.isFlying && !previousGrounded && this.isGrounded) {
       this.onLand();
     }
-
-    const maxX =
-      this.tilemap.columns * this.tilemap.tileWidth -
-      collisionOffsetX -
-      collisionWidth;
-    const maxY =
-      this.tilemap.rows * this.tilemap.tileHeight -
-      collisionOffsetY -
-      collisionHeight;
-    this.pos.x = clamp(this.pos.x, -collisionOffsetX, maxX);
-    this.pos.y = clamp(this.pos.y, -collisionOffsetY, maxY);
 
     this.syncPlayerVisuals(keySign);
     this.updateToolOverlay(delta);

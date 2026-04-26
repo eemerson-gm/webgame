@@ -56,6 +56,11 @@ export type TerrainBlockBreakUpdate = {
   breakDurationMs?: number;
 };
 
+export type PlayerKnockbackUpdate = {
+  id?: string;
+  targetId: string;
+};
+
 export type ConnectedPayload = {
   id: string;
   playersData: Record<string, PlayerState>;
@@ -69,6 +74,7 @@ export const messageTypes = {
   updatePlayer: "update_player",
   updateBlock: "update_block",
   updateBlockBreak: "update_block_break",
+  knockbackPlayer: "knockback_player",
 } as const;
 
 const fieldAliases = [
