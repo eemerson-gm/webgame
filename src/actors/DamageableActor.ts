@@ -1,6 +1,4 @@
 import * as ex from "excalibur";
-import { TILE_PX } from "../world/worldConfig";
-import { DamageFlashRaster } from "./DamageFlashRaster";
 
 export type DamageableActor<TActor extends ex.Actor = ex.Actor> = ex.Actor & {
   takeDamageFrom: (actor: TActor, damage?: number) => boolean;
@@ -10,30 +8,42 @@ export type DamageableActor<TActor extends ex.Actor = ex.Actor> = ex.Actor & {
 type DamageFlashOptions = {
   durationMs: number;
   blinkFrameMs: number;
-  z: number;
 };
 
-const damageFlashOpacity = 0.75;
+const fullWhiteMaterialSource = `#version 300 es
+precision mediump float;
 
-export class DamageFlash extends ex.Actor {
+uniform sampler2D u_graphic;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+void main() {
+  vec4 sourceColor = texture(u_graphic, v_uv);
+  fragColor = vec4(sourceColor.a, sourceColor.a, sourceColor.a, sourceColor.a);
+}`;
+
+export class DamageFlash {
+  private readonly actor: ex.Actor;
   private readonly durationMs: number;
   private readonly blinkFrameMs: number;
+  private material?: ex.Material;
+  private originalMaterial?: ex.Material | null;
   private timeRemainingMs = 0;
   private elapsedMs = 0;
+  private isVisible = false;
 
-  constructor(options: DamageFlashOptions) {
-    super({
-      pos: ex.vec(0, 0),
-      anchor: ex.vec(0, 0),
-      width: TILE_PX,
-      height: TILE_PX,
-      z: options.z,
-    });
+  constructor(actor: ex.Actor, options: DamageFlashOptions) {
+    this.actor = actor;
     this.durationMs = options.durationMs;
     this.blinkFrameMs = options.blinkFrameMs;
-    this.graphics.anchor = ex.vec(0, 0);
-    this.graphics.use(new DamageFlashRaster());
-    this.hide();
+  }
+
+  public initialize(engine: ex.Engine) {
+    this.material = engine.graphicsContext.createMaterial({
+      name: "damage-flash",
+      fragmentSource: fullWhiteMaterialSource,
+    });
   }
 
   public start() {
@@ -48,6 +58,10 @@ export class DamageFlash extends ex.Actor {
       return;
     }
     this.timeRemainingMs = Math.max(this.timeRemainingMs - delta, 0);
+    if (this.timeRemainingMs <= 0) {
+      this.hide();
+      return;
+    }
     this.elapsedMs += delta;
     if (this.isBlinkFrameVisible()) {
       this.show();
@@ -61,12 +75,21 @@ export class DamageFlash extends ex.Actor {
   }
 
   private show() {
-    this.graphics.visible = true;
-    this.graphics.opacity = damageFlashOpacity;
+    if (this.isVisible) {
+      return;
+    }
+    this.originalMaterial = this.actor.graphics.material;
+    this.actor.graphics.material = this.material ?? this.originalMaterial ?? null;
+    this.isVisible = true;
   }
 
   private hide() {
-    this.graphics.visible = false;
-    this.graphics.opacity = 0;
+    if (!this.isVisible) {
+      return;
+    }
+    if (this.actor.graphics.material === this.material) {
+      this.actor.graphics.material = this.originalMaterial ?? null;
+    }
+    this.isVisible = false;
   }
 }

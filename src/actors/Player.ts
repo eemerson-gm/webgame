@@ -43,7 +43,7 @@ const playerKnockbackVerticalSpeed = -1.4;
 const playerKnockbackDurationMs = 240;
 const playerKnockbackFriction = 0.94;
 const playerMaxHealth = 6;
-const playerDamageImmunityDurationMs = 1000;
+const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const positionPrecision = 1000;
 const serverMovementSyncIntervalMs = 150;
@@ -170,10 +170,9 @@ export class Player extends MovingActor {
     this.sleepBubbleActor.graphics.use(Resources.ThoughtBubbleSleep.toSprite());
     this.sleepBubbleActor.graphics.visible = false;
     this.sleepBubbleActor.graphics.opacity = 0;
-    this.damageFlash = new DamageFlash({
+    this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
       blinkFrameMs: playerDamageBlinkFrameMs,
-      z: 12,
     });
     this.useToolAnimation = new ex.Animation({
       frames: [
@@ -236,13 +235,13 @@ export class Player extends MovingActor {
     this.inputState.keyUp = value;
   }
 
-  override onInitialize() {
+  override onInitialize(engine: ex.Engine) {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
     this.addChild(this.toolActor);
     this.addChild(this.swordHitboxActor);
     this.addChild(this.sleepBubbleActor);
-    this.addChild(this.damageFlash);
+    this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;

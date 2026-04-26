@@ -41,16 +41,15 @@ export class Slime extends ex.Actor implements EntityActor {
     });
     this.state = { ...state };
     this.simulationProviders = simulationProviders;
-    this.damageFlash = new DamageFlash({
+    this.damageFlash = new DamageFlash(this, {
       durationMs: slimeDamageFlashDurationMs,
       blinkFrameMs: slimeDamageBlinkFrameMs,
-      z: 1,
     });
   }
 
-  override onInitialize() {
+  override onInitialize(engine: ex.Engine) {
     this.graphics.use(Resources.Slime.toSprite());
-    this.addChild(this.damageFlash);
+    this.damageFlash.initialize(engine);
     this.renderState();
   }
 
