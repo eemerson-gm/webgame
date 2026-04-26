@@ -102,10 +102,16 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.engine = engine;
     engine.add(this.breakAnimationActor);
     engine.input.pointers.primary.on("down", (event) => {
+      if (event.button !== ex.PointerButton.Left) {
+        return;
+      }
       this.isPointerHeld = true;
       this.startToolUseAt(this.targetAt(event.worldPos));
     });
-    engine.input.pointers.primary.on("up", () => {
+    engine.input.pointers.primary.on("up", (event) => {
+      if (event.button !== ex.PointerButton.Left) {
+        return;
+      }
       this.isPointerHeld = false;
       this.cancelBreakingTarget();
     });
