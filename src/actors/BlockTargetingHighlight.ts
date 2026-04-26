@@ -83,6 +83,8 @@ export class BlockTargetingHighlight extends ex.Actor {
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
+  private isPlacePointerHeld: boolean = false;
+  private lastPlacedTargetKey: string | null = null;
   private breakingTarget: TargetBlockPosition | null = null;
   private breakProgressMs: number = 0;
 
@@ -110,6 +112,8 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
+    this.graphics.visible = false;
+    this.graphics.opacity = 0;
     this.breakAnimation = this.createBlockBreakAnimation();
     this.breakAnimationActor = new ex.Actor({
       pos: hiddenActorPosition(),
@@ -127,12 +131,22 @@ export class BlockTargetingHighlight extends ex.Actor {
   override onInitialize(engine: ex.Engine) {
     this.engine = engine;
     engine.add(this.breakAnimationActor);
+    engine.canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+    });
     engine.input.pointers.primary.on("down", (event) => {
       if (event.button !== ex.PointerButton.Left) {
         return;
       }
       this.isPointerHeld = true;
       this.startToolUseAt(this.targetAt(event.worldPos));
+    });
+    engine.input.pointers.primary.on("down", (event) => {
+      if (event.button !== ex.PointerButton.Right) {
+        return;
+      }
+      this.isPlacePointerHeld = true;
+      this.placeBlockAt(this.placeTargetAt(event.worldPos));
     });
     engine.input.pointers.primary.on("up", (event) => {
       if (event.button !== ex.PointerButton.Left) {
@@ -141,8 +155,17 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.isPointerHeld = false;
       this.cancelBreakingTarget();
     });
+    engine.input.pointers.primary.on("up", (event) => {
+      if (event.button !== ex.PointerButton.Right) {
+        return;
+      }
+      this.isPlacePointerHeld = false;
+      this.lastPlacedTargetKey = null;
+    });
     engine.input.pointers.primary.on("cancel", () => {
       this.isPointerHeld = false;
+      this.isPlacePointerHeld = false;
+      this.lastPlacedTargetKey = null;
       this.cancelBreakingTarget();
     });
   }
@@ -150,8 +173,11 @@ export class BlockTargetingHighlight extends ex.Actor {
   override onPostUpdate(engine: ex.Engine, delta: number) {
     const mouseWorldPos = this.currentMouseWorldPosition(engine);
     const target = this.targetAt(mouseWorldPos);
+    const placeTarget = this.placeTargetAt(mouseWorldPos);
     this.moveToTarget(target);
+    this.syncHighlightVisibility(target);
     this.updateHighlightColor(delta);
+    this.updatePlacingTarget(placeTarget);
     this.updateBreakingTarget(target, delta);
     this.hitSlimesTouchingSword();
     this.hitPlayersTouchingSword();
@@ -216,6 +242,24 @@ export class BlockTargetingHighlight extends ex.Actor {
     return target;
   }
 
+  private placeTargetAt(mouseWorldPos: ex.Vector | null) {
+    const localPlayer = this.getLocalPlayer();
+    if (!mouseWorldPos || !localPlayer) {
+      return null;
+    }
+    if (localPlayer.isPaused) {
+      return null;
+    }
+    const target = this.tilePositionAt(mouseWorldPos);
+    if (this.isSolidTile(target)) {
+      return null;
+    }
+    if (!this.isWithinPlayerRange(localPlayer, target)) {
+      return null;
+    }
+    return target;
+  }
+
   private tilePositionAt(worldPos: ex.Vector) {
     return {
       column: Math.floor(
@@ -229,6 +273,10 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   private isSolidTile(target: TargetBlockPosition) {
     return !!this.terrain.blockAt(target.column, target.row);
+  }
+
+  private targetKey(target: TargetBlockPosition) {
+    return `${target.column},${target.row}`;
   }
 
   private isWithinPlayerRange(player: Player, target: TargetBlockPosition) {
@@ -257,11 +305,41 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
   }
 
+  private syncHighlightVisibility(target: TargetBlockPosition | null) {
+    this.graphics.visible = !!target;
+    this.graphics.opacity = target ? 1 : 0;
+  }
+
   private updateHighlightColor(delta: number) {
     this.highlightElapsedMs += delta;
     this.highlightGraphic.setColor(
       blockHighlightColorAt(this.highlightElapsedMs),
     );
+  }
+
+  private updatePlacingTarget(target: TargetBlockPosition | null) {
+    if (!this.isPlacePointerHeld) {
+      return;
+    }
+    this.placeBlockAt(target);
+  }
+
+  private placeBlockAt(target: TargetBlockPosition | null) {
+    if (!target) {
+      this.lastPlacedTargetKey = null;
+      return;
+    }
+    const targetKey = this.targetKey(target);
+    if (this.lastPlacedTargetKey === targetKey) {
+      return;
+    }
+    this.lastPlacedTargetKey = targetKey;
+    this.client.send(messageTypes.updateBlock, {
+      column: target.column,
+      row: target.row,
+      solid: true,
+      kind: "dirt",
+    });
   }
 
   private startToolUseAt(target: TargetBlockPosition | null) {
