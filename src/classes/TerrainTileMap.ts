@@ -29,7 +29,12 @@ type TerrainBorderOptions = {
   chunkRow: number;
 };
 
-type TerrainChangeHandler = () => void;
+export type TerrainChange = {
+  column: number;
+  row: number;
+};
+
+type TerrainChangeHandler = (change: TerrainChange) => void;
 
 const terrainBorderThickness = 1;
 const terrainChunkSize = 16;
@@ -328,11 +333,11 @@ export class TerrainTileMap {
     adjacentChunkKeysForTile(column, row, this.columns, this.rows).forEach((chunk) =>
       this.rebuildBorderChunk(chunk),
     );
-    this.emitBlocksChanged();
+    this.emitBlocksChanged({ column, row });
   }
 
-  private emitBlocksChanged() {
-    this.blockChangeHandlers.forEach((handler) => handler());
+  private emitBlocksChanged(change: TerrainChange) {
+    this.blockChangeHandlers.forEach((handler) => handler(change));
   }
 
   private syncTileNeighborhood(column: number, row: number) {
