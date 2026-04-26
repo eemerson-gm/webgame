@@ -1,6 +1,5 @@
 import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
-import { Hotbar } from "./actors/Hotbar";
 import { Player } from "./actors/Player";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
@@ -89,7 +88,7 @@ const syncMovementFieldsFromPayload = (
   player.keyDown = payload.keyDown ?? player.keyDown;
   player.keyUp = payload.keyUp ?? player.keyUp;
   if (payload.isUsingTool !== undefined) {
-    player.syncToolUseState(payload.isUsingTool);
+    player.syncToolUseState(payload.isUsingTool, undefined, payload.activeTool);
   }
   player.isFlying = payload.isFlying ?? player.isFlying;
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
@@ -170,7 +169,6 @@ game.start(loader).then(() => {
         (playerId) => playerById[playerId] ?? null,
       );
       game.add(blockTargetingSlot.highlight);
-      game.add(new Hotbar(viewWidth, viewHeight));
       client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);

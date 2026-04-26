@@ -14,7 +14,7 @@ export const Resources = {
   PlayerUseTool4: new ex.ImageSource("./assets/player/player_use_tool4.png"),
   PlayerUseTool5: new ex.ImageSource("./assets/player/player_use_tool5.png"),
   BronzePickaxe: new ex.ImageSource("./assets/tools/bronze_pickaxe.png"),
-  CopperPickaxeItem: new ex.ImageSource("./assets/items/copper_pickaxe.png"),
+  BronzeSword: new ex.ImageSource("./assets/tools/bronze_sword.png"),
   BlockBreak1: new ex.ImageSource("./assets/effects/block_break1.png"),
   BlockBreak2: new ex.ImageSource("./assets/effects/block_break2.png"),
   BlockBreak3: new ex.ImageSource("./assets/effects/block_break3.png"),
@@ -24,5 +24,4 @@ export const Resources = {
   Dirt: new ex.ImageSource("./assets/blocks/dirt.png"),
   Stone: new ex.ImageSource("./assets/blocks/stone.png"),
   Bedrock: new ex.ImageSource("./assets/blocks/bedrock.png"),
-  InventorySlot: new ex.ImageSource("./assets/ui/inventory_slot.png"),
 } as const;

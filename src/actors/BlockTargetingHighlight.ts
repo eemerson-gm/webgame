@@ -160,6 +160,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.getRemotePlayer(update.id)?.syncToolUseState(
       true,
       Number.POSITIVE_INFINITY,
+      "pickaxe",
     );
   }
 
@@ -243,7 +244,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.startBreakingTarget(target);
       return;
     }
-    this.getLocalPlayer()?.useTool();
+    this.getLocalPlayer()?.useSword();
   }
 
   private startBreakingTarget(target: TargetBlockPosition | null) {
@@ -258,7 +259,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!Number.isFinite(breakDurationMs)) {
       return;
     }
-    if (!localPlayer.keepUsingTool(Number.POSITIVE_INFINITY)) {
+    if (!localPlayer.keepUsingTool(Number.POSITIVE_INFINITY, "pickaxe")) {
       return;
     }
     this.sendBlockBreakUpdate(target, true, breakDurationMs);

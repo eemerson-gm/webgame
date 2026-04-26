@@ -1,7 +1,8 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
 import { GameClient } from "../classes/GameClient";
-import { Data, messageTypes } from "../classes/GameProtocol";
+import { messageTypes } from "../classes/GameProtocol";
+import type { Data, PlayerTool } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { clamp } from "lodash";
 import { PlayerInputState } from "./PlayerInputState";
@@ -34,24 +35,31 @@ const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
 const useToolSpeedMultiplier = 0.7;
-const useToolPickaxeAnchor = ex.vec(0, 1);
-const useToolPickaxeMirroredAnchor = ex.vec(1, 1);
-const useToolPickaxeHiddenOffset = () => ex.vec(-100000, -100000);
-const useToolPickaxeFrames = [
+const useToolAnchor = ex.vec(0, 1);
+const useToolMirroredAnchor = ex.vec(1, 1);
+const useToolHiddenOffset = () => ex.vec(-100000, -100000);
+const useToolFrames = [
   { offset: ex.vec(12, 8), rotation: -0.9 },
   { offset: ex.vec(14, 10), rotation: -0.45 },
   { offset: ex.vec(14, 12), rotation: 0.35 },
-  { offset: ex.vec(14, 12), rotation: 0.45 },
+  { offset: ex.vec(14, 12), rotation: 0.75 },
   { offset: ex.vec(13, 12), rotation: 0.75 },
 ];
+const playerToolByName: Record<string, PlayerTool> = {
+  pickaxe: "pickaxe",
+  sword: "sword",
+};
 type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "lookUp" | "useTool";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
 
-const useToolPickaxeFrameIndexAt = (elapsedMs: number) =>
+const useToolFrameIndexAt = (elapsedMs: number) =>
   Math.floor((elapsedMs % useToolDurationMs) / useToolFrameDurationMs) %
   useToolFrameCount;
+
+const playerToolFrom = (value: unknown): PlayerTool =>
+  playerToolByName[String(value)] ?? "pickaxe";
 
 export class Player extends ex.Actor {
   private client?: GameClient;
@@ -69,11 +77,12 @@ export class Player extends ex.Actor {
   private jumpSprite: ex.Sprite;
   private crouchSprite: ex.Sprite;
   private lookUpSprite: ex.Sprite;
-  private pickaxeSprite: ex.Sprite;
-  private pickaxeActor: ex.Actor;
+  private toolSprites: Record<PlayerTool, ex.Sprite>;
+  private toolActor: ex.Actor;
   private walkAnimation: ex.Animation;
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
+  private activeTool: PlayerTool = "pickaxe";
   private facingLeft: boolean = false;
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
@@ -93,18 +102,21 @@ export class Player extends ex.Actor {
     this.jumpSprite = Resources.PlayerJump.toSprite();
     this.crouchSprite = Resources.PlayerCrouch.toSprite();
     this.lookUpSprite = Resources.PlayerLookUp.toSprite();
-    this.pickaxeSprite = Resources.BronzePickaxe.toSprite();
-    this.pickaxeActor = new ex.Actor({
-      pos: useToolPickaxeHiddenOffset(),
+    this.toolSprites = {
+      pickaxe: Resources.BronzePickaxe.toSprite(),
+      sword: Resources.BronzeSword.toSprite(),
+    };
+    this.toolActor = new ex.Actor({
+      pos: useToolHiddenOffset(),
       anchor: ex.vec(0, 0),
       width: TILE_PX,
       height: TILE_PX,
       z: -1,
     });
-    this.pickaxeActor.graphics.anchor = useToolPickaxeAnchor;
-    this.pickaxeActor.graphics.use(this.pickaxeSprite);
-    this.pickaxeActor.graphics.visible = false;
-    this.pickaxeActor.graphics.opacity = 0;
+    this.toolActor.graphics.anchor = useToolAnchor;
+    this.toolActor.graphics.use(this.toolSprites[this.activeTool]);
+    this.toolActor.graphics.visible = false;
+    this.toolActor.graphics.opacity = 0;
     this.useToolAnimation = new ex.Animation({
       frames: [
         { graphic: Resources.PlayerUseTool1.toSprite() },
@@ -178,7 +190,7 @@ export class Player extends ex.Actor {
   override onInitialize() {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
-    this.addChild(this.pickaxeActor);
+    this.addChild(this.toolActor);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -213,35 +225,57 @@ export class Player extends ex.Actor {
     this.syncPosition();
   }
 
-  private sendToolUseState(isUsingTool: boolean) {
+  private setActiveTool(tool: PlayerTool) {
+    this.activeTool = tool;
+    this.toolActor.graphics.use(this.toolSprites[tool]);
+  }
+
+  private sendToolUseState(isUsingTool: boolean, activeTool = this.activeTool) {
     const position = this.currentPosition();
     this.sendClient(
       messageTypes.updatePlayer,
       {
         isUsingTool,
+        activeTool,
         ...position,
       },
       {
         isUsingTool,
+        activeTool,
         ...position,
       },
     );
   }
 
-  public useTool(durationMs: number = useToolDurationMs) {
+  public useTool(
+    durationMs: number = useToolDurationMs,
+    tool: PlayerTool = "pickaxe",
+  ) {
     if (this.isUsingTool) {
       return false;
     }
-    this.beginUsingTool(durationMs);
-    this.sendToolUseState(true);
+    this.beginUsingTool(durationMs, tool);
+    this.sendToolUseState(true, tool);
     return true;
   }
 
-  public keepUsingTool(durationMs: number) {
+  public useSword(durationMs: number = useToolDurationMs) {
+    return this.useTool(durationMs, "sword");
+  }
+
+  public keepUsingTool(durationMs: number, tool: PlayerTool = "pickaxe") {
     if (!this.isUsingTool) {
-      return this.useTool(durationMs);
+      return this.useTool(durationMs, tool);
     }
-    this.useToolTimeRemainingMs = Math.max(this.useToolTimeRemainingMs, durationMs);
+    const didChangeTool = this.activeTool !== tool;
+    this.setActiveTool(tool);
+    this.useToolTimeRemainingMs = Math.max(
+      this.useToolTimeRemainingMs,
+      durationMs,
+    );
+    if (didChangeTool) {
+      this.sendToolUseState(true, tool);
+    }
     return true;
   }
 
@@ -256,13 +290,19 @@ export class Player extends ex.Actor {
   public syncToolUseState(
     isUsingTool: boolean,
     durationMs: number = useToolDurationMs,
+    tool: unknown = "pickaxe",
   ) {
+    const activeTool = playerToolFrom(tool);
     if (isUsingTool && !this.isUsingTool) {
-      this.beginUsingTool(durationMs);
+      this.beginUsingTool(durationMs, activeTool);
       return;
     }
     if (isUsingTool && this.isUsingTool) {
-      this.useToolTimeRemainingMs = Math.max(this.useToolTimeRemainingMs, durationMs);
+      this.setActiveTool(activeTool);
+      this.useToolTimeRemainingMs = Math.max(
+        this.useToolTimeRemainingMs,
+        durationMs,
+      );
       return;
     }
     if (!isUsingTool && this.isUsingTool) {
@@ -270,8 +310,9 @@ export class Player extends ex.Actor {
     }
   }
 
-  private beginUsingTool(durationMs: number) {
+  private beginUsingTool(durationMs: number, tool: PlayerTool) {
     this.isUsingTool = true;
+    this.setActiveTool(tool);
     this.useToolTimeRemainingMs = durationMs;
     this.useToolElapsedMs = 0;
     if (this.currentVisual === "walk") {
@@ -286,9 +327,9 @@ export class Player extends ex.Actor {
   private stopUsingTool() {
     this.isUsingTool = false;
     this.useToolTimeRemainingMs = 0;
-    this.pickaxeActor.pos = useToolPickaxeHiddenOffset();
-    this.pickaxeActor.graphics.visible = false;
-    this.pickaxeActor.graphics.opacity = 0;
+    this.toolActor.pos = useToolHiddenOffset();
+    this.toolActor.graphics.visible = false;
+    this.toolActor.graphics.opacity = 0;
     if (this.currentVisual === "useTool") {
       this.currentVisual = "idle";
       this.graphics.use(this.idleSprite);
@@ -307,49 +348,47 @@ export class Player extends ex.Actor {
     this.sendToolUseState(false);
   }
 
-  private currentPickaxeFrame() {
-    return useToolPickaxeFrames[
-      useToolPickaxeFrameIndexAt(this.useToolElapsedMs)
-    ];
+  private currentToolFrame() {
+    return useToolFrames[useToolFrameIndexAt(this.useToolElapsedMs)];
   }
 
-  private currentPickaxeOffset() {
-    const frame = this.currentPickaxeFrame();
+  private currentToolOffset() {
+    const frame = this.currentToolFrame();
     if (this.facingLeft) {
       return ex.vec(TILE_PX - frame.offset.x, frame.offset.y);
     }
     return ex.vec(frame.offset.x, frame.offset.y);
   }
 
-  private currentPickaxeRotation() {
-    const frame = this.currentPickaxeFrame();
+  private currentToolRotation() {
+    const frame = this.currentToolFrame();
     return this.facingLeft ? -frame.rotation : frame.rotation;
   }
 
-  private syncPickaxeOverlay() {
+  private syncToolOverlay() {
     if (!this.isUsingTool) {
-      this.pickaxeActor.pos = useToolPickaxeHiddenOffset();
-      this.pickaxeActor.graphics.visible = false;
-      this.pickaxeActor.graphics.opacity = 0;
+      this.toolActor.pos = useToolHiddenOffset();
+      this.toolActor.graphics.visible = false;
+      this.toolActor.graphics.opacity = 0;
       return;
     }
-    this.pickaxeActor.pos = this.currentPickaxeOffset();
-    this.pickaxeActor.rotation = this.currentPickaxeRotation();
-    this.pickaxeActor.graphics.anchor = this.facingLeft
-      ? useToolPickaxeMirroredAnchor
-      : useToolPickaxeAnchor;
-    this.pickaxeActor.graphics.flipHorizontal = this.facingLeft;
-    this.pickaxeActor.graphics.opacity = 1;
-    this.pickaxeActor.graphics.visible = true;
+    this.toolActor.pos = this.currentToolOffset();
+    this.toolActor.rotation = this.currentToolRotation();
+    this.toolActor.graphics.anchor = this.facingLeft
+      ? useToolMirroredAnchor
+      : useToolAnchor;
+    this.toolActor.graphics.flipHorizontal = this.facingLeft;
+    this.toolActor.graphics.opacity = 1;
+    this.toolActor.graphics.visible = true;
   }
 
-  private updatePickaxeOverlay(delta: number) {
+  private updateToolOverlay(delta: number) {
     if (!this.isUsingTool) {
-      this.syncPickaxeOverlay();
+      this.syncToolOverlay();
       return;
     }
     this.useToolElapsedMs += delta;
-    this.syncPickaxeOverlay();
+    this.syncToolOverlay();
   }
 
   private currentPosition() {
@@ -621,7 +660,7 @@ export class Player extends ex.Actor {
     this.pos.y = clamp(this.pos.y, -collisionOffsetY, maxY);
 
     this.syncPlayerVisuals(keySign);
-    this.updatePickaxeOverlay(delta);
+    this.updateToolOverlay(delta);
     this.updateToolUseTimer(delta);
   }
 }

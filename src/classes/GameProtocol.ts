@@ -25,7 +25,10 @@ export type PlayerState = {
   isFlying?: boolean;
   horizontalSpeed?: number;
   verticalSpeed?: number;
+  activeTool?: PlayerTool;
 };
+
+export type PlayerTool = "pickaxe" | "sword";
 
 export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "stone";
 
@@ -75,6 +78,7 @@ const fieldAliases = [
   { readable: "keyDown", wire: "kd" },
   { readable: "keyUp", wire: "ku" },
   { readable: "isUsingTool", wire: "ut" },
+  { readable: "activeTool", wire: "at" },
   { readable: "isFlying", wire: "fl" },
   { readable: "horizontalSpeed", wire: "sh" },
   { readable: "verticalSpeed", wire: "sv" },
