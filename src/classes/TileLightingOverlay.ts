@@ -139,38 +139,175 @@ const combinedBrightnessByTile = (terrain: TerrainTileMap) => {
   ) as Record<string, number>;
 };
 
+type TileLightingRasterOptions = {
+  width: number;
+  height: number;
+  columns: number;
+  rows: number;
+  tileWidth: number;
+  tileHeight: number;
+  brightnessByTile: Record<string, number>;
+};
+
+type CanvasContext = {
+  canvas: HTMLCanvasElement;
+  context: CanvasRenderingContext2D;
+};
+
+const isInsideLightMap = (
+  column: number,
+  row: number,
+  columns: number,
+  rows: number,
+) => {
+  if (column < 0 || column >= columns) {
+    return false;
+  }
+  if (row < 0 || row >= rows) {
+    return false;
+  }
+  return true;
+};
+
+const createCanvasContext = (width: number, height: number): CanvasContext => {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("TileLightingOverlay: canvas context unavailable");
+  }
+  return { canvas, context };
+};
+
+const tileAlphaAt = (
+  brightnessByTile: Record<string, number>,
+  columns: number,
+  rows: number,
+  column: number,
+  row: number,
+) => {
+  if (!isInsideLightMap(column, row, columns, rows)) {
+    return null;
+  }
+  return shadowAlphaFor(brightnessByTile[terrainTileKey(column, row)] ?? 0);
+};
+
+const cornerTilePositions = (column: number, row: number) => [
+  { column: column - 1, row: row - 1 },
+  { column, row: row - 1 },
+  { column: column - 1, row },
+  { column, row },
+];
+
+const cornerAlphaAt = (
+  brightnessByTile: Record<string, number>,
+  columns: number,
+  rows: number,
+  column: number,
+  row: number,
+) => {
+  const alphas = cornerTilePositions(column, row)
+    .map((position) =>
+      tileAlphaAt(
+        brightnessByTile,
+        columns,
+        rows,
+        position.column,
+        position.row,
+      ),
+    )
+    .filter((alpha): alpha is number => alpha !== null);
+  const totalAlpha = alphas.reduce((sum, alpha) => sum + alpha, 0);
+  return totalAlpha / alphas.length;
+};
+
+const writeAlphaPixel = (
+  imageData: ImageData,
+  width: number,
+  x: number,
+  y: number,
+  alpha: number,
+) => {
+  const index = (y * width + x) * 4;
+  imageData.data[index] = 0;
+  imageData.data[index + 1] = 0;
+  imageData.data[index + 2] = 0;
+  imageData.data[index + 3] = Math.round(alpha * 255);
+};
+
+const fillAlphaMap = (
+  alphaMap: CanvasContext,
+  options: TileLightingRasterOptions,
+) => {
+  const width = options.columns + 1;
+  const height = options.rows + 1;
+  const imageData = alphaMap.context.createImageData(width, height);
+  indexes(width).forEach((column) =>
+    indexes(height).forEach((row) =>
+      writeAlphaPixel(
+        imageData,
+        width,
+        column,
+        row,
+        cornerAlphaAt(
+          options.brightnessByTile,
+          options.columns,
+          options.rows,
+          column,
+          row,
+        ),
+      ),
+    ),
+  );
+  alphaMap.context.putImageData(imageData, 0, 0);
+};
+
+const drawSmoothLightMap = (
+  ctx: CanvasRenderingContext2D,
+  alphaMap: CanvasContext,
+  options: TileLightingRasterOptions,
+) => {
+  fillAlphaMap(alphaMap, options);
+  ctx.clearRect(0, 0, options.width, options.height);
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(
+    alphaMap.canvas,
+    -options.tileWidth / 2,
+    -options.tileHeight / 2,
+    (options.columns + 1) * options.tileWidth,
+    (options.rows + 1) * options.tileHeight,
+  );
+  ctx.restore();
+};
+
 class TileLightingRaster extends ex.Raster {
   private brightnessByTile: Record<string, number>;
   private readonly columns: number;
   private readonly rows: number;
   private readonly tileWidth: number;
   private readonly tileHeight: number;
+  private readonly alphaMap: CanvasContext;
 
-  constructor(terrain: TerrainTileMap, brightnessByTile: Record<string, number>) {
+  constructor(options: TileLightingRasterOptions) {
     super({
-      width: terrain.worldWidth(),
-      height: terrain.worldHeight(),
+      width: options.width,
+      height: options.height,
       origin: ex.vec(0, 0),
       smoothing: true,
       filtering: ex.ImageFiltering.Pixel,
     });
-    this.brightnessByTile = brightnessByTile;
-    this.columns = terrain.columnCount();
-    this.rows = terrain.rowCount();
-    this.tileWidth = terrain.tileWidthPx();
-    this.tileHeight = terrain.tileHeightPx();
+    this.brightnessByTile = options.brightnessByTile;
+    this.columns = options.columns;
+    this.rows = options.rows;
+    this.tileWidth = options.tileWidth;
+    this.tileHeight = options.tileHeight;
+    this.alphaMap = createCanvasContext(this.columns + 1, this.rows + 1);
   }
 
   override clone() {
-    return new TileLightingRasterLike(
-      this.width,
-      this.height,
-      this.columns,
-      this.rows,
-      this.tileWidth,
-      this.tileHeight,
-      this.brightnessByTile,
-    );
+    return new TileLightingRaster(this.options());
   }
 
   public setBrightnessByTile(brightnessByTile: Record<string, number>) {
@@ -179,88 +316,19 @@ class TileLightingRaster extends ex.Raster {
   }
 
   override execute(ctx: CanvasRenderingContext2D) {
-    ctx.clearRect(0, 0, this.width, this.height);
-    indexes(this.columns).forEach((column) =>
-      indexes(this.rows).forEach((row) => this.drawShadowTile(ctx, column, row)),
-    );
+    drawSmoothLightMap(ctx, this.alphaMap, this.options());
   }
 
-  private drawShadowTile(
-    ctx: CanvasRenderingContext2D,
-    column: number,
-    row: number,
-  ) {
-    const x = column * this.tileWidth;
-    const y = row * this.tileHeight;
-    const alpha = shadowAlphaFor(
-      this.brightnessByTile[terrainTileKey(column, row)] ?? 0,
-    );
-    if (alpha <= 0) {
-      return;
-    }
-    ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-    ctx.fillRect(x, y, this.tileWidth, this.tileHeight);
-  }
-}
-
-class TileLightingRasterLike extends ex.Raster {
-  private readonly brightnessByTile: Record<string, number>;
-  private readonly columns: number;
-  private readonly rows: number;
-  private readonly tileWidth: number;
-  private readonly tileHeight: number;
-
-  constructor(
-    width: number,
-    height: number,
-    columns: number,
-    rows: number,
-    tileWidth: number,
-    tileHeight: number,
-    brightnessByTile: Record<string, number>,
-  ) {
-    super({
-      width,
-      height,
-      origin: ex.vec(0, 0),
-      smoothing: true,
-      filtering: ex.ImageFiltering.Pixel,
-    });
-    this.brightnessByTile = brightnessByTile;
-    this.columns = columns;
-    this.rows = rows;
-    this.tileWidth = tileWidth;
-    this.tileHeight = tileHeight;
-  }
-
-  override clone() {
-    return new TileLightingRasterLike(
-      this.width,
-      this.height,
-      this.columns,
-      this.rows,
-      this.tileWidth,
-      this.tileHeight,
-      this.brightnessByTile,
-    );
-  }
-
-  override execute(ctx: CanvasRenderingContext2D) {
-    ctx.clearRect(0, 0, this.width, this.height);
-    indexes(this.columns).forEach((column) =>
-      indexes(this.rows).forEach((row) => {
-        const x = column * this.tileWidth;
-        const y = row * this.tileHeight;
-        const alpha = shadowAlphaFor(
-          this.brightnessByTile[terrainTileKey(column, row)] ?? 0,
-        );
-        if (alpha <= 0) {
-          return;
-        }
-        ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-        ctx.fillRect(x, y, this.tileWidth, this.tileHeight);
-      }),
-    );
+  private options(): TileLightingRasterOptions {
+    return {
+      width: this.width,
+      height: this.height,
+      columns: this.columns,
+      rows: this.rows,
+      tileWidth: this.tileWidth,
+      tileHeight: this.tileHeight,
+      brightnessByTile: this.brightnessByTile,
+    };
   }
 }
 
@@ -277,10 +345,15 @@ export class TileLightingOverlay extends ex.Actor {
       z: lightOverlayZ,
     });
     this.terrain = terrain;
-    this.lightingRaster = new TileLightingRaster(
-      terrain,
-      combinedBrightnessByTile(terrain),
-    );
+    this.lightingRaster = new TileLightingRaster({
+      width: terrain.worldWidth(),
+      height: terrain.worldHeight(),
+      columns: terrain.columnCount(),
+      rows: terrain.rowCount(),
+      tileWidth: terrain.tileWidthPx(),
+      tileHeight: terrain.tileHeightPx(),
+      brightnessByTile: combinedBrightnessByTile(terrain),
+    });
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.lightingRaster);
     this.terrain.onBlocksChanged(() => this.rebuild());
