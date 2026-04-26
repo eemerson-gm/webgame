@@ -26,7 +26,12 @@ export class GameClient {
     onDisconnect,
   }: {
     listener: (playerSocket: WebSocket) => MessageEvents;
-    onConnect: (id: string, playersData: Data, world: Data) => void;
+    onConnect: (
+      id: string,
+      playersData: Data,
+      entitiesData: Data,
+      world: Data,
+    ) => void;
     onDisconnect: (id: string) => void;
   }) {
     const appHandlers = listener(this.playerSocket);
@@ -54,7 +59,12 @@ export class GameClient {
   }
 
   private handlersWithLifecycle(
-    onConnect: (id: string, playersData: Data, world: Data) => void,
+    onConnect: (
+      id: string,
+      playersData: Data,
+      entitiesData: Data,
+      world: Data,
+    ) => void,
     onDisconnect: (id: string) => void,
     appHandlers: MessageEvents,
   ): MessageEvents {
@@ -62,9 +72,9 @@ export class GameClient {
       ...appHandlers,
       [messageTypes.connected]: (data: Data) => {
         const connectedPayload = data as ConnectedPayload;
-        const { id, playersData, world } = connectedPayload;
+        const { id, playersData, entitiesData, world } = connectedPayload;
         this.clientId = id;
-        onConnect(id, playersData, world);
+        onConnect(id, playersData, entitiesData, world);
       },
       [messageTypes.disconnected]: (data: Data) => {
         const { id } = data;

@@ -1,15 +1,22 @@
 import { WebSocketServer, WebSocket } from "ws";
+import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
 import { buildSurfaceStartByColumn } from "../world/terrainGen";
-import { WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
+import { TILE_PX, WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
+import { createInitialEntitiesData } from "../simulation/entitySpawns";
+import { stepEntities } from "../simulation/entitySimulation";
+import type { TileCollisionWorld } from "../simulation/entityPhysics";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
+  EntitiesSnapshotPayload,
+  EntityState,
+  PlayerState,
   TerrainBlockBreakUpdate,
   TerrainBlockUpdate,
   TerrainTileKind,
@@ -26,6 +33,9 @@ const playerStateMessageTypes: string[] = [
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
 };
+
+const entityTickMs = 1000 / 60;
+const maxEntityTickMs = 100;
 
 const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
   if (kind === "bedrock") {
@@ -101,9 +111,11 @@ export class GameServer {
   private nextPlayerIndex = 0;
   private wss: WebSocketServer;
   private playerSockets: Record<string, WebSocket>;
-  private playersData: Record<string, Data>;
+  private playersData: Record<string, PlayerState>;
+  private entitiesData: Record<string, EntityState>;
   private worldSurfaceStarts: number[];
   private worldTerrainTiles: Record<string, TerrainTileKind>;
+  private lastEntityTickMs = Date.now();
 
   constructor(server: Server) {
     const worldSurfaceStarts = buildSurfaceStartByColumn({
@@ -113,12 +125,14 @@ export class GameServer {
     this.wss = new WebSocketServer({ server, perMessageDeflate: true });
     this.playerSockets = {};
     this.playersData = {};
+    this.entitiesData = createInitialEntitiesData(worldSurfaceStarts);
     this.worldSurfaceStarts = worldSurfaceStarts;
     this.worldTerrainTiles = buildTerrainTilesFromSurface(
       WORLD_TILE_COLUMNS,
       WORLD_TILE_ROWS,
       worldSurfaceStarts,
     );
+    this.startEntityTick();
   }
 
   public listen(messages: MessageRouting) {
@@ -161,6 +175,7 @@ export class GameServer {
     this.sendToPlayer(playerId, messageTypes.connected, {
       id: playerId,
       playersData: this.playersData,
+      entitiesData: this.entitiesData,
       world: this.worldPayload(),
     });
     socket.on("message", (data) =>
@@ -172,7 +187,7 @@ export class GameServer {
 
   private handleSocketMessage(
     playerId: string,
-    data: WebSocket.RawData,
+    data: RawData,
     messages: MessageRouting,
   ) {
     const json = data.toString();
@@ -254,6 +269,62 @@ export class GameServer {
       solidTiles: Object.keys(this.worldTerrainTiles),
       terrainTiles: this.worldTerrainTiles,
     };
+  }
+
+  private entitiesPayload(): EntitiesSnapshotPayload {
+    return {
+      entitiesData: this.entitiesData,
+    };
+  }
+
+  private startEntityTick() {
+    setInterval(() => this.updateEntities(), entityTickMs);
+  }
+
+  private updateEntities() {
+    const dt = this.entityTickDeltaSeconds();
+    this.entitiesData = stepEntities(this.entitiesData, {
+      playersData: this.playersData,
+      world: this.tileCollisionWorld(),
+      dt,
+    });
+    if (Object.keys(this.playerSockets).length === 0) {
+      return;
+    }
+    this.sendToAll(messageTypes.updateEntities, this.entitiesPayload());
+  }
+
+  private entityTickDeltaSeconds() {
+    const now = Date.now();
+    const elapsedMs = Math.min(
+      Math.max(now - this.lastEntityTickMs, 0),
+      maxEntityTickMs,
+    );
+    this.lastEntityTickMs = now;
+    return elapsedMs / 1000;
+  }
+
+  private tileCollisionWorld(): TileCollisionWorld {
+    return {
+      tileWidth: TILE_PX,
+      tileHeight: TILE_PX,
+      columns: WORLD_TILE_COLUMNS,
+      rows: WORLD_TILE_ROWS,
+      isSolidTile: (column, row) => this.isSolidTile(column, row),
+    };
+  }
+
+  private isSolidTile(column: number, row: number) {
+    if (column < 0 || column >= WORLD_TILE_COLUMNS) {
+      return true;
+    }
+    if (row >= WORLD_TILE_ROWS) {
+      return true;
+    }
+    if (row < 0) {
+      return false;
+    }
+    return !!this.worldTerrainTiles[terrainTileKey(column, row)];
   }
 
   private payloadForMessage(type: string, payload: Data, playerId: string) {

@@ -31,6 +31,27 @@ export type PlayerState = {
 
 export type PlayerTool = "pickaxe" | "sword";
 
+export type EntityType = "slime";
+
+export type EntityState = {
+  id: string;
+  type: EntityType;
+  x: number;
+  y: number;
+  horizontalSpeed: number;
+  verticalSpeed: number;
+  facingLeft: boolean;
+  isGrounded: boolean;
+  isJumping: boolean;
+  health: number;
+  knockbackMs: number;
+  targetPlayerId?: string;
+};
+
+export type EntitiesSnapshotPayload = {
+  entitiesData: Record<string, EntityState>;
+};
+
 export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "lamp" | "stone";
 
 export type WorldTerrainPayload = {
@@ -65,6 +86,7 @@ export type PlayerKnockbackUpdate = {
 export type ConnectedPayload = {
   id: string;
   playersData: Record<string, PlayerState>;
+  entitiesData: Record<string, EntityState>;
   world: Data;
 };
 
@@ -76,6 +98,7 @@ export const messageTypes = {
   updateBlock: "update_block",
   updateBlockBreak: "update_block_break",
   knockbackPlayer: "knockback_player",
+  updateEntities: "update_entities",
 } as const;
 
 export const encodeMessage = (message: GameMessage) => {

@@ -1,13 +1,15 @@
 import * as ex from "excalibur";
 import { TileCollisionActor } from "./TileCollisionActor";
 import type { CollisionBounds } from "./TileCollisionActor";
+import {
+  applyGravity as applyEntityGravity,
+  overlapsWorldBounds as entityOverlapsWorldBounds,
+  stepEntityFreely,
+  stepEntityWithVelocity,
+} from "../simulation/entityPhysics";
+import type { EntityPhysicsState, WorldBounds } from "../simulation/entityPhysics";
 
-export type WorldBounds = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-};
+export type { WorldBounds } from "../simulation/entityPhysics";
 
 export class MovingActor extends TileCollisionActor {
   public isGrounded: boolean = false;
@@ -38,16 +40,7 @@ export class MovingActor extends TileCollisionActor {
   }
 
   public overlapsWorldBounds(bounds: WorldBounds) {
-    if (this.pos.x + this.width < bounds.left) {
-      return false;
-    }
-    if (this.pos.x > bounds.right) {
-      return false;
-    }
-    if (this.pos.y + this.height < bounds.top) {
-      return false;
-    }
-    return this.pos.y <= bounds.bottom;
+    return entityOverlapsWorldBounds(this.entityPhysicsState(), bounds);
   }
 
   protected centerX() {
@@ -80,50 +73,48 @@ export class MovingActor extends TileCollisionActor {
   }
 
   protected applyGravity(gravity: number, dt: number) {
-    this.vspeed += gravity * 60 * dt;
-  }
-
-  protected stayInsideWorldBounds() {
-    const worldWidth = this.tilemap.columns * this.tilemap.tileWidth;
-    const worldHeight = this.tilemap.rows * this.tilemap.tileHeight;
-    const minX = -this.collisionBounds.offsetX;
-    const maxX =
-      worldWidth - this.collisionBounds.offsetX - this.collisionBounds.width;
-    const minY = -this.collisionBounds.offsetY;
-    const maxY =
-      worldHeight - this.collisionBounds.offsetY - this.collisionBounds.height;
-    const clampedX = Math.min(Math.max(this.pos.x, minX), maxX);
-    const clampedY = Math.min(Math.max(this.pos.y, minY), maxY);
-    if (clampedX !== this.pos.x) {
-      this.hspeed = 0;
-    }
-    if (clampedY !== this.pos.y) {
-      this.vspeed = 0;
-    }
-    this.pos.x = clampedX;
-    this.pos.y = clampedY;
+    this.vspeed = applyEntityGravity(this.vspeed, gravity, dt);
   }
 
   protected moveWithVelocity(positionScale: number, dt: number) {
-    const moveX = this.hspeed * positionScale * dt;
-    const moveY = this.vspeed * positionScale * dt;
-    if (!this.moveHorizontallyUntilBlocked(moveX)) {
-      this.hspeed = 0;
-    }
-    if (!this.moveVerticallyUntilBlocked(moveY)) {
-      this.vspeed = 0;
-    }
-    this.stayInsideWorldBounds();
-    this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
-    if (this.isGrounded) {
-      this.isJumping = false;
-    }
+    this.applyEntityPhysicsState(
+      stepEntityWithVelocity(this.entityPhysicsState(), {
+        ...this.entityPhysicsOptions(),
+        positionScale,
+        dt,
+      }),
+    );
   }
 
   protected moveFreely(positionScale: number, dt: number) {
-    this.pos.x += this.hspeed * positionScale * dt;
-    this.pos.y += this.vspeed * positionScale * dt;
-    this.stayInsideWorldBounds();
-    this.isGrounded = false;
+    this.applyEntityPhysicsState(
+      stepEntityFreely(this.entityPhysicsState(), {
+        ...this.entityPhysicsOptions(),
+        positionScale,
+        dt,
+      }),
+    );
+  }
+
+  private entityPhysicsState(): EntityPhysicsState {
+    return {
+      x: this.pos.x,
+      y: this.pos.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      width: this.width,
+      height: this.height,
+      isGrounded: this.isGrounded,
+      isJumping: this.isJumping,
+    };
+  }
+
+  private applyEntityPhysicsState(state: EntityPhysicsState) {
+    this.pos.x = state.x;
+    this.pos.y = state.y;
+    this.hspeed = state.horizontalSpeed;
+    this.vspeed = state.verticalSpeed;
+    this.isGrounded = state.isGrounded;
+    this.isJumping = state.isJumping;
   }
 }

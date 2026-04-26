@@ -1,12 +1,16 @@
 import * as ex from "excalibur";
+import {
+  moveHorizontallyUntilBlocked as moveEntityHorizontallyUntilBlocked,
+  moveVerticallyUntilBlocked as moveEntityVerticallyUntilBlocked,
+  tileMeeting as entityTileMeeting,
+} from "../simulation/entityPhysics";
+import type {
+  CollisionBounds,
+  EntityPhysicsOptions,
+  TileCollisionWorld,
+} from "../simulation/entityPhysics";
 
-export type CollisionBounds = {
-  offsetX: number;
-  offsetY: number;
-  width: number;
-  height: number;
-  edgeInset: number;
-};
+export type { CollisionBounds } from "../simulation/entityPhysics";
 
 export class TileCollisionActor extends ex.Actor {
   public hspeed: number = 0;
@@ -32,88 +36,46 @@ export class TileCollisionActor extends ex.Actor {
   }
 
   protected tileMeeting(x: number, y: number) {
-    const tw = this.tilemap.tileWidth;
-    const th = this.tilemap.tileHeight;
-    const bounds = this.collisionBoundsAt(x, y);
-    const collision =
-      this.tilemap
-        .getTile(Math.floor(bounds.left / tw), Math.floor(bounds.top / th))
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(Math.floor(bounds.right / tw), Math.floor(bounds.top / th))
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(Math.floor(bounds.left / tw), Math.floor(bounds.bottom / th))
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(Math.floor(bounds.right / tw), Math.floor(bounds.bottom / th))
-        ?.getGraphics().length;
-
-    return !!collision;
+    return entityTileMeeting(x, y, this.entityPhysicsOptions());
   }
 
   protected moveHorizontallyUntilBlocked(moveX: number) {
-    if (!this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
-      this.pos.x += moveX;
-      return true;
-    }
-    this.nudgeXUntilBlocked(moveX);
-    return false;
+    const move = moveEntityHorizontallyUntilBlocked(
+      this.pos.x,
+      this.pos.y,
+      moveX,
+      this.entityPhysicsOptions(),
+    );
+    this.pos.x = move.x;
+    return !move.isBlocked;
   }
 
   protected moveVerticallyUntilBlocked(moveY: number) {
-    if (!this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
-      this.pos.y += moveY;
-      return true;
-    }
-    this.nudgeYUntilBlocked(moveY);
-    return false;
+    const move = moveEntityVerticallyUntilBlocked(
+      this.pos.x,
+      this.pos.y,
+      moveY,
+      this.entityPhysicsOptions(),
+    );
+    this.pos.y = move.y;
+    return !move.isBlocked;
   }
 
-  private collisionBoundsAt(x: number, y: number) {
+  protected entityPhysicsOptions(): EntityPhysicsOptions {
     return {
-      left: x + this.collisionBounds.offsetX,
-      right:
-        x +
-        this.collisionBounds.offsetX +
-        this.collisionBounds.width -
-        this.collisionBounds.edgeInset,
-      top: y + this.collisionBounds.offsetY,
-      bottom:
-        y +
-        this.collisionBounds.offsetY +
-        this.collisionBounds.height -
-        this.collisionBounds.edgeInset,
+      collisionBounds: this.collisionBounds,
+      world: this.tileCollisionWorld(),
     };
   }
 
-  private nudgeXUntilBlocked(moveX: number) {
-    const span = this.tilemap.tileWidth;
-    const nudge = (rem: number): void => {
-      if (rem <= 0) {
-        return;
-      }
-      if (this.tileMeeting(this.pos.x + Math.sign(moveX), this.pos.y)) {
-        return;
-      }
-      this.pos.x += Math.sign(moveX);
-      nudge(rem - 1);
+  private tileCollisionWorld(): TileCollisionWorld {
+    return {
+      tileWidth: this.tilemap.tileWidth,
+      tileHeight: this.tilemap.tileHeight,
+      columns: this.tilemap.columns,
+      rows: this.tilemap.rows,
+      isSolidTile: (column, row) =>
+        !!this.tilemap.getTile(column, row)?.getGraphics().length,
     };
-    nudge(span);
-  }
-
-  private nudgeYUntilBlocked(moveY: number) {
-    const span = this.tilemap.tileHeight;
-    const nudge = (rem: number): void => {
-      if (rem <= 0) {
-        return;
-      }
-      if (this.tileMeeting(this.pos.x, this.pos.y + Math.sign(moveY))) {
-        return;
-      }
-      this.pos.y += Math.sign(moveY);
-      nudge(rem - 1);
-    };
-    nudge(span);
   }
 }

@@ -37,6 +37,7 @@ const playerKnockbackVerticalSpeed = -1.4;
 const playerKnockbackDurationMs = 240;
 const playerKnockbackFriction = 0.94;
 const positionPrecision = 1000;
+const serverMovementSyncIntervalMs = 100;
 const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
@@ -97,6 +98,7 @@ export class Player extends MovingActor {
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
   private knockbackTimeRemainingMs: number = 0;
+  private serverMovementSyncElapsedMs: number = 0;
 
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
     const width = TILE_PX;
@@ -543,6 +545,22 @@ export class Player extends MovingActor {
     this.sendClient(messageTypes.updatePlayer, position);
   }
 
+  private syncMovementPeriodically(delta: number) {
+    if (!this.client) {
+      return;
+    }
+    this.serverMovementSyncElapsedMs += delta;
+    if (this.serverMovementSyncElapsedMs < serverMovementSyncIntervalMs) {
+      return;
+    }
+    this.serverMovementSyncElapsedMs =
+      this.serverMovementSyncElapsedMs % serverMovementSyncIntervalMs;
+    this.sendClient(messageTypes.updatePlayer, {
+      ...this.currentMovementState(),
+      isFlying: this.isFlying,
+    });
+  }
+
   private onMove() {
     if (!this.inputState.hasChanged(this.isFlying)) {
       return;
@@ -721,6 +739,7 @@ export class Player extends MovingActor {
     }
 
     this.syncPlayerVisuals(keySign);
+    this.syncMovementPeriodically(delta);
     this.updateToolOverlay(delta);
     this.updateToolUseTimer(delta);
   }

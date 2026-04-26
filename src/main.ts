@@ -1,11 +1,14 @@
 import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { Player } from "./actors/Player";
+import { Slime } from "./actors/Slime";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
 import type {
   Data,
+  EntitiesSnapshotPayload,
+  EntityState,
   PlayerKnockbackUpdate,
   TerrainBlockBreakUpdate,
   PlayerState,
@@ -18,6 +21,7 @@ import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
+const slimeById: Record<string, Slime> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
@@ -161,6 +165,43 @@ const joinExistingRemotePlayers = (
   });
 };
 
+const spawnSlimeFromState = (game: ex.Engine, state: EntityState) => {
+  const slime = new Slime(state);
+  slimeById[state.id] = slime;
+  game.add(slime);
+  return slime;
+};
+
+const applyEntityState = (state: EntityState) => {
+  if (state.type !== "slime") {
+    return;
+  }
+  const slime = slimeById[state.id];
+  if (slime) {
+    slime.syncFromState(state);
+    return;
+  }
+  const terrain = worldSession.terrain;
+  if (!terrain) {
+    return;
+  }
+  spawnSlimeFromState(game, state);
+};
+
+const applyEntitiesSnapshot = (payload: Data) => {
+  const { entitiesData } = payload as EntitiesSnapshotPayload;
+  if (!entitiesData) {
+    return;
+  }
+  Object.values(entitiesData).forEach((state) => applyEntityState(state));
+  Object.keys(slimeById)
+    .filter((slimeId) => !entitiesData[slimeId])
+    .forEach((slimeId) => {
+      slimeById[slimeId].kill();
+      delete slimeById[slimeId];
+    });
+};
+
 const applyTerrainBlockUpdate = (payload: Data) => {
   const terrain = worldSession.terrain;
   if (!terrain) {
@@ -202,7 +243,7 @@ game.start(loader).then(() => {
   const client = new GameClient();
   clientSlot.client = client;
   client.listen({
-    onConnect: (myPlayerId, playersData, world) => {
+    onConnect: (myPlayerId, playersData, entitiesData, world) => {
       if (!isWorldTerrainPayload(world)) {
         console.error("Invalid or missing world payload from server");
         return;
@@ -236,7 +277,7 @@ game.start(loader).then(() => {
             id,
             player,
           })),
-        () => [],
+        () => Object.values(slimeById),
       );
       game.add(blockTargetingSlot.highlight);
       client.send(messageTypes.createPlayer, { x: 0, y: 0 });
@@ -244,6 +285,7 @@ game.start(loader).then(() => {
       syncLocalPauseState();
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
+      applyEntitiesSnapshot({ entitiesData });
     },
     onDisconnect: (gonePlayerId) => {
       blockTargetingSlot.highlight?.removeRemoteBreakAnimation(gonePlayerId);
@@ -266,6 +308,7 @@ game.start(loader).then(() => {
       [messageTypes.updateBlock]: applyTerrainBlockUpdate,
       [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
       [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
+      [messageTypes.updateEntities]: applyEntitiesSnapshot,
     }),
   });
 });

@@ -1,126 +1,140 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
+import type { EntityState } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
+import type { WorldBounds } from "../simulation/entityPhysics";
+import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
-import { MovingActor } from "./MovingActor";
 
-const gravity = 0.2;
-const positionScale = 100;
-const friction = 0.9;
-const chaseSpeed = 0.75;
-const chaseAcceleration = 0.08;
-const stopDistance = TILE_PX * 0.4;
-const jumpSpeed = -3.2;
-const knockbackHorizontalSpeed = 2.2;
-const knockbackVerticalSpeed = -1.4;
-const knockbackDurationMs = 240;
-const collisionEdgeInset = 0.1;
-
-type PlayerProvider = () => Player | null;
-
-const approach = (start: number, end: number, amount: number) => {
-  if (start < end) {
-    return Math.min(start + amount, end);
-  }
-  return Math.max(start - amount, end);
+type SlimeSnapshot = {
+  state: EntityState;
+  receivedAt: number;
 };
 
-export class Slime extends MovingActor {
-  private readonly getTargetPlayer: PlayerProvider;
-  private knockbackTimeRemainingMs: number = 0;
+const interpolationDelayMs = 120;
+const maxSnapshotAgeMs = 1000;
+const snapDistance = TILE_PX * 1.5;
 
-  constructor(
-    pos: ex.Vector,
-    tilemap: ex.TileMap,
-    getTargetPlayer: PlayerProvider,
-  ) {
-    super(pos, tilemap, ex.vec(TILE_PX, TILE_PX), {
-      offsetX: 0,
-      offsetY: 0,
+export class Slime extends ex.Actor implements EntityActor {
+  private state: EntityState;
+  private snapshots: SlimeSnapshot[] = [];
+
+  constructor(state: EntityState) {
+    super({
+      pos: ex.vec(state.x, state.y),
+      anchor: ex.vec(0, 0),
       width: TILE_PX,
       height: TILE_PX,
-      edgeInset: collisionEdgeInset,
+      z: 2,
     });
-    this.getTargetPlayer = getTargetPlayer;
+    this.state = state;
+    this.syncFromState(state);
+  }
+
+  override onInitialize() {
     this.graphics.use(Resources.Slime.toSprite());
   }
 
-  public isWithinSwordRangeOf(player: Player) {
-    const playerCenterX = player.pos.x + player.width / 2;
-    const playerCenterY = player.pos.y + player.height / 2;
-    const slimeCenterX = this.centerX();
-    const slimeCenterY = this.centerY();
-    const distance = Math.hypot(
-      slimeCenterX - playerCenterX,
-      slimeCenterY - playerCenterY,
+  public syncFromState(state: EntityState) {
+    const snapshot = {
+      state,
+      receivedAt: performance.now(),
+    };
+    this.snapshots = [...this.snapshots, snapshot];
+    if (this.snapshots.length === 1) {
+      this.renderSnapshot(snapshot);
+    }
+  }
+
+  public overlapsWorldBounds(bounds: WorldBounds) {
+    if (this.pos.x + this.width < bounds.left) {
+      return false;
+    }
+    if (this.pos.x > bounds.right) {
+      return false;
+    }
+    if (this.pos.y + this.height < bounds.top) {
+      return false;
+    }
+    return this.pos.y <= bounds.bottom;
+  }
+
+  public knockBackFrom(_player: Player) {
+    void _player;
+  }
+
+  override onPostUpdate(_engine: ex.Engine, _delta: number) {
+    void _engine;
+    void _delta;
+    const renderTime = performance.now() - interpolationDelayMs;
+    const previousSnapshot = this.previousSnapshotAt(renderTime);
+    const nextSnapshot = this.nextSnapshotAt(renderTime);
+    if (!previousSnapshot || !nextSnapshot) {
+      return;
+    }
+    this.snapshots = this.snapshots.filter(
+      (snapshot) =>
+        snapshot.receivedAt >= renderTime - maxSnapshotAgeMs ||
+        snapshot === previousSnapshot,
     );
-    return distance <= TILE_PX * 2.5;
-  }
-
-  public knockBackFrom(player: Player) {
-    const playerCenterX = player.pos.x + player.width / 2;
-    const slimeCenterX = this.centerX();
-    const direction = slimeCenterX < playerCenterX ? -1 : 1;
-    this.hspeed = knockbackHorizontalSpeed * direction;
-    this.vspeed = knockbackVerticalSpeed;
-    this.knockbackTimeRemainingMs = knockbackDurationMs;
-  }
-
-  override onPostUpdate(_engine: ex.Engine, delta: number) {
-    const dt = delta / 1000;
-    this.updateChase(delta);
-    this.applyGravity(gravity, dt);
-    this.moveWithVelocity(positionScale, dt);
-    if (this.knockbackTimeRemainingMs > 0) {
-      this.hspeed *= friction;
+    if (previousSnapshot === nextSnapshot) {
+      this.renderSnapshot(previousSnapshot);
       return;
     }
-    if (!this.getTargetPlayer()) {
-      this.hspeed *= friction;
-    }
+    this.renderInterpolatedSnapshot(previousSnapshot, nextSnapshot, renderTime);
   }
 
-  private updateChase(delta: number) {
-    if (this.knockbackTimeRemainingMs > 0) {
-      this.knockbackTimeRemainingMs = Math.max(
-        this.knockbackTimeRemainingMs - delta,
-        0,
-      );
-      return;
-    }
-    const player = this.getTargetPlayer();
-    if (!player) {
-      return;
-    }
-    const playerCenterX = player.pos.x + player.width / 2;
-    const playerCenterY = player.pos.y + player.height / 2;
-    const slimeCenterX = this.centerX();
-    const slimeCenterY = this.centerY();
-    const distanceX = playerCenterX - slimeCenterX;
-    const direction = this.horizontalSignTo(player);
-    this.syncFacingFromHorizontalSign(direction);
-    const targetSpeed =
-      Math.abs(distanceX) <= stopDistance ? 0 : direction * chaseSpeed;
-    this.hspeed = approach(this.hspeed, targetSpeed, chaseAcceleration);
-    if (this.shouldJumpToward(playerCenterY, slimeCenterY, direction)) {
-      this.jump(jumpSpeed);
-    }
+  private previousSnapshotAt(renderTime: number) {
+    return (
+      this.snapshots
+        .filter((snapshot) => snapshot.receivedAt <= renderTime)
+        .at(-1) ?? this.snapshots[0]
+    );
   }
 
-  private shouldJumpToward(
-    playerCenterY: number,
-    slimeCenterY: number,
-    direction: number,
+  private nextSnapshotAt(renderTime: number) {
+    return (
+      this.snapshots.find((snapshot) => snapshot.receivedAt >= renderTime) ??
+      this.snapshots.at(-1)
+    );
+  }
+
+  private renderSnapshot(snapshot: SlimeSnapshot) {
+    this.state = snapshot.state;
+    this.moveToRenderedPosition(ex.vec(snapshot.state.x, snapshot.state.y));
+    this.graphics.flipHorizontal = this.state.facingLeft;
+  }
+
+  private renderInterpolatedSnapshot(
+    previousSnapshot: SlimeSnapshot,
+    nextSnapshot: SlimeSnapshot,
+    renderTime: number,
   ) {
-    if (!this.tileMeeting(this.pos.x, this.pos.y + 1)) {
-      return false;
+    const snapshotDuration = nextSnapshot.receivedAt - previousSnapshot.receivedAt;
+    if (snapshotDuration <= 0) {
+      this.renderSnapshot(nextSnapshot);
+      return;
     }
-    if (playerCenterY < slimeCenterY - TILE_PX * 0.5) {
-      return true;
+    const ratio =
+      (renderTime - previousSnapshot.receivedAt) / snapshotDuration;
+    const renderedPosition = ex.vec(
+      interpolate(previousSnapshot.state.x, nextSnapshot.state.x, ratio),
+      interpolate(previousSnapshot.state.y, nextSnapshot.state.y, ratio),
+    );
+    this.state = nextSnapshot.state;
+    this.moveToRenderedPosition(renderedPosition);
+    this.graphics.flipHorizontal = this.state.facingLeft;
+  }
+
+  private moveToRenderedPosition(position: ex.Vector) {
+    if (this.pos.distance(position) > snapDistance) {
+      this.pos = position;
+      return;
     }
-    if (direction === 0) {
-      return false;
-    }
-    return this.tileMeeting(this.pos.x + direction * 2, this.pos.y);
+    this.pos.x = position.x;
+    this.pos.y = position.y;
   }
 }
+
+const interpolate = (start: number, end: number, ratio: number) =>
+  start + (end - start) * Math.min(Math.max(ratio, 0), 1);

@@ -9,8 +9,8 @@ import type { TerrainTileMap } from "../classes/TerrainTileMap";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
 import { BlockHighlightRaster } from "./BlockHighlightRaster";
+import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
-import type { Slime } from "./Slime";
 
 const blockTargetRange = 2;
 const blockBreakFrameDurationMs = 90;
@@ -40,7 +40,7 @@ type RemotePlayerEntry = {
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
 type RemotePlayersProvider = () => RemotePlayerEntry[];
-type SlimeProvider = () => Slime[];
+type EntityProvider = () => EntityActor[];
 
 const colorChannelBetween = (start: number, end: number, progress: number) =>
   Math.round(start + (end - start) * progress);
@@ -70,7 +70,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly getLocalPlayer: LocalPlayerProvider;
   private readonly getRemotePlayer: RemotePlayerProvider;
   private readonly getRemotePlayers: RemotePlayersProvider;
-  private readonly getSlimes: SlimeProvider;
+  private readonly getEntities: EntityProvider;
   private readonly highlightGraphic: BlockHighlightRaster;
   private breakAnimation: ex.Animation;
   private readonly breakAnimationActor: ex.Actor;
@@ -82,7 +82,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     string,
     ex.Actor
   >;
-  private readonly slimesHitByCurrentSwordSwing = new Set<Slime>();
+  private readonly entitiesHitByCurrentSwordSwing = new Set<EntityActor>();
   private readonly playersHitByCurrentSwordSwing = new Set<Player>();
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
@@ -98,7 +98,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     getLocalPlayer: LocalPlayerProvider,
     getRemotePlayer: RemotePlayerProvider,
     getRemotePlayers: RemotePlayersProvider,
-    getSlimes: SlimeProvider,
+    getEntities: EntityProvider,
   ) {
     super({
       pos: ex.vec(-TILE_PX, -TILE_PX),
@@ -112,7 +112,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.getLocalPlayer = getLocalPlayer;
     this.getRemotePlayer = getRemotePlayer;
     this.getRemotePlayers = getRemotePlayers;
-    this.getSlimes = getSlimes;
+    this.getEntities = getEntities;
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
@@ -183,7 +183,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.updateHighlightColor(delta);
     this.updatePlacingTarget(placeTarget);
     this.updateBreakingTarget(target, delta);
-    this.hitSlimesTouchingSword();
+    this.hitEntitiesTouchingSword();
     this.hitPlayersTouchingSword();
   }
 
@@ -370,24 +370,24 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!localPlayer.useSword()) {
       return;
     }
-    this.hitSlimesTouchingSword();
+    this.hitEntitiesTouchingSword();
     this.hitPlayersTouchingSword();
   }
 
-  private hitSlimesTouchingSword() {
+  private hitEntitiesTouchingSword() {
     const localPlayer = this.getLocalPlayer();
     const swordBounds = localPlayer?.swordHitBounds();
     if (!localPlayer || localPlayer.isPaused || !swordBounds) {
-      this.slimesHitByCurrentSwordSwing.clear();
+      this.entitiesHitByCurrentSwordSwing.clear();
       return;
     }
-    this.getSlimes()
-      .filter((slime) => !this.slimesHitByCurrentSwordSwing.has(slime))
-      .filter((slime) => slime.overlapsWorldBounds(swordBounds))
+    this.getEntities()
+      .filter((entity) => !this.entitiesHitByCurrentSwordSwing.has(entity))
+      .filter((entity) => entity.overlapsWorldBounds(swordBounds))
       .slice(0, 1)
-      .forEach((slime) => {
-        this.slimesHitByCurrentSwordSwing.add(slime);
-        slime.knockBackFrom(localPlayer);
+      .forEach((entity) => {
+        this.entitiesHitByCurrentSwordSwing.add(entity);
+        entity.knockBackFrom(localPlayer);
       });
   }
 
