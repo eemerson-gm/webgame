@@ -49,12 +49,13 @@ const browserActionGameKeyCodes = [
 const game = new ex.Engine({
   width: viewWidth,
   height: viewHeight,
+  canvasElementId: "game",
   antialiasing: false,
   backgroundColor: ex.Color.fromHex("#54C0CA"),
   pixelArt: true,
   snapToPixel: false,
   pixelRatio: 3,
-  displayMode: ex.DisplayMode.FitScreen,
+  displayMode: ex.DisplayMode.FitContainer,
   fixedUpdateFps: 60,
 });
 
