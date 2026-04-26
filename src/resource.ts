@@ -24,6 +24,7 @@ export const Resources = {
   Block: new ex.ImageSource("./assets/blocks/block.png"),
   Grass: new ex.ImageSource("./assets/blocks/grass.png"),
   Dirt: new ex.ImageSource("./assets/blocks/dirt.png"),
+  Lamp: new ex.ImageSource("./assets/blocks/block.png"),
   Stone: new ex.ImageSource("./assets/blocks/stone.png"),
   Bedrock: new ex.ImageSource("./assets/blocks/bedrock.png"),
 } as const;

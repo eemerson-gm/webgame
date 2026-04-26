@@ -13,6 +13,7 @@ import type {
   WorldTerrainPayload,
 } from "./classes/GameProtocol";
 import { TerrainTileMap } from "./classes/TerrainTileMap";
+import { TileLightingOverlay } from "./classes/TileLightingOverlay";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
@@ -196,9 +197,11 @@ game.start(loader).then(() => {
         terrainTiles: world.terrainTiles,
       });
       const tilemap = terrain.map;
+      const lighting = new TileLightingOverlay(terrain);
       worldSession.terrain = terrain;
       game.add(tilemap);
       terrain.borders.forEach((border) => game.add(border));
+      game.add(lighting);
 
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);

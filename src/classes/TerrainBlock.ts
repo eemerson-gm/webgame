@@ -40,6 +40,11 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     breakDurationMs: 270,
     sprite: Resources.Grass,
   }),
+  lamp: new TerrainBlock({
+    kind: "lamp",
+    breakDurationMs: 360,
+    sprite: Resources.Lamp,
+  }),
   stone: new TerrainBlock({
     kind: "stone",
     breakDurationMs: 720,

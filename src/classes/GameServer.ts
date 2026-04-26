@@ -34,6 +34,9 @@ const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
   if (kind === "grass") {
     return true;
   }
+  if (kind === "lamp") {
+    return true;
+  }
   if (kind === "stone") {
     return true;
   }

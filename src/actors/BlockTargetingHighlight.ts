@@ -1,7 +1,10 @@
 import * as ex from "excalibur";
 import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
-import type { TerrainBlockBreakUpdate } from "../classes/GameProtocol";
+import type {
+  TerrainBlockBreakUpdate,
+  TerrainTileKind,
+} from "../classes/GameProtocol";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
@@ -15,6 +18,7 @@ const blockBreakFrameCount = 4;
 const blockHighlightGradientDurationMs = 2200;
 const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
+const lightBlockPlacementKeys = ["ShiftLeft", "ShiftRight", "Shift"];
 const blockHighlightGradient = [
   [255, 214, 36],
   [255, 255, 255],
@@ -338,8 +342,20 @@ export class BlockTargetingHighlight extends ex.Actor {
       column: target.column,
       row: target.row,
       solid: true,
-      kind: "dirt",
+      kind: this.placeBlockKind(),
     });
+  }
+
+  private placeBlockKind(): TerrainTileKind {
+    if (
+      this.engine &&
+      lightBlockPlacementKeys.some((key) =>
+        this.engine?.input.keyboard.isHeld(key as ex.Keys),
+      )
+    ) {
+      return "lamp";
+    }
+    return "dirt";
   }
 
   private startToolUseAt(target: TargetBlockPosition | null) {

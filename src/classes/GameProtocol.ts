@@ -31,7 +31,7 @@ export type PlayerState = {
 
 export type PlayerTool = "pickaxe" | "sword";
 
-export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "stone";
+export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "lamp" | "stone";
 
 export type WorldTerrainPayload = {
   columns: number;

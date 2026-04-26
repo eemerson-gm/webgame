@@ -25,6 +25,7 @@ export class TileCollisionActor extends ex.Actor {
       anchor: ex.vec(0, 0),
       width: size.x,
       height: size.y,
+      z: 2,
     });
     this.tilemap = tilemap;
     this.collisionBounds = collisionBounds;

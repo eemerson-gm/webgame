@@ -29,6 +29,8 @@ type TerrainBorderOptions = {
   chunkRow: number;
 };
 
+type TerrainChangeHandler = () => void;
+
 const terrainBorderThickness = 1;
 const terrainChunkSize = 16;
 
@@ -204,6 +206,7 @@ export class TerrainTileMap {
   private readonly solidTiles: Set<string>;
   private readonly terrainTiles: Record<string, TerrainTileKind>;
   private readonly borderActorsByChunkKey: Record<string, ex.Actor>;
+  private readonly blockChangeHandlers: TerrainChangeHandler[];
 
   constructor(options: TerrainTileMapOptions) {
     const {
@@ -225,6 +228,7 @@ export class TerrainTileMap {
     this.terrainTiles = terrainTiles;
     this.solidTiles = initialSolidTiles(options, terrainTiles);
     this.borderActorsByChunkKey = {};
+    this.blockChangeHandlers = [];
 
     this.map = new ex.TileMap({
       pos,
@@ -241,6 +245,46 @@ export class TerrainTileMap {
 
   public removeBlock(column: number, row: number) {
     this.setBlockSolid(column, row, false);
+  }
+
+  public onBlocksChanged(handler: TerrainChangeHandler) {
+    this.blockChangeHandlers.push(handler);
+  }
+
+  public origin() {
+    return this.pos.clone();
+  }
+
+  public columnCount() {
+    return this.columns;
+  }
+
+  public rowCount() {
+    return this.rows;
+  }
+
+  public tileWidthPx() {
+    return this.tileWidth;
+  }
+
+  public tileHeightPx() {
+    return this.tileHeight;
+  }
+
+  public worldWidth() {
+    return this.columns * this.tileWidth;
+  }
+
+  public worldHeight() {
+    return this.rows * this.tileHeight;
+  }
+
+  public isInside(column: number, row: number) {
+    return isInsideTerrain(column, row, this.columns, this.rows);
+  }
+
+  public isSolidAt(column: number, row: number) {
+    return isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles);
   }
 
   public tileKindAt(column: number, row: number) {
@@ -284,6 +328,11 @@ export class TerrainTileMap {
     adjacentChunkKeysForTile(column, row, this.columns, this.rows).forEach((chunk) =>
       this.rebuildBorderChunk(chunk),
     );
+    this.emitBlocksChanged();
+  }
+
+  private emitBlocksChanged() {
+    this.blockChangeHandlers.forEach((handler) => handler());
   }
 
   private syncTileNeighborhood(column: number, row: number) {
