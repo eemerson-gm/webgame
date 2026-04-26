@@ -37,6 +37,14 @@ const loader = new ex.DefaultLoader({
 
 const viewWidth = 320;
 const viewHeight = 180;
+const browserActionGameKeyCodes = [
+  "Tab",
+  "Space",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+];
 
 const game = new ex.Engine({
   width: viewWidth,
@@ -49,6 +57,17 @@ const game = new ex.Engine({
   displayMode: ex.DisplayMode.FitScreen,
   fixedUpdateFps: 60,
 });
+
+const focusGameCanvas = (engine: ex.Engine) => {
+  engine.canvas.tabIndex = 0;
+  engine.canvas.addEventListener("pointerdown", () => engine.canvas.focus());
+  engine.canvas.addEventListener("keydown", (event) => {
+    if (!browserActionGameKeyCodes.includes(event.code)) {
+      return;
+    }
+    event.preventDefault();
+  });
+};
 
 const isWorldTerrainPayload = (w: Data): w is WorldTerrainPayload => {
   if (!w) {
@@ -178,6 +197,7 @@ const applyPlayerKnockbackUpdate = (payload: Data) => {
 const clientSlot = { client: null as GameClient | null };
 
 game.start(loader).then(() => {
+  focusGameCanvas(game);
   const client = new GameClient();
   clientSlot.client = client;
   client.listen({

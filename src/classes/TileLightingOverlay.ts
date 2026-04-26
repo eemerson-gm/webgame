@@ -36,7 +36,7 @@ const sunlightSolidDrop = 3;
 const sunlightAirDrop = 1;
 const lampLightLevel = 14;
 const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
-const lightOverlayZ = 1;
+const lightOverlayZ = 3;
 
 const tileKeyFor = (position: { column: number; row: number }) =>
   terrainTileKey(position.column, position.row);
