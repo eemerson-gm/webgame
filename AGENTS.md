@@ -105,4 +105,5 @@ Observed patterns in this repo—prefer these unless you are deliberately modern
 ## Assets & game feel
 
 - **Pixel art**: engine uses `pixelArt: true`, `antialiasing: false`, small logical resolution (**320×180**), **16×16** tiles and player size.
+- **Never turn on `snapToPixel`** — keep Excalibur `snapToPixel: false`.
 - New sprites: add **`ex.ImageSource`** entries in **`resource.ts`** and load through **`DefaultLoader`** in **`main.ts`**.
