@@ -3,19 +3,18 @@ import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
 import { buildSurfaceStartByColumn } from "../world/terrainGen";
-import { TILE_PX, WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
+import { WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
 import { createInitialEntitiesData } from "../simulation/entitySpawns";
-import { stepEntities } from "../simulation/entitySimulation";
-import type { TileCollisionWorld } from "../simulation/entityPhysics";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
   EntitiesSnapshotPayload,
   EntityState,
+  EntityUpdatePayload,
   PlayerState,
   TerrainBlockBreakUpdate,
   TerrainBlockUpdate,
@@ -33,10 +32,6 @@ const playerStateMessageTypes: string[] = [
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
 };
-
-const entityTickMs = 1000 / 60;
-const entityBroadcastMs = 1000 / 15;
-const maxEntityTickMs = 100;
 
 const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
   if (kind === "bedrock") {
@@ -116,8 +111,6 @@ export class GameServer {
   private entitiesData: Record<string, EntityState>;
   private worldSurfaceStarts: number[];
   private worldTerrainTiles: Record<string, TerrainTileKind>;
-  private lastEntityTickMs = Date.now();
-  private entityBroadcastElapsedMs = 0;
 
   constructor(server: Server) {
     const worldSurfaceStarts = buildSurfaceStartByColumn({
@@ -134,7 +127,6 @@ export class GameServer {
       WORLD_TILE_ROWS,
       worldSurfaceStarts,
     );
-    this.startEntityTick();
   }
 
   public listen(messages: MessageRouting) {
@@ -171,6 +163,7 @@ export class GameServer {
     const playerId = (this.nextPlayerIndex++).toString();
     this.playerSockets[playerId] = socket;
     this.playersData[playerId] = { isPaused: false };
+    const didReassignEntities = this.assignBalancedEntityOwners();
     console.log(
       `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`,
     );
@@ -180,6 +173,9 @@ export class GameServer {
       entitiesData: this.entitiesData,
       world: this.worldPayload(),
     });
+    if (didReassignEntities) {
+      this.sendToOthers(playerId, messageTypes.updateEntities, this.entitiesPayload());
+    }
     socket.on("message", (data) =>
       this.handleSocketMessage(playerId, data, messages),
     );
@@ -195,6 +191,7 @@ export class GameServer {
     const json = data.toString();
     const message = decodeMessage(json);
     const { type, payload } = message;
+    const wasActive = this.isActivePlayer(playerId);
     const wasPaused = this.playersData[playerId]?.isPaused === true;
     const isResuming = wasPaused && this.shouldResumePlayer(type, payload);
     const patch = this.playerStatePatch(type, payload, message.statePatch);
@@ -205,6 +202,7 @@ export class GameServer {
       console.log(`[${playerId}]: ${json}`);
       return;
     }
+    this.reassignEntitiesIfPlayerActivityChanged(playerId, wasActive);
     if (this.isPausedInteraction(playerId, type)) {
       console.log(`[${playerId}]: Paused interaction blocked`);
       return;
@@ -223,11 +221,12 @@ export class GameServer {
       console.log(`[${playerId}]: ${json}`);
       return;
     }
+    const outgoingType = this.outgoingMessageType(type);
     const target = messages[type];
     const send: Record<"all" | "player" | "others", () => void> = {
-      all: () => this.sendToAll(type, payloadWithPlayerId),
-      player: () => this.sendToPlayer(playerId, type, payloadWithPlayerId),
-      others: () => this.sendToOthers(playerId, type, payloadWithPlayerId),
+      all: () => this.sendToAll(outgoingType, payloadWithPlayerId),
+      player: () => this.sendToPlayer(playerId, outgoingType, payloadWithPlayerId),
+      others: () => this.sendToOthers(playerId, outgoingType, payloadWithPlayerId),
     };
     send[target]();
     console.log(`[${playerId}]: ${json}`);
@@ -264,13 +263,30 @@ export class GameServer {
     return Object.keys(payload).length === 0;
   }
 
+  private reassignEntitiesIfPlayerActivityChanged(
+    playerId: string,
+    wasActive: boolean,
+  ) {
+    if (wasActive === this.isActivePlayer(playerId)) {
+      return;
+    }
+    if (!this.assignBalancedEntityOwners()) {
+      return;
+    }
+    this.sendToAll(messageTypes.updateEntities, this.entitiesPayload());
+  }
+
   private removePlayer(playerId: string) {
     delete this.playerSockets[playerId];
     delete this.playersData[playerId];
+    const didReassignEntities = this.assignBalancedEntityOwners();
     console.log(
       `[${playerId}]: Disconnected (${Object.keys(this.playerSockets).length} players)`,
     );
     this.sendToOthers(playerId, messageTypes.disconnected, { id: playerId });
+    if (didReassignEntities) {
+      this.sendToAll(messageTypes.updateEntities, this.entitiesPayload());
+    }
   }
 
   private worldPayload(): WorldTerrainPayload {
@@ -289,63 +305,76 @@ export class GameServer {
     };
   }
 
-  private startEntityTick() {
-    setInterval(() => this.updateEntities(), entityTickMs);
-  }
-
-  private updateEntities() {
-    const dt = this.entityTickDeltaSeconds();
-    this.entitiesData = stepEntities(this.entitiesData, {
-      playersData: this.playersData,
-      world: this.tileCollisionWorld(),
-      dt,
-    });
-    if (Object.keys(this.playerSockets).length === 0) {
-      return;
-    }
-    this.entityBroadcastElapsedMs += dt * 1000;
-    if (this.entityBroadcastElapsedMs < entityBroadcastMs) {
-      return;
-    }
-    this.entityBroadcastElapsedMs =
-      this.entityBroadcastElapsedMs % entityBroadcastMs;
-    this.sendToAll(messageTypes.updateEntities, this.entitiesPayload());
-  }
-
-  private entityTickDeltaSeconds() {
-    const now = Date.now();
-    const elapsedMs = Math.min(
-      Math.max(now - this.lastEntityTickMs, 0),
-      maxEntityTickMs,
+  private activePlayerIds() {
+    return Object.keys(this.playerSockets).filter((playerId) =>
+      this.isActivePlayer(playerId),
     );
-    this.lastEntityTickMs = now;
-    return elapsedMs / 1000;
   }
 
-  private tileCollisionWorld(): TileCollisionWorld {
-    return {
-      tileWidth: TILE_PX,
-      tileHeight: TILE_PX,
-      columns: WORLD_TILE_COLUMNS,
-      rows: WORLD_TILE_ROWS,
-      isSolidTile: (column, row) => this.isSolidTile(column, row),
-    };
-  }
-
-  private isSolidTile(column: number, row: number) {
-    if (column < 0 || column >= WORLD_TILE_COLUMNS) {
-      return true;
-    }
-    if (row >= WORLD_TILE_ROWS) {
-      return true;
-    }
-    if (row < 0) {
+  private isActivePlayer(playerId: string) {
+    if (!this.playerSockets[playerId]) {
       return false;
     }
-    return !!this.worldTerrainTiles[terrainTileKey(column, row)];
+    return this.playersData[playerId]?.isPaused !== true;
+  }
+
+  private assignBalancedEntityOwners() {
+    const activePlayerIds = this.activePlayerIds();
+    const nextEntitiesData = Object.fromEntries(
+      Object.entries(this.entitiesData).map(([entityId, entity], index) => [
+        entityId,
+        {
+          ...entity,
+          ownerId:
+            activePlayerIds.length === 0
+              ? undefined
+              : activePlayerIds[index % activePlayerIds.length],
+        },
+      ]),
+    );
+    const didChangeOwner = Object.values(nextEntitiesData).some(
+      (entity) => this.entitiesData[entity.id]?.ownerId !== entity.ownerId,
+    );
+    this.entitiesData = nextEntitiesData;
+    return didChangeOwner;
+  }
+
+  private applyEntityUpdate(payload: Data, playerId: string) {
+    const entity = (payload as EntityUpdatePayload).entity;
+    if (!entity) {
+      return null;
+    }
+    const storedEntity = this.entitiesData[entity.id];
+    if (!storedEntity) {
+      return null;
+    }
+    if (storedEntity.ownerId !== playerId) {
+      return null;
+    }
+    this.entitiesData = {
+      ...this.entitiesData,
+      [storedEntity.id]: {
+        ...storedEntity,
+        ...entity,
+        id: storedEntity.id,
+        type: storedEntity.type,
+        ownerId: playerId,
+      },
+    };
+    return this.entitiesPayload();
+  }
+
+  private outgoingMessageType(type: string) {
+    if (type === messageTypes.updateEntity) {
+      return messageTypes.updateEntities;
+    }
+    return type;
   }
 
   private payloadForMessage(type: string, payload: Data, playerId: string) {
+    if (type === messageTypes.updateEntity) {
+      return this.applyEntityUpdate(payload, playerId);
+    }
     if (type === messageTypes.updateBlock) {
       return this.applyWorldBlockUpdate(payload, playerId);
     }

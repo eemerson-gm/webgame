@@ -11,6 +11,7 @@ import {
 } from "../world/terrainTiles";
 import { TerrainBorderRaster } from "./TerrainBorderRaster";
 import type { TerrainBorderSegment } from "./TerrainBorderRaster";
+import type { TileCollisionWorld } from "../simulation/entityPhysics";
 
 type TerrainTileMapOptions = {
   pos?: ex.Vector;
@@ -292,6 +293,16 @@ export class TerrainTileMap {
     return isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles);
   }
 
+  public tileCollisionWorld(): TileCollisionWorld {
+    return {
+      tileWidth: this.tileWidth,
+      tileHeight: this.tileHeight,
+      columns: this.columns,
+      rows: this.rows,
+      isSolidTile: (column, row) => this.isSolidCollisionTile(column, row),
+    };
+  }
+
   public tileKindAt(column: number, row: number) {
     if (!isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles)) {
       return null;
@@ -338,6 +349,19 @@ export class TerrainTileMap {
 
   private emitBlocksChanged(change: TerrainChange) {
     this.blockChangeHandlers.forEach((handler) => handler(change));
+  }
+
+  private isSolidCollisionTile(column: number, row: number) {
+    if (column < 0 || column >= this.columns) {
+      return true;
+    }
+    if (row >= this.rows) {
+      return true;
+    }
+    if (row < 0) {
+      return false;
+    }
+    return this.isSolidAt(column, row);
   }
 
   private syncTileNeighborhood(column: number, row: number) {

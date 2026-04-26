@@ -103,7 +103,6 @@ export class GameClient {
     handlers: MessageEvents,
   ) {
     const message = decodeMessage(wsEvent.data as string);
-    console.log("Received:", message);
     const { type, payload } = message;
     if (!(type in handlers)) {
       console.error("Unknown event:", type);

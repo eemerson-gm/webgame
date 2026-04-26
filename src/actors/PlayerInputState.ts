@@ -81,6 +81,9 @@ export class PlayerInputState {
       return payload;
     }
     return {
+      keyLeft: this.keyLeft,
+      keyRight: this.keyRight,
+      keyJump: this.keyJump,
       keyDown: this.keyDown,
       keyUp: this.keyUp,
       isFlying,

@@ -36,6 +36,7 @@ export type EntityType = "slime";
 export type EntityState = {
   id: string;
   type: EntityType;
+  ownerId?: string;
   x: number;
   y: number;
   horizontalSpeed: number;
@@ -50,6 +51,10 @@ export type EntityState = {
 
 export type EntitiesSnapshotPayload = {
   entitiesData: Record<string, EntityState>;
+};
+
+export type EntityUpdatePayload = {
+  entity: EntityState;
 };
 
 export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "lamp" | "stone";
@@ -98,6 +103,7 @@ export const messageTypes = {
   updateBlock: "update_block",
   updateBlockBreak: "update_block_break",
   knockbackPlayer: "knockback_player",
+  updateEntity: "update_entity",
   updateEntities: "update_entities",
 } as const;
 

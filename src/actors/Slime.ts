@@ -1,25 +1,28 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-import type { EntityState } from "../classes/GameProtocol";
+import type { EntityState, PlayerState } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
-import type { WorldBounds } from "../simulation/entityPhysics";
+import type { TileCollisionWorld, WorldBounds } from "../simulation/entityPhysics";
+import { stepSlimeEntity } from "../simulation/slimeEntityBehavior";
 import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
 
-type SlimeSnapshot = {
-  state: EntityState;
-  receivedAt: number;
+type SlimeSimulationProviders = {
+  world: () => TileCollisionWorld | null;
+  playersData: () => Record<string, PlayerState>;
+  clientId: () => string;
+  sendState: (state: EntityState) => void;
 };
 
-const interpolationDelayMs = 120;
-const maxSnapshotAgeMs = 1000;
-const snapDistance = TILE_PX * 1.5;
+const correctionSnapDistance = TILE_PX * 1.5;
+const ownerStateSyncIntervalMs = 200;
 
 export class Slime extends ex.Actor implements EntityActor {
   private state: EntityState;
-  private snapshots: SlimeSnapshot[] = [];
+  private readonly simulationProviders: SlimeSimulationProviders;
+  private ownerStateSyncElapsedMs = 0;
 
-  constructor(state: EntityState) {
+  constructor(state: EntityState, simulationProviders: SlimeSimulationProviders) {
     super({
       pos: ex.vec(state.x, state.y),
       anchor: ex.vec(0, 0),
@@ -27,23 +30,34 @@ export class Slime extends ex.Actor implements EntityActor {
       height: TILE_PX,
       z: 2,
     });
-    this.state = state;
-    this.syncFromState(state);
+    this.state = { ...state };
+    this.simulationProviders = simulationProviders;
   }
 
   override onInitialize() {
     this.graphics.use(Resources.Slime.toSprite());
+    this.renderState();
   }
 
   public syncFromState(state: EntityState) {
-    const snapshot = {
-      state,
-      receivedAt: performance.now(),
-    };
-    this.snapshots = [...this.snapshots, snapshot];
-    if (this.snapshots.length === 1) {
-      this.renderSnapshot(snapshot);
+    if (this.isOwnedByLocal() && state.ownerId === this.localClientId()) {
+      this.state = {
+        ...this.state,
+        ownerId: state.ownerId,
+      };
+      return;
     }
+    const correctionPosition = ex.vec(state.x, state.y);
+    if (this.pos.distance(correctionPosition) > correctionSnapDistance) {
+      this.state = { ...state };
+      this.renderState();
+      return;
+    }
+    this.state = {
+      ...state,
+      x: this.state.x,
+      y: this.state.y,
+    };
   }
 
   public overlapsWorldBounds(bounds: WorldBounds) {
@@ -63,78 +77,46 @@ export class Slime extends ex.Actor implements EntityActor {
     void _player;
   }
 
-  override onPostUpdate(_engine: ex.Engine, _delta: number) {
+  override onPostUpdate(_engine: ex.Engine, delta: number) {
     void _engine;
-    void _delta;
-    const renderTime = performance.now() - interpolationDelayMs;
-    const previousSnapshot = this.previousSnapshotAt(renderTime);
-    const nextSnapshot = this.nextSnapshotAt(renderTime);
-    if (!previousSnapshot || !nextSnapshot) {
+    const world = this.simulationProviders.world();
+    if (!world || !this.state.ownerId) {
+      this.renderState();
       return;
     }
-    this.snapshots = this.snapshots.filter(
-      (snapshot) =>
-        snapshot.receivedAt >= renderTime - maxSnapshotAgeMs ||
-        snapshot === previousSnapshot,
-    );
-    if (previousSnapshot === nextSnapshot) {
-      this.renderSnapshot(previousSnapshot);
-      return;
-    }
-    this.renderInterpolatedSnapshot(previousSnapshot, nextSnapshot, renderTime);
+    this.state = stepSlimeEntity(this.state, {
+      playersData: this.simulationProviders.playersData(),
+      world,
+      dt: delta / 1000,
+    });
+    this.renderState();
+    this.syncOwnerStatePeriodically(delta);
   }
 
-  private previousSnapshotAt(renderTime: number) {
-    return (
-      this.snapshots
-        .filter((snapshot) => snapshot.receivedAt <= renderTime)
-        .at(-1) ?? this.snapshots[0]
-    );
-  }
-
-  private nextSnapshotAt(renderTime: number) {
-    return (
-      this.snapshots.find((snapshot) => snapshot.receivedAt >= renderTime) ??
-      this.snapshots.at(-1)
-    );
-  }
-
-  private renderSnapshot(snapshot: SlimeSnapshot) {
-    this.state = snapshot.state;
-    this.moveToRenderedPosition(ex.vec(snapshot.state.x, snapshot.state.y));
+  private renderState() {
+    this.pos.x = this.state.x;
+    this.pos.y = this.state.y;
     this.graphics.flipHorizontal = this.state.facingLeft;
   }
 
-  private renderInterpolatedSnapshot(
-    previousSnapshot: SlimeSnapshot,
-    nextSnapshot: SlimeSnapshot,
-    renderTime: number,
-  ) {
-    const snapshotDuration = nextSnapshot.receivedAt - previousSnapshot.receivedAt;
-    if (snapshotDuration <= 0) {
-      this.renderSnapshot(nextSnapshot);
+  private syncOwnerStatePeriodically(delta: number) {
+    if (!this.isOwnedByLocal()) {
       return;
     }
-    const ratio =
-      (renderTime - previousSnapshot.receivedAt) / snapshotDuration;
-    const renderedPosition = ex.vec(
-      interpolate(previousSnapshot.state.x, nextSnapshot.state.x, ratio),
-      interpolate(previousSnapshot.state.y, nextSnapshot.state.y, ratio),
-    );
-    this.state = nextSnapshot.state;
-    this.moveToRenderedPosition(renderedPosition);
-    this.graphics.flipHorizontal = this.state.facingLeft;
+    this.ownerStateSyncElapsedMs += delta;
+    if (this.ownerStateSyncElapsedMs < ownerStateSyncIntervalMs) {
+      return;
+    }
+    this.ownerStateSyncElapsedMs =
+      this.ownerStateSyncElapsedMs % ownerStateSyncIntervalMs;
+    this.simulationProviders.sendState(this.state);
   }
 
-  private moveToRenderedPosition(position: ex.Vector) {
-    if (this.pos.distance(position) > snapDistance) {
-      this.pos = position;
-      return;
-    }
-    this.pos.x = position.x;
-    this.pos.y = position.y;
+  private isOwnedByLocal() {
+    return this.state.ownerId === this.localClientId();
+  }
+
+  private localClientId() {
+    return this.simulationProviders.clientId();
   }
 }
-
-const interpolate = (start: number, end: number, ratio: number) =>
-  start + (end - start) * Math.min(Math.max(ratio, 0), 1);

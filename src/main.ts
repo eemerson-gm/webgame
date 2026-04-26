@@ -24,7 +24,7 @@ const playerById: Record<string, Player> = {};
 const slimeById: Record<string, Slime> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
-const remotePlayerSnapDistance = TILE_PX;
+const remotePlayerPositionTolerance = 0.5;
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
@@ -114,7 +114,7 @@ const applyPositionFromPayloadIfPresent = (
     payload.x === undefined ? player.pos.x : Number(payload.x),
     payload.y === undefined ? player.pos.y : Number(payload.y),
   );
-  if (player.pos.distance(nextPosition) < remotePlayerSnapDistance) {
+  if (player.pos.distance(nextPosition) < remotePlayerPositionTolerance) {
     return;
   }
   player.pos = nextPosition;
@@ -139,6 +139,39 @@ const syncMovementFieldsFromPayload = (
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
 };
+
+const playerStateFromActor = (
+  playerId: string,
+  player: Player,
+): [string, PlayerState] => [
+  playerId,
+  {
+    id: playerId,
+    x: player.pos.x,
+    y: player.pos.y,
+    isPaused: player.isPaused,
+    isFlying: player.isFlying,
+    horizontalSpeed: player.hspeed,
+    verticalSpeed: player.vspeed,
+  },
+];
+
+const localPlayerStateEntries = (): [string, PlayerState][] => {
+  const localPlayer = localPlayerSlot.player;
+  const localPlayerId = clientSlot.client?.clientId;
+  if (!localPlayer || !localPlayerId) {
+    return [];
+  }
+  return [playerStateFromActor(localPlayerId, localPlayer)];
+};
+
+const currentPlayersData = () =>
+  Object.fromEntries([
+    ...localPlayerStateEntries(),
+    ...Object.entries(playerById).map(([playerId, player]) =>
+      playerStateFromActor(playerId, player),
+    ),
+  ]);
 
 const applyRemotePlayerUpdate = (payload: Data) => {
   const playerState = payload as PlayerState;
@@ -172,7 +205,13 @@ const joinExistingRemotePlayers = (
 };
 
 const spawnSlimeFromState = (game: ex.Engine, state: EntityState) => {
-  const slime = new Slime(state);
+  const slime = new Slime(state, {
+    world: () => worldSession.terrain?.tileCollisionWorld() ?? null,
+    playersData: currentPlayersData,
+    clientId: () => clientSlot.client?.clientId ?? "",
+    sendState: (entity) =>
+      clientSlot.client?.send(messageTypes.updateEntity, { entity }),
+  });
   slimeById[state.id] = slime;
   game.add(slime);
   return slime;
