@@ -19,6 +19,7 @@ const blockHighlightGradientDurationMs = 2200;
 const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
 const swordDamage = 1;
+const slimeSpawnKey = ex.Keys.R;
 const lightBlockPlacementKeys = ["ShiftLeft", "ShiftRight", "Shift"];
 const blockHighlightGradient = [
   [255, 214, 36],
@@ -187,6 +188,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.hitEntitiesTouchingSword();
     this.hitPlayersTouchingSword();
     this.damageLocalPlayerTouchingEntities();
+    this.spawnSlimeFromKeyboard(engine);
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
@@ -345,6 +347,25 @@ export class BlockTargetingHighlight extends ex.Actor {
       row: target.row,
       solid: true,
       kind: this.placeBlockKind(),
+    });
+  }
+
+  private spawnSlimeFromKeyboard(engine: ex.Engine) {
+    if (!engine.input.keyboard.wasPressed(slimeSpawnKey)) {
+      return;
+    }
+    const spawnPosition = this.currentMouseWorldPosition(engine);
+    if (!spawnPosition) {
+      return;
+    }
+    const localPlayer = this.getLocalPlayer();
+    if (!localPlayer || localPlayer.isPaused) {
+      return;
+    }
+    this.client.send(messageTypes.createEntity, {
+      type: "slime",
+      x: spawnPosition.x - TILE_PX / 2,
+      y: spawnPosition.y - TILE_PX / 2,
     });
   }
 

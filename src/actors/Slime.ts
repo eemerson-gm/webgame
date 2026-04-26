@@ -68,9 +68,13 @@ export class Slime extends ex.Actor implements EntityActor {
         ...this.state,
         ownerId: state.ownerId,
         health: state.health,
-        horizontalSpeed: state.horizontalSpeed,
-        verticalSpeed: state.verticalSpeed,
-        knockbackMs: state.knockbackMs,
+        ...(didLoseHealth
+          ? {
+              horizontalSpeed: state.horizontalSpeed,
+              verticalSpeed: state.verticalSpeed,
+              knockbackMs: state.knockbackMs,
+            }
+          : {}),
       };
       return;
     }

@@ -8,11 +8,15 @@ import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
-import { createInitialEntitiesData } from "../simulation/entitySpawns";
+import {
+  createInitialEntitiesData,
+  createSlimeEntityState,
+} from "../simulation/entitySpawns";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
   EntitiesSnapshotPayload,
+  EntityCreatePayload,
   EntityState,
   EntityUpdatePayload,
   EntityDamageUpdate,
@@ -110,6 +114,7 @@ const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | n
 
 export class GameServer {
   private nextPlayerIndex = 0;
+  private nextEntityIndex = 1;
   private wss: WebSocketServer;
   private playerSockets: Record<string, WebSocket>;
   private playersData: Record<string, PlayerState>;
@@ -310,6 +315,23 @@ export class GameServer {
     };
   }
 
+  private entityPayload(entity: EntityState): EntitiesSnapshotPayload {
+    return {
+      entitiesData: {
+        [entity.id]: entity,
+      },
+      replaceExisting: false,
+    };
+  }
+
+  private removedEntityPayload(entityId: string): EntitiesSnapshotPayload {
+    return {
+      entitiesData: {},
+      removedEntityIds: [entityId],
+      replaceExisting: false,
+    };
+  }
+
   private activePlayerIds() {
     return Object.keys(this.playerSockets).filter((playerId) =>
       this.isActivePlayer(playerId),
@@ -356,17 +378,50 @@ export class GameServer {
     if (storedEntity.ownerId !== playerId) {
       return null;
     }
+    const updatedEntity = {
+      ...storedEntity,
+      ...entity,
+      id: storedEntity.id,
+      type: storedEntity.type,
+      ownerId: playerId,
+      health: storedEntity.health,
+    };
     this.entitiesData = {
       ...this.entitiesData,
-      [storedEntity.id]: {
-        ...storedEntity,
-        ...entity,
-        id: storedEntity.id,
-        type: storedEntity.type,
-        ownerId: playerId,
-      },
+      [storedEntity.id]: updatedEntity,
     };
-    return this.entitiesPayload();
+    return this.entityPayload(updatedEntity);
+  }
+
+  private applyEntityCreate(payload: Data, playerId: string) {
+    const entity = this.entityCreatePayloadFrom(payload, playerId);
+    if (!entity) {
+      return null;
+    }
+    this.entitiesData = {
+      ...this.entitiesData,
+      [entity.id]: entity,
+    };
+    return this.entityPayload(entity);
+  }
+
+  private entityCreatePayloadFrom(payload: Data, playerId: string) {
+    const createPayload = payload as EntityCreatePayload;
+    const x = Number(createPayload.x);
+    const y = Number(createPayload.y);
+    if (createPayload.type !== "slime") {
+      return null;
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    const entityId = `slime${this.nextEntityIndex++}`;
+    return createSlimeEntityState(
+      entityId,
+      x,
+      y,
+      this.isActivePlayer(playerId) ? playerId : undefined,
+    );
   }
 
   private applyEntityDamage(payload: Data, playerId: string) {
@@ -382,7 +437,7 @@ export class GameServer {
     const nextHealth = Math.max(storedEntity.health - damage, 0);
     if (nextHealth <= 0) {
       delete this.entitiesData[storedEntity.id];
-      return this.entitiesPayload();
+      return this.removedEntityPayload(storedEntity.id);
     }
     const player = this.playersData[playerId];
     const playerX = Number(player?.x);
@@ -390,17 +445,18 @@ export class GameServer {
       Number.isFinite(playerX) && storedEntity.x + TILE_PX / 2 < playerX + TILE_PX / 2
         ? -1
         : 1;
+    const updatedEntity = {
+      ...storedEntity,
+      health: nextHealth,
+      horizontalSpeed: entityDamageKnockbackHorizontalSpeed * direction,
+      verticalSpeed: entityDamageKnockbackVerticalSpeed,
+      knockbackMs: entityDamageKnockbackDurationMs,
+    };
     this.entitiesData = {
       ...this.entitiesData,
-      [storedEntity.id]: {
-        ...storedEntity,
-        health: nextHealth,
-        horizontalSpeed: entityDamageKnockbackHorizontalSpeed * direction,
-        verticalSpeed: entityDamageKnockbackVerticalSpeed,
-        knockbackMs: entityDamageKnockbackDurationMs,
-      },
+      [storedEntity.id]: updatedEntity,
     };
-    return this.entitiesPayload();
+    return this.entityPayload(updatedEntity);
   }
 
   private entityDamageUpdateFromPayload(payload: Data): EntityDamageUpdate | null {
@@ -439,6 +495,9 @@ export class GameServer {
   }
 
   private outgoingMessageType(type: string) {
+    if (type === messageTypes.createEntity) {
+      return messageTypes.updateEntities;
+    }
     if (type === messageTypes.updateEntity) {
       return messageTypes.updateEntities;
     }
@@ -449,6 +508,9 @@ export class GameServer {
   }
 
   private payloadForMessage(type: string, payload: Data, playerId: string) {
+    if (type === messageTypes.createEntity) {
+      return this.applyEntityCreate(payload, playerId);
+    }
     if (type === messageTypes.updateEntity) {
       return this.applyEntityUpdate(payload, playerId);
     }

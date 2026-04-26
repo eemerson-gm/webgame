@@ -245,11 +245,22 @@ const applyEntityState = (state: EntityState) => {
 };
 
 const applyEntitiesSnapshot = (payload: Data) => {
-  const { entitiesData } = payload as EntitiesSnapshotPayload;
+  const {
+    entitiesData,
+    removedEntityIds = [],
+    replaceExisting = true,
+  } = payload as EntitiesSnapshotPayload;
   if (!entitiesData) {
     return;
   }
   Object.values(entitiesData).forEach((state) => applyEntityState(state));
+  removedEntityIds.forEach((slimeId) => {
+    slimeById[slimeId]?.kill();
+    delete slimeById[slimeId];
+  });
+  if (!replaceExisting) {
+    return;
+  }
   Object.keys(slimeById)
     .filter((slimeId) => !entitiesData[slimeId])
     .forEach((slimeId) => {

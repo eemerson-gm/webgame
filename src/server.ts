@@ -19,5 +19,6 @@ gameServer.listen({
   [messageTypes.knockbackPlayer]: "all",
   [messageTypes.damagePlayer]: "all",
   [messageTypes.damageEntity]: "all",
+  [messageTypes.createEntity]: "all",
   [messageTypes.updateEntity]: "all",
 });

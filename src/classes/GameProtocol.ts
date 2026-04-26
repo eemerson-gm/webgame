@@ -52,10 +52,18 @@ export type EntityState = {
 
 export type EntitiesSnapshotPayload = {
   entitiesData: Record<string, EntityState>;
+  removedEntityIds?: string[];
+  replaceExisting?: boolean;
 };
 
 export type EntityUpdatePayload = {
   entity: EntityState;
+};
+
+export type EntityCreatePayload = {
+  type: EntityType;
+  x: number;
+  y: number;
 };
 
 export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "lamp" | "stone";
@@ -118,6 +126,7 @@ export const messageTypes = {
   knockbackPlayer: "knockback_player",
   damagePlayer: "damage_player",
   damageEntity: "damage_entity",
+  createEntity: "create_entity",
   updateEntity: "update_entity",
   updateEntities: "update_entities",
 } as const;

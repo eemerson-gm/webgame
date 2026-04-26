@@ -52,6 +52,7 @@ const serverMovementSpeedThreshold = 0.05;
 const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
+const swordFacingLockStartMs = useToolDurationMs / 3;
 const useToolSpeedMultiplier = 0.7;
 const useToolAnchor = ex.vec(0, 1);
 const useToolMirroredAnchor = ex.vec(1, 1);
@@ -735,8 +736,20 @@ export class Player extends MovingActor {
     );
   }
 
+  private canTurnFromInput() {
+    if (!this.isUsingTool) {
+      return true;
+    }
+    if (this.activeTool !== "sword") {
+      return true;
+    }
+    return this.useToolElapsedMs < swordFacingLockStartMs;
+  }
+
   private syncPlayerVisuals(keySign: number) {
-    this.syncFacingFromHorizontalSign(keySign);
+    if (this.canTurnFromInput()) {
+      this.syncFacingFromHorizontalSign(keySign);
+    }
     if (this.isUsingTool) {
       this.graphics.flipHorizontal = this.facingLeft;
       return;
