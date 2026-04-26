@@ -24,6 +24,7 @@ const playerById: Record<string, Player> = {};
 const slimeById: Record<string, Slime> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
+const remotePlayerSnapDistance = TILE_PX;
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
@@ -106,12 +107,17 @@ const applyPositionFromPayloadIfPresent = (
   player: Player,
   payload: PlayerState,
 ) => {
-  if (payload.x !== undefined) {
-    player.pos.x = Number(payload.x);
+  if (payload.x === undefined && payload.y === undefined) {
+    return;
   }
-  if (payload.y !== undefined) {
-    player.pos.y = Number(payload.y);
+  const nextPosition = ex.vec(
+    payload.x === undefined ? player.pos.x : Number(payload.x),
+    payload.y === undefined ? player.pos.y : Number(payload.y),
+  );
+  if (player.pos.distance(nextPosition) < remotePlayerSnapDistance) {
+    return;
   }
+  player.pos = nextPosition;
 };
 
 const syncMovementFieldsFromPayload = (

@@ -35,6 +35,7 @@ const isPlayerStateMessage = (type: string) => {
 };
 
 const entityTickMs = 1000 / 60;
+const entityBroadcastMs = 1000 / 15;
 const maxEntityTickMs = 100;
 
 const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
@@ -116,6 +117,7 @@ export class GameServer {
   private worldSurfaceStarts: number[];
   private worldTerrainTiles: Record<string, TerrainTileKind>;
   private lastEntityTickMs = Date.now();
+  private entityBroadcastElapsedMs = 0;
 
   constructor(server: Server) {
     const worldSurfaceStarts = buildSurfaceStartByColumn({
@@ -207,6 +209,9 @@ export class GameServer {
       console.log(`[${playerId}]: Paused interaction blocked`);
       return;
     }
+    if (this.isServerOnlyStatePatch(payload, message.statePatch)) {
+      return;
+    }
     const outgoingPayload = isResuming ? { ...payload, isPaused: false } : payload;
     const payloadWithPlayerId = this.payloadForMessage(
       type,
@@ -252,6 +257,13 @@ export class GameServer {
     return type !== messageTypes.updatePlayer;
   }
 
+  private isServerOnlyStatePatch(payload: Data, statePatch?: Data) {
+    if (statePatch === undefined) {
+      return false;
+    }
+    return Object.keys(payload).length === 0;
+  }
+
   private removePlayer(playerId: string) {
     delete this.playerSockets[playerId];
     delete this.playersData[playerId];
@@ -291,6 +303,12 @@ export class GameServer {
     if (Object.keys(this.playerSockets).length === 0) {
       return;
     }
+    this.entityBroadcastElapsedMs += dt * 1000;
+    if (this.entityBroadcastElapsedMs < entityBroadcastMs) {
+      return;
+    }
+    this.entityBroadcastElapsedMs =
+      this.entityBroadcastElapsedMs % entityBroadcastMs;
     this.sendToAll(messageTypes.updateEntities, this.entitiesPayload());
   }
 
