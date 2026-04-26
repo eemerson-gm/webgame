@@ -18,6 +18,7 @@ const blockBreakFrameCount = 4;
 const blockHighlightGradientDurationMs = 2200;
 const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
+const swordDamage = 1;
 const lightBlockPlacementKeys = ["ShiftLeft", "ShiftRight", "Shift"];
 const blockHighlightGradient = [
   [255, 214, 36],
@@ -185,6 +186,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.updateBreakingTarget(target, delta);
     this.hitEntitiesTouchingSword();
     this.hitPlayersTouchingSword();
+    this.damageLocalPlayerTouchingEntities();
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
@@ -387,7 +389,13 @@ export class BlockTargetingHighlight extends ex.Actor {
       .slice(0, 1)
       .forEach((entity) => {
         this.entitiesHitByCurrentSwordSwing.add(entity);
-        entity.knockBackFrom(localPlayer);
+        if (!entity.takeDamageFrom(localPlayer, swordDamage)) {
+          return;
+        }
+        this.client.send(messageTypes.damageEntity, {
+          entityId: entity.entityId(),
+          damage: swordDamage,
+        });
       });
   }
 
@@ -405,9 +413,37 @@ export class BlockTargetingHighlight extends ex.Actor {
       .slice(0, 1)
       .forEach(({ id, player }) => {
         this.playersHitByCurrentSwordSwing.add(player);
-        player.knockBackFrom(localPlayer);
-        this.client.send(messageTypes.knockbackPlayer, { targetId: id });
+        if (!player.takeDamageFrom(localPlayer, swordDamage)) {
+          return;
+        }
+        this.client.send(messageTypes.damagePlayer, {
+          targetId: id,
+          damage: swordDamage,
+        });
       });
+  }
+
+  private damageLocalPlayerTouchingEntities() {
+    const localPlayer = this.getLocalPlayer();
+    if (!localPlayer || localPlayer.isPaused) {
+      return;
+    }
+    this.getEntities()
+      .filter((entity) => entity.isAlive())
+      .filter((entity) => localPlayer.overlapsWorldBounds(this.actorBounds(entity)))
+      .slice(0, 1)
+      .forEach((entity) => {
+        localPlayer.takeDamageFrom(entity, entity.contactDamage());
+      });
+  }
+
+  private actorBounds(actor: ex.Actor) {
+    return {
+      left: actor.pos.x,
+      right: actor.pos.x + actor.width,
+      top: actor.pos.y,
+      bottom: actor.pos.y + actor.height,
+    };
   }
 
   private startBreakingTarget(target: TargetBlockPosition | null) {

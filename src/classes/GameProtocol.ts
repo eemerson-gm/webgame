@@ -26,6 +26,7 @@ export type PlayerState = {
   isFlying?: boolean;
   horizontalSpeed?: number;
   verticalSpeed?: number;
+  health?: number;
   activeTool?: PlayerTool;
 };
 
@@ -88,6 +89,18 @@ export type PlayerKnockbackUpdate = {
   targetId: string;
 };
 
+export type PlayerDamageUpdate = {
+  id?: string;
+  targetId: string;
+  damage?: number;
+};
+
+export type EntityDamageUpdate = {
+  id?: string;
+  entityId: string;
+  damage?: number;
+};
+
 export type ConnectedPayload = {
   id: string;
   playersData: Record<string, PlayerState>;
@@ -103,6 +116,8 @@ export const messageTypes = {
   updateBlock: "update_block",
   updateBlockBreak: "update_block_break",
   knockbackPlayer: "knockback_player",
+  damagePlayer: "damage_player",
+  damageEntity: "damage_entity",
   updateEntity: "update_entity",
   updateEntities: "update_entities",
 } as const;

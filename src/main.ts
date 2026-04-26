@@ -1,6 +1,7 @@
 import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { Player } from "./actors/Player";
+import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { Slime } from "./actors/Slime";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
@@ -9,6 +10,7 @@ import type {
   Data,
   EntitiesSnapshotPayload,
   EntityState,
+  PlayerDamageUpdate,
   PlayerKnockbackUpdate,
   TerrainBlockBreakUpdate,
   PlayerState,
@@ -135,6 +137,9 @@ const syncMovementFieldsFromPayload = (
   if (payload.isUsingTool !== undefined) {
     player.syncToolUseState(payload.isUsingTool, undefined, payload.activeTool);
   }
+  if (payload.health !== undefined) {
+    player.syncHealth(payload.health);
+  }
   player.isFlying = payload.isFlying ?? player.isFlying;
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
@@ -153,6 +158,7 @@ const playerStateFromActor = (
     isFlying: player.isFlying,
     horizontalSpeed: player.hspeed,
     verticalSpeed: player.vspeed,
+    health: player.health,
   },
 ];
 
@@ -221,6 +227,11 @@ const applyEntityState = (state: EntityState) => {
   if (state.type !== "slime") {
     return;
   }
+  if (state.health <= 0) {
+    slimeById[state.id]?.kill();
+    delete slimeById[state.id];
+    return;
+  }
   const slime = slimeById[state.id];
   if (slime) {
     slime.syncFromState(state);
@@ -281,6 +292,19 @@ const applyPlayerKnockbackUpdate = (payload: Data) => {
   target.knockBackFrom(attacker);
 };
 
+const applyPlayerDamageUpdate = (payload: Data) => {
+  const update = payload as PlayerDamageUpdate;
+  if (!update.id) {
+    return;
+  }
+  const attacker = playerForKnockbackId(update.id);
+  const target = playerForKnockbackId(update.targetId);
+  if (!attacker || !target) {
+    return;
+  }
+  target.takeDamageFrom(attacker, update.damage);
+};
+
 const clientSlot = { client: null as GameClient | null };
 
 game.start(loader).then(() => {
@@ -312,6 +336,18 @@ game.start(loader).then(() => {
 
       localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
       game.add(localPlayerSlot.player);
+      game.add(
+        new PlayerHealthDisplay(() => {
+          const player = localPlayerSlot.player;
+          if (!player) {
+            return null;
+          }
+          return {
+            health: player.health,
+            maxHealth: player.maxHealth,
+          };
+        }),
+      );
       blockTargetingSlot.highlight = new BlockTargetingHighlight(
         terrain,
         client,
@@ -353,6 +389,7 @@ game.start(loader).then(() => {
       [messageTypes.updateBlock]: applyTerrainBlockUpdate,
       [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
       [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
+      [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
       [messageTypes.updateEntities]: applyEntitiesSnapshot,
     }),
   });

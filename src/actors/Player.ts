@@ -8,6 +8,7 @@ import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
 import type { WorldBounds } from "./MovingActor";
 import { SwordHitboxOutlineRaster } from "./SwordHitboxOutlineRaster";
+import { DamageFlash } from "./DamageableActor";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -41,6 +42,9 @@ const playerKnockbackHorizontalSpeed = 2.2;
 const playerKnockbackVerticalSpeed = -1.4;
 const playerKnockbackDurationMs = 240;
 const playerKnockbackFriction = 0.94;
+const playerMaxHealth = 6;
+const playerDamageImmunityDurationMs = 1000;
+const playerDamageBlinkFrameMs = 90;
 const positionPrecision = 1000;
 const serverMovementSyncIntervalMs = 150;
 const serverMovementPositionThreshold = 0.5;
@@ -88,7 +92,10 @@ export class Player extends MovingActor {
   isFlying: boolean = false;
   isUsingTool: boolean = false;
   isPaused: boolean = false;
+  public health: number = playerMaxHealth;
+  public readonly maxHealth: number = playerMaxHealth;
   private readonly inputState: PlayerInputState = new PlayerInputState();
+  private readonly spawnPosition: ex.Vector;
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
   private crouchSprite: ex.Sprite;
@@ -97,6 +104,7 @@ export class Player extends MovingActor {
   private toolActor: ex.Actor;
   private swordHitboxActor: ex.Actor;
   private sleepBubbleActor: ex.Actor;
+  private damageFlash: DamageFlash;
   private walkAnimation: ex.Animation;
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
@@ -105,6 +113,7 @@ export class Player extends MovingActor {
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
   private knockbackTimeRemainingMs: number = 0;
+  private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private serverMovementSyncElapsedMs: number = 0;
   private lastServerMovementState?: Data;
@@ -120,6 +129,7 @@ export class Player extends MovingActor {
       edgeInset: collisionEdgeInset,
     });
     this.client = client;
+    this.spawnPosition = ex.vec(pos.x, pos.y);
     this.idleSprite = Resources.Player.toSprite();
     this.jumpSprite = Resources.PlayerJump.toSprite();
     this.crouchSprite = Resources.PlayerCrouch.toSprite();
@@ -160,6 +170,11 @@ export class Player extends MovingActor {
     this.sleepBubbleActor.graphics.use(Resources.ThoughtBubbleSleep.toSprite());
     this.sleepBubbleActor.graphics.visible = false;
     this.sleepBubbleActor.graphics.opacity = 0;
+    this.damageFlash = new DamageFlash({
+      durationMs: playerDamageImmunityDurationMs,
+      blinkFrameMs: playerDamageBlinkFrameMs,
+      z: 12,
+    });
     this.useToolAnimation = new ex.Animation({
       frames: [
         { graphic: Resources.PlayerUseTool1.toSprite() },
@@ -227,6 +242,7 @@ export class Player extends MovingActor {
     this.addChild(this.toolActor);
     this.addChild(this.swordHitboxActor);
     this.addChild(this.sleepBubbleActor);
+    this.addChild(this.damageFlash);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -311,6 +327,55 @@ export class Player extends MovingActor {
       isFlying: this.isFlying,
     };
     this.sendClient(messageTypes.updatePlayer, movementState);
+  }
+
+  public takeDamageFrom(actor: ex.Actor, damage: number = 1) {
+    if (!this.canTakeDamage()) {
+      return false;
+    }
+    this.health = Math.max(this.health - damage, 0);
+    this.damageImmunityTimeRemainingMs = playerDamageImmunityDurationMs;
+    this.damageFlash.start();
+    if (this.health <= 0) {
+      this.respawnAtJoinPosition();
+      return true;
+    }
+    this.knockBackFrom(actor);
+    this.syncHealthState();
+    return true;
+  }
+
+  public isAlive() {
+    return this.health > 0;
+  }
+
+  public syncHealth(health: unknown) {
+    const nextHealth = Number(health);
+    if (!Number.isFinite(nextHealth)) {
+      return;
+    }
+    this.health = Math.max(0, Math.min(nextHealth, this.maxHealth));
+  }
+
+  private canTakeDamage() {
+    if (this.isPaused) {
+      return false;
+    }
+    if (this.damageImmunityTimeRemainingMs > 0) {
+      return false;
+    }
+    return this.health > 0;
+  }
+
+  private respawnAtJoinPosition() {
+    this.health = this.maxHealth;
+    this.pos = ex.vec(this.spawnPosition.x, this.spawnPosition.y);
+    this.hspeed = 0;
+    this.vspeed = 0;
+    this.isFlying = false;
+    this.knockbackTimeRemainingMs = 0;
+    this.jumpHoldTimeRemainingMs = 0;
+    this.syncHealthState();
   }
 
   public swordHitBounds(): WorldBounds | null {
@@ -558,6 +623,15 @@ export class Player extends MovingActor {
     this.sendClient(messageTypes.updatePlayer, position);
   }
 
+  private syncHealthState() {
+    const movementState = {
+      ...this.currentMovementState(),
+      health: this.health,
+      isFlying: this.isFlying,
+    };
+    this.sendClient(messageTypes.updatePlayer, movementState, movementState);
+  }
+
   private syncMovementPeriodically(delta: number) {
     if (!this.client) {
       return;
@@ -793,7 +867,16 @@ export class Player extends MovingActor {
     this.hspeed *= playerKnockbackFriction;
   }
 
+  private updateDamageFeedback(delta: number) {
+    this.damageImmunityTimeRemainingMs = Math.max(
+      this.damageImmunityTimeRemainingMs - delta,
+      0,
+    );
+    this.damageFlash.tick(delta);
+  }
+
   override onPostUpdate(engine: ex.Engine, delta: number) {
+    this.updateDamageFeedback(delta);
     if (this.isPaused) {
       this.updateToolOverlay(delta);
       return;

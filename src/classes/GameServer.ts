@@ -3,7 +3,7 @@ import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
 import { buildSurfaceStartByColumn } from "../world/terrainGen";
-import { WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
+import { TILE_PX, WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
@@ -15,6 +15,8 @@ import type {
   EntitiesSnapshotPayload,
   EntityState,
   EntityUpdatePayload,
+  EntityDamageUpdate,
+  PlayerDamageUpdate,
   PlayerState,
   TerrainBlockBreakUpdate,
   TerrainBlockUpdate,
@@ -28,6 +30,9 @@ const playerStateMessageTypes: string[] = [
   messageTypes.createPlayer,
   messageTypes.updatePlayer,
 ];
+const entityDamageKnockbackHorizontalSpeed = 1.5;
+const entityDamageKnockbackVerticalSpeed = -1.6;
+const entityDamageKnockbackDurationMs = 240;
 
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
@@ -162,7 +167,7 @@ export class GameServer {
   private attachPlayer(socket: WebSocket, messages: MessageRouting) {
     const playerId = (this.nextPlayerIndex++).toString();
     this.playerSockets[playerId] = socket;
-    this.playersData[playerId] = { isPaused: false };
+    this.playersData[playerId] = { isPaused: false, health: 6 };
     const didReassignEntities = this.assignBalancedEntityOwners();
     console.log(
       `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`,
@@ -364,8 +369,80 @@ export class GameServer {
     return this.entitiesPayload();
   }
 
+  private applyEntityDamage(payload: Data, playerId: string) {
+    const update = this.entityDamageUpdateFromPayload(payload);
+    if (!update) {
+      return null;
+    }
+    const storedEntity = this.entitiesData[update.entityId];
+    if (!storedEntity) {
+      return null;
+    }
+    const damage = update.damage ?? 1;
+    const nextHealth = Math.max(storedEntity.health - damage, 0);
+    if (nextHealth <= 0) {
+      delete this.entitiesData[storedEntity.id];
+      return this.entitiesPayload();
+    }
+    const player = this.playersData[playerId];
+    const playerX = Number(player?.x);
+    const direction =
+      Number.isFinite(playerX) && storedEntity.x + TILE_PX / 2 < playerX + TILE_PX / 2
+        ? -1
+        : 1;
+    this.entitiesData = {
+      ...this.entitiesData,
+      [storedEntity.id]: {
+        ...storedEntity,
+        health: nextHealth,
+        horizontalSpeed: entityDamageKnockbackHorizontalSpeed * direction,
+        verticalSpeed: entityDamageKnockbackVerticalSpeed,
+        knockbackMs: entityDamageKnockbackDurationMs,
+      },
+    };
+    return this.entitiesPayload();
+  }
+
+  private entityDamageUpdateFromPayload(payload: Data): EntityDamageUpdate | null {
+    const entityId = String(payload.entityId ?? "");
+    const damage = Number(payload.damage ?? 1);
+    if (!entityId) {
+      return null;
+    }
+    if (!Number.isFinite(damage) || damage <= 0) {
+      return null;
+    }
+    return {
+      entityId,
+      damage,
+    };
+  }
+
+  private playerDamagePayload(payload: Data, playerId: string) {
+    const update = payload as PlayerDamageUpdate;
+    const targetId = String(update.targetId ?? "");
+    const damage = Number(update.damage ?? 1);
+    if (!targetId) {
+      return null;
+    }
+    if (!this.playerSockets[targetId]) {
+      return null;
+    }
+    if (!Number.isFinite(damage) || damage <= 0) {
+      return null;
+    }
+    return {
+      id: playerId,
+      targetId,
+      damage,
+    };
+  }
+
   private outgoingMessageType(type: string) {
     if (type === messageTypes.updateEntity) {
+      return messageTypes.updateEntities;
+    }
+    if (type === messageTypes.damageEntity) {
       return messageTypes.updateEntities;
     }
     return type;
@@ -374,6 +451,12 @@ export class GameServer {
   private payloadForMessage(type: string, payload: Data, playerId: string) {
     if (type === messageTypes.updateEntity) {
       return this.applyEntityUpdate(payload, playerId);
+    }
+    if (type === messageTypes.damageEntity) {
+      return this.applyEntityDamage(payload, playerId);
+    }
+    if (type === messageTypes.damagePlayer) {
+      return this.playerDamagePayload(payload, playerId);
     }
     if (type === messageTypes.updateBlock) {
       return this.applyWorldBlockUpdate(payload, playerId);
