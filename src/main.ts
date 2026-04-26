@@ -199,7 +199,7 @@ game.start(loader).then(() => {
         () => [],
       );
       game.add(blockTargetingSlot.highlight);
-      client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });
+      client.send(messageTypes.createPlayer, { x: 0, y: 0 });
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
     },

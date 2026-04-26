@@ -18,6 +18,15 @@ import type {
 
 type MessageRouting = Record<string, "all" | "player" | "others">;
 
+const playerStateMessageTypes: string[] = [
+  messageTypes.createPlayer,
+  messageTypes.updatePlayer,
+];
+
+const isPlayerStateMessage = (type: string) => {
+  return playerStateMessageTypes.includes(type);
+};
+
 const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
   if (kind === "bedrock") {
     return true;
@@ -98,7 +107,7 @@ export class GameServer {
       columns: WORLD_TILE_COLUMNS,
       rows: WORLD_TILE_ROWS,
     });
-    this.wss = new WebSocketServer({ server });
+    this.wss = new WebSocketServer({ server, perMessageDeflate: true });
     this.playerSockets = {};
     this.playersData = {};
     this.worldSurfaceStarts = worldSurfaceStarts;
@@ -166,7 +175,7 @@ export class GameServer {
     const json = data.toString();
     const message = decodeMessage(json);
     const { type, payload } = message;
-    const patch = message.statePatch ?? {};
+    const patch = this.playerStatePatch(type, payload, message.statePatch);
     this.playersData[playerId] = merge(this.playersData[playerId], patch);
     if (!(type in messages)) {
       console.error("Unknown message type:", type);
@@ -187,6 +196,16 @@ export class GameServer {
     };
     send[target]();
     console.log(`[${playerId}]: ${json}`);
+  }
+
+  private playerStatePatch(type: string, payload: Data, statePatch?: Data) {
+    if (statePatch !== undefined) {
+      return statePatch;
+    }
+    if (isPlayerStateMessage(type)) {
+      return payload;
+    }
+    return {};
   }
 
   private removePlayer(playerId: string) {

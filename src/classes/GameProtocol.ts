@@ -7,9 +7,9 @@ export type GameMessage = {
 };
 
 export type WireMessage = {
-  _t: string;
-  _p: Data;
-  _d?: Data;
+  type: string;
+  payload: Data;
+  statePatch?: Data;
 };
 
 export type PlayerState = {
@@ -77,70 +77,15 @@ export const messageTypes = {
   knockbackPlayer: "knockback_player",
 } as const;
 
-const fieldAliases = [
-  { readable: "keyLeft", wire: "kl" },
-  { readable: "keyRight", wire: "kr" },
-  { readable: "keyJump", wire: "kj" },
-  { readable: "keyDown", wire: "kd" },
-  { readable: "keyUp", wire: "ku" },
-  { readable: "isUsingTool", wire: "ut" },
-  { readable: "activeTool", wire: "at" },
-  { readable: "isFlying", wire: "fl" },
-  { readable: "horizontalSpeed", wire: "sh" },
-  { readable: "verticalSpeed", wire: "sv" },
-] as const;
-
-const wireFieldByReadableField = Object.fromEntries(
-  fieldAliases.map(({ readable, wire }) => [readable, wire]),
-) as Record<string, string>;
-
-const readableFieldByWireField = Object.fromEntries(
-  fieldAliases.map(({ readable, wire }) => [wire, readable]),
-) as Record<string, string>;
-
-const isData = (value: unknown): value is Data => {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-};
-
-const hasFields = (data: Data) => {
-  return Object.keys(data).length > 0;
-};
-
-const translateFields = (
-  value: unknown,
-  fieldNames: Record<string, string>,
-) => {
-  if (Array.isArray(value)) {
-    return value.map((item) => translateFields(item, fieldNames));
-  }
-  if (!isData(value)) {
-    return value;
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([fieldName, fieldValue]) => [
-      fieldNames[fieldName] ?? fieldName,
-      translateFields(fieldValue, fieldNames),
-    ]),
-  );
-};
-
-export const encodePayload = (payload: Data) => {
-  return translateFields(payload, wireFieldByReadableField) as Data;
-};
-
-export const decodePayload = (payload: Data) => {
-  return translateFields(payload, readableFieldByWireField) as Data;
-};
-
 export const encodeMessage = (message: GameMessage) => {
   const wireMessage: WireMessage = {
-    _t: message.type,
-    _p: encodePayload(message.payload),
+    type: message.type,
+    payload: message.payload,
   };
-  if (message.statePatch && hasFields(message.statePatch)) {
+  if (message.statePatch !== undefined) {
     return JSON.stringify({
       ...wireMessage,
-      _d: encodePayload(message.statePatch),
+      statePatch: message.statePatch,
     });
   }
   return JSON.stringify(wireMessage);
@@ -148,9 +93,15 @@ export const encodeMessage = (message: GameMessage) => {
 
 export const decodeMessage = (json: string): GameMessage => {
   const wireMessage = JSON.parse(json) as WireMessage;
-  return {
-    type: wireMessage._t,
-    payload: decodePayload(wireMessage._p ?? {}),
-    statePatch: decodePayload(wireMessage._d ?? {}),
+  const message = {
+    type: wireMessage.type,
+    payload: wireMessage.payload ?? {},
   };
+  if (wireMessage.statePatch !== undefined) {
+    return {
+      ...message,
+      statePatch: wireMessage.statePatch,
+    };
+  }
+  return message;
 };

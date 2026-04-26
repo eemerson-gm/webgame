@@ -240,19 +240,11 @@ export class Player extends MovingActor {
 
   private sendToolUseState(isUsingTool: boolean, activeTool = this.activeTool) {
     const position = this.currentPosition();
-    this.sendClient(
-      messageTypes.updatePlayer,
-      {
-        isUsingTool,
-        activeTool,
-        ...position,
-      },
-      {
-        isUsingTool,
-        activeTool,
-        ...position,
-      },
-    );
+    this.sendClient(messageTypes.updatePlayer, {
+      isUsingTool,
+      activeTool,
+      ...position,
+    });
   }
 
   public useTool(
@@ -282,7 +274,7 @@ export class Player extends MovingActor {
       ...this.currentMovementState(),
       isFlying: this.isFlying,
     };
-    this.sendClient(messageTypes.updatePlayer, movementState, movementState);
+    this.sendClient(messageTypes.updatePlayer, movementState);
   }
 
   public swordHitBounds(): WorldBounds | null {
@@ -482,7 +474,7 @@ export class Player extends MovingActor {
 
   private syncPosition() {
     const position = this.currentPosition();
-    this.sendClient(messageTypes.updatePlayer, position, position);
+    this.sendClient(messageTypes.updatePlayer, position);
   }
 
   private onMove() {
@@ -500,7 +492,11 @@ export class Player extends MovingActor {
       shouldSyncPosition,
       payload,
     );
-    this.sendClient(messageTypes.updatePlayer, payload, statePatch);
+    this.sendClient(
+      messageTypes.updatePlayer,
+      payload,
+      statePatch === payload ? undefined : statePatch,
+    );
     this.inputState.remember(this.isFlying);
   }
 
