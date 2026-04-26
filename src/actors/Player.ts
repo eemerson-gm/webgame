@@ -6,7 +6,8 @@ import type { Data, PlayerTool } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { clamp } from "lodash";
 import { PlayerInputState } from "./PlayerInputState";
-import { TileCollisionActor } from "./TileCollisionActor";
+import { MovingActor } from "./MovingActor";
+import type { WorldBounds } from "./MovingActor";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -62,14 +63,11 @@ const useToolFrameIndexAt = (elapsedMs: number) =>
 const playerToolFrom = (value: unknown): PlayerTool =>
   playerToolByName[String(value)] ?? "pickaxe";
 
-export class Player extends TileCollisionActor {
+export class Player extends MovingActor {
   private client?: GameClient;
   isLocal: boolean;
-  isRunning: boolean = false;
-  isJumping: boolean = false;
   isFlying: boolean = false;
   isUsingTool: boolean = false;
-  isGrounded: boolean = false;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
@@ -81,7 +79,6 @@ export class Player extends TileCollisionActor {
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
   private activeTool: PlayerTool = "pickaxe";
-  private facingLeft: boolean = false;
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
 
@@ -201,10 +198,9 @@ export class Player extends TileCollisionActor {
   }
 
   private onJump() {
-    if (this.vspeed < 0) {
+    if (!this.jump(-4)) {
       return;
     }
-    this.vspeed = -4;
     this.sendClient(messageTypes.updatePlayer, {
       keyJump: true,
     });
@@ -250,6 +246,23 @@ export class Player extends TileCollisionActor {
 
   public useSword(durationMs: number = useToolDurationMs) {
     return this.useTool(durationMs, "sword");
+  }
+
+  public swordHitBounds(): WorldBounds | null {
+    if (!this.isUsingTool || this.activeTool !== "sword") {
+      return null;
+    }
+    const offset = this.currentToolOffset();
+    const left = this.facingLeft
+      ? this.pos.x + offset.x - TILE_PX
+      : this.pos.x + offset.x;
+    const top = this.pos.y + offset.y - TILE_PX;
+    return {
+      left,
+      right: left + TILE_PX,
+      top,
+      bottom: top + TILE_PX,
+    };
   }
 
   public keepUsingTool(durationMs: number, tool: PlayerTool = "pickaxe") {
@@ -433,9 +446,7 @@ export class Player extends TileCollisionActor {
   }
 
   private syncPlayerVisuals(keySign: number) {
-    if (keySign !== 0) {
-      this.facingLeft = keySign === -1;
-    }
+    this.syncFacingFromHorizontalSign(keySign);
     if (this.isUsingTool) {
       this.graphics.flipHorizontal = this.facingLeft;
       return;
@@ -502,9 +513,7 @@ export class Player extends TileCollisionActor {
       verticalSign * flySpeed * speedMultiplier,
       flyAcceleration * 60 * dt,
     );
-    this.pos.x += this.hspeed * positionScale * dt;
-    this.pos.y += this.vspeed * positionScale * dt;
-    this.isGrounded = false;
+    this.moveFreely(positionScale, dt);
   }
 
   private moveWithGravity(dt: number, keySign: number) {
@@ -520,15 +529,9 @@ export class Player extends TileCollisionActor {
       targetHspeed,
       horizontalAcceleration * 60 * dt,
     );
-    this.vspeed += gravity * 60 * dt;
+    this.applyGravity(gravity, dt);
 
-    const moveX = this.hspeed * positionScale * dt;
-    const moveY = this.vspeed * positionScale * dt;
-
-    this.moveHorizontally(moveX);
-    this.moveVertically(moveY);
-
-    this.isGrounded = this.tileMeeting(this.pos.x, this.pos.y + 1);
+    this.moveWithVelocity(positionScale, dt);
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {

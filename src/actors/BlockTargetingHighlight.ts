@@ -71,6 +71,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     string,
     ex.Actor
   >;
+  private readonly slimesHitByCurrentSwordSwing = new Set<Slime>();
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
@@ -121,7 +122,7 @@ export class BlockTargetingHighlight extends ex.Actor {
         return;
       }
       this.isPointerHeld = true;
-      this.startToolUseAt(event.worldPos, this.targetAt(event.worldPos));
+      this.startToolUseAt(this.targetAt(event.worldPos));
     });
     engine.input.pointers.primary.on("up", (event) => {
       if (event.button !== ex.PointerButton.Left) {
@@ -142,6 +143,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.moveToTarget(target);
     this.updateHighlightColor(delta);
     this.updateBreakingTarget(target, delta);
+    this.hitSlimesTouchingSword();
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
@@ -244,10 +246,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     );
   }
 
-  private startToolUseAt(
-    worldPos: ex.Vector,
-    target: TargetBlockPosition | null,
-  ) {
+  private startToolUseAt(target: TargetBlockPosition | null) {
     if (target) {
       this.startBreakingTarget(target);
       return;
@@ -259,15 +258,24 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!localPlayer.useSword()) {
       return;
     }
-    this.hitSlimeAt(worldPos, localPlayer);
+    this.hitSlimesTouchingSword();
   }
 
-  private hitSlimeAt(worldPos: ex.Vector, localPlayer: Player) {
+  private hitSlimesTouchingSword() {
+    const localPlayer = this.getLocalPlayer();
+    const swordBounds = localPlayer?.swordHitBounds();
+    if (!localPlayer || !swordBounds) {
+      this.slimesHitByCurrentSwordSwing.clear();
+      return;
+    }
     this.getSlimes()
-      .filter((slime) => slime.containsWorldPoint(worldPos))
-      .filter((slime) => slime.isWithinSwordRangeOf(localPlayer))
+      .filter((slime) => !this.slimesHitByCurrentSwordSwing.has(slime))
+      .filter((slime) => slime.overlapsWorldBounds(swordBounds))
       .slice(0, 1)
-      .forEach((slime) => slime.knockBackFrom(localPlayer));
+      .forEach((slime) => {
+        this.slimesHitByCurrentSwordSwing.add(slime);
+        slime.knockBackFrom(localPlayer);
+      });
   }
 
   private startBreakingTarget(target: TargetBlockPosition | null) {

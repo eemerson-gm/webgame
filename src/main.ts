@@ -135,6 +135,7 @@ const spawnTestingSlime = (
   const slime = new Slime(
     ex.vec(column * TILE_PX, (surfaceRow - 1) * TILE_PX),
     tilemap,
+    () => localPlayerSlot.player,
   );
   testingMobs.slimes = [slime];
   game.add(slime);

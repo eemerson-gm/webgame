@@ -1,6 +1,6 @@
 import * as ex from "excalibur";
 
-type CollisionBounds = {
+export type CollisionBounds = {
   offsetX: number;
   offsetY: number;
   width: number;
@@ -51,22 +51,22 @@ export class TileCollisionActor extends ex.Actor {
     return !!collision;
   }
 
-  protected moveHorizontally(moveX: number) {
+  protected moveHorizontallyUntilBlocked(moveX: number) {
     if (!this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
       this.pos.x += moveX;
-      return;
+      return true;
     }
     this.nudgeXUntilBlocked(moveX);
-    this.hspeed = 0;
+    return false;
   }
 
-  protected moveVertically(moveY: number) {
+  protected moveVerticallyUntilBlocked(moveY: number) {
     if (!this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
       this.pos.y += moveY;
-      return;
+      return true;
     }
     this.nudgeYUntilBlocked(moveY);
-    this.vspeed = 0;
+    return false;
   }
 
   private collisionBoundsAt(x: number, y: number) {
