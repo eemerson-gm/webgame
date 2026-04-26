@@ -161,6 +161,10 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!update.id) {
       return;
     }
+    if (this.getRemotePlayer(update.id)?.isPaused) {
+      this.hideRemoteBreakAnimation(update.id);
+      return;
+    }
     if (!update.isBreaking) {
       this.hideRemoteBreakAnimation(update.id);
       this.getRemotePlayer(update.id)?.syncToolUseState(false);
@@ -197,6 +201,9 @@ export class BlockTargetingHighlight extends ex.Actor {
   private targetAt(mouseWorldPos: ex.Vector | null) {
     const localPlayer = this.getLocalPlayer();
     if (!mouseWorldPos || !localPlayer) {
+      return null;
+    }
+    if (localPlayer.isPaused) {
       return null;
     }
     const target = this.tilePositionAt(mouseWorldPos);
@@ -276,7 +283,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private hitSlimesTouchingSword() {
     const localPlayer = this.getLocalPlayer();
     const swordBounds = localPlayer?.swordHitBounds();
-    if (!localPlayer || !swordBounds) {
+    if (!localPlayer || localPlayer.isPaused || !swordBounds) {
       this.slimesHitByCurrentSwordSwing.clear();
       return;
     }
@@ -293,12 +300,13 @@ export class BlockTargetingHighlight extends ex.Actor {
   private hitPlayersTouchingSword() {
     const localPlayer = this.getLocalPlayer();
     const swordBounds = localPlayer?.swordHitBounds();
-    if (!localPlayer || !swordBounds) {
+    if (!localPlayer || localPlayer.isPaused || !swordBounds) {
       this.playersHitByCurrentSwordSwing.clear();
       return;
     }
     this.getRemotePlayers()
       .filter(({ player }) => !this.playersHitByCurrentSwordSwing.has(player))
+      .filter(({ player }) => !player.isPaused)
       .filter(({ player }) => player.overlapsWorldBounds(swordBounds))
       .slice(0, 1)
       .forEach(({ id, player }) => {
@@ -314,6 +322,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     const localPlayer = this.getLocalPlayer();
     if (!localPlayer) {
+      return;
+    }
+    if (localPlayer.isPaused) {
       return;
     }
     const breakDurationMs = this.breakDurationFor(target);

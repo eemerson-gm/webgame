@@ -39,6 +39,9 @@ export class GameClient {
   }
 
   public send(type: string, payload: Data, patch?: Data) {
+    if (this.playerSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
     this.playerSocket.send(
       encodeMessage({ type, payload, statePatch: patch }),
     );

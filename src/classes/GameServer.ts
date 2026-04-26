@@ -151,7 +151,7 @@ export class GameServer {
   private attachPlayer(socket: WebSocket, messages: MessageRouting) {
     const playerId = (this.nextPlayerIndex++).toString();
     this.playerSockets[playerId] = socket;
-    this.playersData[playerId] = {};
+    this.playersData[playerId] = { isPaused: false };
     console.log(
       `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`,
     );
@@ -175,14 +175,26 @@ export class GameServer {
     const json = data.toString();
     const message = decodeMessage(json);
     const { type, payload } = message;
+    const wasPaused = this.playersData[playerId]?.isPaused === true;
+    const isResuming = wasPaused && this.shouldResumePlayer(type, payload);
     const patch = this.playerStatePatch(type, payload, message.statePatch);
-    this.playersData[playerId] = merge(this.playersData[playerId], patch);
+    const playerPatch = isResuming ? { ...patch, isPaused: false } : patch;
+    this.playersData[playerId] = merge(this.playersData[playerId], playerPatch);
     if (!(type in messages)) {
       console.error("Unknown message type:", type);
       console.log(`[${playerId}]: ${json}`);
       return;
     }
-    const payloadWithPlayerId = this.payloadForMessage(type, payload, playerId);
+    if (this.isPausedInteraction(playerId, type)) {
+      console.log(`[${playerId}]: Paused interaction blocked`);
+      return;
+    }
+    const outgoingPayload = isResuming ? { ...payload, isPaused: false } : payload;
+    const payloadWithPlayerId = this.payloadForMessage(
+      type,
+      outgoingPayload,
+      playerId,
+    );
     if (!payloadWithPlayerId) {
       console.error("Invalid message payload:", type);
       console.log(`[${playerId}]: ${json}`);
@@ -206,6 +218,20 @@ export class GameServer {
       return payload;
     }
     return {};
+  }
+
+  private shouldResumePlayer(type: string, payload: Data) {
+    if (type !== messageTypes.updatePlayer) {
+      return false;
+    }
+    return payload.isPaused !== true;
+  }
+
+  private isPausedInteraction(playerId: string, type: string) {
+    if (this.playersData[playerId]?.isPaused !== true) {
+      return false;
+    }
+    return type !== messageTypes.updatePlayer;
   }
 
   private removePlayer(playerId: string) {

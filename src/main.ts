@@ -19,6 +19,16 @@ const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
+const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
+  localPlayerSlot.player?.syncPauseState(isPaused);
+};
+const addLocalPauseListeners = () => {
+  document.addEventListener("visibilitychange", () => syncLocalPauseState());
+  window.addEventListener("pagehide", () => syncLocalPauseState(true));
+  window.addEventListener("pageshow", () => syncLocalPauseState(false));
+  document.addEventListener("freeze", () => syncLocalPauseState(true));
+  document.addEventListener("resume", () => syncLocalPauseState(false));
+};
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
@@ -71,10 +81,10 @@ const applyPositionFromPayloadIfPresent = (
   player: Player,
   payload: PlayerState,
 ) => {
-  if (payload.x) {
+  if (payload.x !== undefined) {
     player.pos.x = Number(payload.x);
   }
-  if (payload.y) {
+  if (payload.y !== undefined) {
     player.pos.y = Number(payload.y);
   }
 };
@@ -83,6 +93,9 @@ const syncMovementFieldsFromPayload = (
   player: Player,
   payload: PlayerState,
 ) => {
+  if (payload.isPaused !== undefined) {
+    player.setPaused(payload.isPaused);
+  }
   player.keyLeft = payload.keyLeft ?? player.keyLeft;
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
@@ -104,6 +117,9 @@ const applyRemotePlayerUpdate = (payload: Data) => {
     return;
   }
   applyPositionFromPayloadIfPresent(player, playerState);
+  if (playerState.isPaused) {
+    blockTargetingSlot.highlight?.removeRemoteBreakAnimation(playerId);
+  }
   syncMovementFieldsFromPayload(player, playerState);
 };
 
@@ -200,6 +216,8 @@ game.start(loader).then(() => {
       );
       game.add(blockTargetingSlot.highlight);
       client.send(messageTypes.createPlayer, { x: 0, y: 0 });
+      addLocalPauseListeners();
+      syncLocalPauseState();
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
     },

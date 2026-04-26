@@ -20,6 +20,7 @@ export const Resources = {
   BlockBreak2: new ex.ImageSource("./assets/effects/block_break2.png"),
   BlockBreak3: new ex.ImageSource("./assets/effects/block_break3.png"),
   BlockBreak4: new ex.ImageSource("./assets/effects/block_break4.png"),
+  ThoughtBubbleSleep: new ex.ImageSource("./assets/ui/thought_bubble_sleep.png"),
   Block: new ex.ImageSource("./assets/blocks/block.png"),
   Grass: new ex.ImageSource("./assets/blocks/grass.png"),
   Dirt: new ex.ImageSource("./assets/blocks/dirt.png"),

@@ -44,6 +44,8 @@ const useToolSpeedMultiplier = 0.7;
 const useToolAnchor = ex.vec(0, 1);
 const useToolMirroredAnchor = ex.vec(1, 1);
 const useToolHiddenOffset = () => ex.vec(-100000, -100000);
+const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
+const sleepBubbleAnchor = ex.vec(0.5, 1);
 const swordHitboxSize = TILE_PX * 0.75;
 const swordHitboxInset = (TILE_PX - swordHitboxSize) / 2;
 const swordHitboxOutlineScale = swordHitboxSize / TILE_PX;
@@ -77,6 +79,7 @@ export class Player extends MovingActor {
   isLocal: boolean;
   isFlying: boolean = false;
   isUsingTool: boolean = false;
+  isPaused: boolean = false;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
@@ -85,6 +88,7 @@ export class Player extends MovingActor {
   private toolSprites: Record<PlayerTool, ex.Sprite>;
   private toolActor: ex.Actor;
   private swordHitboxActor: ex.Actor;
+  private sleepBubbleActor: ex.Actor;
   private walkAnimation: ex.Animation;
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
@@ -134,6 +138,17 @@ export class Player extends MovingActor {
     this.swordHitboxActor.graphics.use(new SwordHitboxOutlineRaster());
     this.swordHitboxActor.graphics.visible = false;
     this.swordHitboxActor.graphics.opacity = 0;
+    this.sleepBubbleActor = new ex.Actor({
+      pos: sleepBubbleOffset,
+      anchor: sleepBubbleAnchor,
+      width: TILE_PX,
+      height: TILE_PX,
+      z: 11,
+    });
+    this.sleepBubbleActor.graphics.anchor = sleepBubbleAnchor;
+    this.sleepBubbleActor.graphics.use(Resources.ThoughtBubbleSleep.toSprite());
+    this.sleepBubbleActor.graphics.visible = false;
+    this.sleepBubbleActor.graphics.opacity = 0;
     this.useToolAnimation = new ex.Animation({
       frames: [
         { graphic: Resources.PlayerUseTool1.toSprite() },
@@ -200,6 +215,7 @@ export class Player extends MovingActor {
     this.graphics.use(this.idleSprite);
     this.addChild(this.toolActor);
     this.addChild(this.swordHitboxActor);
+    this.addChild(this.sleepBubbleActor);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -251,6 +267,9 @@ export class Player extends MovingActor {
     durationMs: number = useToolDurationMs,
     tool: PlayerTool = "pickaxe",
   ) {
+    if (this.isPaused) {
+      return false;
+    }
     if (this.isUsingTool) {
       return false;
     }
@@ -264,6 +283,9 @@ export class Player extends MovingActor {
   }
 
   public knockBackFrom(actor: ex.Actor) {
+    if (this.isPaused) {
+      return;
+    }
     const actorCenterX = actor.pos.x + actor.width / 2;
     const direction = this.centerX() < actorCenterX ? -1 : 1;
     this.isFlying = false;
@@ -278,6 +300,9 @@ export class Player extends MovingActor {
   }
 
   public swordHitBounds(): WorldBounds | null {
+    if (this.isPaused) {
+      return null;
+    }
     if (!this.isUsingTool || this.activeTool !== "sword") {
       return null;
     }
@@ -297,6 +322,9 @@ export class Player extends MovingActor {
   }
 
   public keepUsingTool(durationMs: number, tool: PlayerTool = "pickaxe") {
+    if (this.isPaused) {
+      return false;
+    }
     if (!this.isUsingTool) {
       return this.useTool(durationMs, tool);
     }
@@ -318,6 +346,44 @@ export class Player extends MovingActor {
     }
     this.stopUsingTool();
     this.sendToolUseState(false);
+  }
+
+  public syncPauseState(isPaused: boolean) {
+    const position = this.currentPosition();
+    this.setPaused(isPaused);
+    this.sendClient(messageTypes.updatePlayer, {
+      isPaused,
+      keyLeft: false,
+      keyRight: false,
+      keyJump: false,
+      keyDown: false,
+      keyUp: false,
+      isUsingTool: false,
+      horizontalSpeed: 0,
+      verticalSpeed: 0,
+      ...position,
+    });
+  }
+
+  public setPaused(isPaused: boolean) {
+    this.isPaused = isPaused;
+    this.sleepBubbleActor.graphics.visible = isPaused;
+    this.sleepBubbleActor.graphics.opacity = isPaused ? 1 : 0;
+    if (!isPaused) {
+      return;
+    }
+    this.keyLeft = false;
+    this.keyRight = false;
+    this.keyJump = false;
+    this.keyDown = false;
+    this.keyUp = false;
+    this.hspeed = 0;
+    this.vspeed = 0;
+    this.knockbackTimeRemainingMs = 0;
+    this.stopUsingTool();
+    this.walkAnimation.pause();
+    this.currentVisual = "idle";
+    this.graphics.use(this.idleSprite);
   }
 
   public syncToolUseState(
@@ -504,6 +570,9 @@ export class Player extends MovingActor {
     if (!this.client) {
       return;
     }
+    if (this.isPaused) {
+      return;
+    }
     if (this.didToggleSwordHitboxOutline(engine)) {
       this.isSwordHitboxOutlineEnabled = !this.isSwordHitboxOutlineEnabled;
     }
@@ -621,6 +690,10 @@ export class Player extends MovingActor {
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
+    if (this.isPaused) {
+      this.updateToolOverlay(delta);
+      return;
+    }
     this.updateControls(engine);
     this.onMove();
 
