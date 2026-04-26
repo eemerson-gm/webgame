@@ -1,6 +1,7 @@
 import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { Player } from "./actors/Player";
+import { Slime } from "./actors/Slime";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -18,6 +19,7 @@ const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
+const testingMobs = { slimes: [] as Slime[] };
 
 const loader = new ex.DefaultLoader({
   loadables: Object.values(Resources),
@@ -123,6 +125,21 @@ const joinExistingRemotePlayers = (
   });
 };
 
+const spawnTestingSlime = (
+  game: ex.Engine,
+  tilemap: ex.TileMap,
+  world: WorldTerrainPayload,
+) => {
+  const column = Math.min(8, Math.max(0, world.columns - 1));
+  const surfaceRow = world.surfaceStartByColumn[column];
+  const slime = new Slime(
+    ex.vec(column * TILE_PX, (surfaceRow - 1) * TILE_PX),
+    tilemap,
+  );
+  testingMobs.slimes = [slime];
+  game.add(slime);
+};
+
 const applyTerrainBlockUpdate = (payload: Data) => {
   const terrain = worldSession.terrain;
   if (!terrain) {
@@ -167,8 +184,10 @@ game.start(loader).then(() => {
         client,
         () => localPlayerSlot.player,
         (playerId) => playerById[playerId] ?? null,
+        () => testingMobs.slimes,
       );
       game.add(blockTargetingSlot.highlight);
+      spawnTestingSlime(game, tilemap, world);
       client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);

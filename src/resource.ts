@@ -15,6 +15,7 @@ export const Resources = {
   PlayerUseTool5: new ex.ImageSource("./assets/player/player_use_tool5.png"),
   BronzePickaxe: new ex.ImageSource("./assets/tools/bronze_pickaxe.png"),
   BronzeSword: new ex.ImageSource("./assets/tools/bronze_sword.png"),
+  Slime: new ex.ImageSource("./assets/mobs/slime.png"),
   BlockBreak1: new ex.ImageSource("./assets/effects/block_break1.png"),
   BlockBreak2: new ex.ImageSource("./assets/effects/block_break2.png"),
   BlockBreak3: new ex.ImageSource("./assets/effects/block_break3.png"),

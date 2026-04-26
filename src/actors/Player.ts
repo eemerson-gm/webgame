@@ -6,6 +6,7 @@ import type { Data, PlayerTool } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { clamp } from "lodash";
 import { PlayerInputState } from "./PlayerInputState";
+import { TileCollisionActor } from "./TileCollisionActor";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -61,17 +62,14 @@ const useToolFrameIndexAt = (elapsedMs: number) =>
 const playerToolFrom = (value: unknown): PlayerTool =>
   playerToolByName[String(value)] ?? "pickaxe";
 
-export class Player extends ex.Actor {
+export class Player extends TileCollisionActor {
   private client?: GameClient;
-  hspeed: number = 0;
-  vspeed: number = 0;
   isLocal: boolean;
   isRunning: boolean = false;
   isJumping: boolean = false;
   isFlying: boolean = false;
   isUsingTool: boolean = false;
   isGrounded: boolean = false;
-  tilemap: ex.TileMap;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
@@ -90,14 +88,14 @@ export class Player extends ex.Actor {
   constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
     const width = TILE_PX;
     const height = TILE_PX;
-    super({
-      pos,
-      anchor: ex.vec(0, 0),
-      width,
-      height,
+    super(pos, tilemap, ex.vec(width, height), {
+      offsetX: collisionOffsetX,
+      offsetY: collisionOffsetY,
+      width: collisionWidth,
+      height: collisionHeight,
+      edgeInset: collisionEdgeInset,
     });
     this.client = client;
-    this.tilemap = tilemap;
     this.idleSprite = Resources.Player.toSprite();
     this.jumpSprite = Resources.PlayerJump.toSprite();
     this.crouchSprite = Resources.PlayerCrouch.toSprite();
@@ -176,15 +174,6 @@ export class Player extends ex.Actor {
 
   set keyUp(value: boolean) {
     this.inputState.keyUp = value;
-  }
-
-  private collisionBoundsAt(x: number, y: number) {
-    return {
-      left: x + collisionOffsetX,
-      right: x + collisionOffsetX + collisionWidth - collisionEdgeInset,
-      top: y + collisionOffsetY,
-      bottom: y + collisionOffsetY + collisionHeight - collisionEdgeInset,
-    };
   }
 
   override onInitialize() {
@@ -443,41 +432,6 @@ export class Player extends ex.Actor {
     }
   }
 
-  private tileMeeting(x: number, y: number) {
-    const tw = this.tilemap.tileWidth;
-    const th = this.tilemap.tileHeight;
-
-    const collisionBounds = this.collisionBoundsAt(x, y);
-
-    const collision =
-      this.tilemap
-        .getTile(
-          Math.floor(collisionBounds.left / tw),
-          Math.floor(collisionBounds.top / th),
-        )
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(
-          Math.floor(collisionBounds.right / tw),
-          Math.floor(collisionBounds.top / th),
-        )
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(
-          Math.floor(collisionBounds.left / tw),
-          Math.floor(collisionBounds.bottom / th),
-        )
-        ?.getGraphics().length ||
-      this.tilemap
-        .getTile(
-          Math.floor(collisionBounds.right / tw),
-          Math.floor(collisionBounds.bottom / th),
-        )
-        ?.getGraphics().length;
-
-    return !!collision;
-  }
-
   private syncPlayerVisuals(keySign: number) {
     if (keySign !== 0) {
       this.facingLeft = keySign === -1;
@@ -519,54 +473,6 @@ export class Player extends ex.Actor {
       }
     }
     this.graphics.flipHorizontal = this.facingLeft;
-  }
-
-  private nudgeXUntilBlocked(moveX: number) {
-    const span = this.tilemap.tileWidth;
-    const nudge = (rem: number): void => {
-      if (rem <= 0) {
-        return;
-      }
-      if (this.tileMeeting(this.pos.x + Math.sign(moveX), this.pos.y)) {
-        return;
-      }
-      this.pos.x += Math.sign(moveX);
-      nudge(rem - 1);
-    };
-    nudge(span);
-  }
-
-  private nudgeYUntilBlocked(moveY: number) {
-    const span = this.tilemap.tileWidth;
-    const nudge = (rem: number): void => {
-      if (rem <= 0) {
-        return;
-      }
-      if (this.tileMeeting(this.pos.x, this.pos.y + Math.sign(moveY))) {
-        return;
-      }
-      this.pos.y += Math.sign(moveY);
-      nudge(rem - 1);
-    };
-    nudge(span);
-  }
-
-  private moveHorizontally(moveX: number) {
-    if (!this.tileMeeting(this.pos.x + moveX, this.pos.y)) {
-      this.pos.x += moveX;
-      return;
-    }
-    this.nudgeXUntilBlocked(moveX);
-    this.hspeed = 0;
-  }
-
-  private moveVertically(moveY: number) {
-    if (!this.tileMeeting(this.pos.x, this.pos.y + moveY)) {
-      this.pos.y += moveY;
-      return;
-    }
-    this.nudgeYUntilBlocked(moveY);
-    this.vspeed = 0;
   }
 
   private horizontalAccelerationFor(keySign: number) {

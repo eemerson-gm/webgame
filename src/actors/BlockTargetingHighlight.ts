@@ -7,6 +7,7 @@ import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
 import { BlockHighlightRaster } from "./BlockHighlightRaster";
 import type { Player } from "./Player";
+import type { Slime } from "./Slime";
 
 const blockTargetRange = 2;
 const blockBreakFrameDurationMs = 90;
@@ -29,6 +30,7 @@ type TargetBlockPosition = {
 
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
+type SlimeProvider = () => Slime[];
 
 const colorChannelBetween = (start: number, end: number, progress: number) =>
   Math.round(start + (end - start) * progress);
@@ -57,6 +59,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly client: GameClient;
   private readonly getLocalPlayer: LocalPlayerProvider;
   private readonly getRemotePlayer: RemotePlayerProvider;
+  private readonly getSlimes: SlimeProvider;
   private readonly highlightGraphic: BlockHighlightRaster;
   private breakAnimation: ex.Animation;
   private readonly breakAnimationActor: ex.Actor;
@@ -79,6 +82,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     client: GameClient,
     getLocalPlayer: LocalPlayerProvider,
     getRemotePlayer: RemotePlayerProvider,
+    getSlimes: SlimeProvider,
   ) {
     super({
       pos: ex.vec(-TILE_PX, -TILE_PX),
@@ -91,6 +95,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.client = client;
     this.getLocalPlayer = getLocalPlayer;
     this.getRemotePlayer = getRemotePlayer;
+    this.getSlimes = getSlimes;
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
@@ -116,7 +121,7 @@ export class BlockTargetingHighlight extends ex.Actor {
         return;
       }
       this.isPointerHeld = true;
-      this.startToolUseAt(this.targetAt(event.worldPos));
+      this.startToolUseAt(event.worldPos, this.targetAt(event.worldPos));
     });
     engine.input.pointers.primary.on("up", (event) => {
       if (event.button !== ex.PointerButton.Left) {
@@ -239,12 +244,30 @@ export class BlockTargetingHighlight extends ex.Actor {
     );
   }
 
-  private startToolUseAt(target: TargetBlockPosition | null) {
+  private startToolUseAt(
+    worldPos: ex.Vector,
+    target: TargetBlockPosition | null,
+  ) {
     if (target) {
       this.startBreakingTarget(target);
       return;
     }
-    this.getLocalPlayer()?.useSword();
+    const localPlayer = this.getLocalPlayer();
+    if (!localPlayer) {
+      return;
+    }
+    if (!localPlayer.useSword()) {
+      return;
+    }
+    this.hitSlimeAt(worldPos, localPlayer);
+  }
+
+  private hitSlimeAt(worldPos: ex.Vector, localPlayer: Player) {
+    this.getSlimes()
+      .filter((slime) => slime.containsWorldPoint(worldPos))
+      .filter((slime) => slime.isWithinSwordRangeOf(localPlayer))
+      .slice(0, 1)
+      .forEach((slime) => slime.knockBackFrom(localPlayer));
   }
 
   private startBreakingTarget(target: TargetBlockPosition | null) {
