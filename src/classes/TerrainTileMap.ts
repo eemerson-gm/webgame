@@ -1,10 +1,10 @@
 import * as ex from "excalibur";
-import { Resources } from "../resource";
 import type {
   TerrainBlockUpdate,
   TerrainTileKind,
   WorldTerrainPayload,
 } from "./GameProtocol";
+import { terrainBlockForKind } from "./TerrainBlock";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
@@ -81,17 +81,8 @@ const terrainGraphicFor = (
   row: number,
   terrainTiles: Record<string, TerrainTileKind>,
 ) => {
-  const kind = terrainTiles[terrainTileKey(column, row)];
-  if (kind === "bedrock") {
-    return Resources.Bedrock.toSprite();
-  }
-  if (kind === "grass") {
-    return Resources.Grass.toSprite();
-  }
-  if (kind === "stone") {
-    return Resources.Stone.toSprite();
-  }
-  return Resources.Dirt.toSprite();
+  const kind = terrainTiles[terrainTileKey(column, row)] ?? "dirt";
+  return terrainBlockForKind(kind).toSprite();
 };
 
 const borderSegmentsForTile = (
@@ -250,6 +241,21 @@ export class TerrainTileMap {
 
   public removeBlock(column: number, row: number) {
     this.setBlockSolid(column, row, false);
+  }
+
+  public tileKindAt(column: number, row: number) {
+    if (!isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles)) {
+      return null;
+    }
+    return this.terrainTiles[terrainTileKey(column, row)] ?? "dirt";
+  }
+
+  public blockAt(column: number, row: number) {
+    const kind = this.tileKindAt(column, row);
+    if (!kind) {
+      return null;
+    }
+    return terrainBlockForKind(kind);
   }
 
   public applyBlockUpdate(update: TerrainBlockUpdate) {

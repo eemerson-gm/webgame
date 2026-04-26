@@ -50,6 +50,7 @@ export type TerrainBlockBreakUpdate = {
   column: number;
   row: number;
   isBreaking: boolean;
+  breakDurationMs?: number;
 };
 
 export type ConnectedPayload = {

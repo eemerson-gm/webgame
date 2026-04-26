@@ -33,7 +33,7 @@ const positionPrecision = 1000;
 const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
-const useToolSpeedMultiplier = 0.35;
+const useToolSpeedMultiplier = 0.7;
 const useToolPickaxeAnchor = ex.vec(0, 1);
 const useToolPickaxeMirroredAnchor = ex.vec(1, 1);
 const useToolPickaxeHiddenOffset = () => ex.vec(-100000, -100000);
@@ -237,6 +237,14 @@ export class Player extends ex.Actor {
     return true;
   }
 
+  public keepUsingTool(durationMs: number) {
+    if (!this.isUsingTool) {
+      return this.useTool(durationMs);
+    }
+    this.useToolTimeRemainingMs = Math.max(this.useToolTimeRemainingMs, durationMs);
+    return true;
+  }
+
   public stopUsingToolAction() {
     if (!this.isUsingTool) {
       return;
@@ -245,9 +253,16 @@ export class Player extends ex.Actor {
     this.sendToolUseState(false);
   }
 
-  public syncToolUseState(isUsingTool: boolean) {
+  public syncToolUseState(
+    isUsingTool: boolean,
+    durationMs: number = useToolDurationMs,
+  ) {
     if (isUsingTool && !this.isUsingTool) {
-      this.beginUsingTool(useToolDurationMs);
+      this.beginUsingTool(durationMs);
+      return;
+    }
+    if (isUsingTool && this.isUsingTool) {
+      this.useToolTimeRemainingMs = Math.max(this.useToolTimeRemainingMs, durationMs);
       return;
     }
     if (!isUsingTool && this.isUsingTool) {
@@ -259,8 +274,6 @@ export class Player extends ex.Actor {
     this.isUsingTool = true;
     this.useToolTimeRemainingMs = durationMs;
     this.useToolElapsedMs = 0;
-    this.hspeed *= useToolSpeedMultiplier;
-    this.vspeed *= this.isFlying ? useToolSpeedMultiplier : 1;
     if (this.currentVisual === "walk") {
       this.walkAnimation.pause();
     }

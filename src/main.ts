@@ -166,6 +166,7 @@ game.start(loader).then(() => {
         terrain,
         client,
         () => localPlayerSlot.player,
+        (playerId) => playerById[playerId] ?? null,
       );
       game.add(blockTargetingSlot.highlight);
       client.send(messageTypes.createPlayer, { x: 0, y: 0 }, { x: 0, y: 0 });

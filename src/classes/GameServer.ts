@@ -64,16 +64,24 @@ const blockUpdateFromPayload = (payload: Data): TerrainBlockUpdate | null => {
 const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | null => {
   const column = Number(payload.column);
   const row = Number(payload.row);
+  const breakDurationMs = Number(payload.breakDurationMs);
   if (!Number.isInteger(column) || !Number.isInteger(row)) {
     return null;
   }
   if (typeof payload.isBreaking !== "boolean") {
     return null;
   }
+  if (
+    payload.breakDurationMs !== undefined &&
+    (!Number.isFinite(breakDurationMs) || breakDurationMs <= 0)
+  ) {
+    return null;
+  }
   return {
     column,
     row,
     isBreaking: payload.isBreaking,
+    ...(payload.breakDurationMs === undefined ? {} : { breakDurationMs }),
   };
 };
 

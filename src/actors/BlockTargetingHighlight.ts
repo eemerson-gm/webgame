@@ -11,7 +11,6 @@ import type { Player } from "./Player";
 const blockTargetRange = 2;
 const blockBreakFrameDurationMs = 90;
 const blockBreakFrameCount = 4;
-const blockBreakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount;
 const blockHighlightGradientDurationMs = 2200;
 const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
@@ -29,6 +28,7 @@ type TargetBlockPosition = {
 };
 
 type LocalPlayerProvider = () => Player | null;
+type RemotePlayerProvider = (playerId: string) => Player | null;
 
 const colorChannelBetween = (start: number, end: number, progress: number) =>
   Math.round(start + (end - start) * progress);
@@ -37,7 +37,8 @@ const hexChannel = (channel: number) => channel.toString(16).padStart(2, "0");
 
 const blockHighlightColorAt = (elapsedMs: number) => {
   const position =
-    ((elapsedMs % blockHighlightGradientDurationMs) / blockHighlightGradientDurationMs) *
+    ((elapsedMs % blockHighlightGradientDurationMs) /
+      blockHighlightGradientDurationMs) *
     blockHighlightGradient.length;
   const shadeIndex = Math.floor(position);
   const nextShadeIndex = (shadeIndex + 1) % blockHighlightGradient.length;
@@ -55,11 +56,18 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly terrain: TerrainTileMap;
   private readonly client: GameClient;
   private readonly getLocalPlayer: LocalPlayerProvider;
+  private readonly getRemotePlayer: RemotePlayerProvider;
   private readonly highlightGraphic: BlockHighlightRaster;
-  private readonly breakAnimation: ex.Animation;
+  private breakAnimation: ex.Animation;
   private readonly breakAnimationActor: ex.Actor;
-  private readonly remoteBreakAnimationsByPlayerId: Record<string, ex.Animation>;
-  private readonly remoteBreakAnimationActorsByPlayerId: Record<string, ex.Actor>;
+  private readonly remoteBreakAnimationsByPlayerId: Record<
+    string,
+    ex.Animation
+  >;
+  private readonly remoteBreakAnimationActorsByPlayerId: Record<
+    string,
+    ex.Actor
+  >;
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
@@ -70,6 +78,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     terrain: TerrainTileMap,
     client: GameClient,
     getLocalPlayer: LocalPlayerProvider,
+    getRemotePlayer: RemotePlayerProvider,
   ) {
     super({
       pos: ex.vec(-TILE_PX, -TILE_PX),
@@ -81,6 +90,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.terrain = terrain;
     this.client = client;
     this.getLocalPlayer = getLocalPlayer;
+    this.getRemotePlayer = getRemotePlayer;
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
@@ -135,12 +145,22 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     if (!update.isBreaking) {
       this.hideRemoteBreakAnimation(update.id);
+      this.getRemotePlayer(update.id)?.syncToolUseState(false);
       return;
     }
-    this.showRemoteBreakAnimation(update.id, {
+    const target = {
       column: update.column,
       row: update.row,
-    });
+    };
+    this.showRemoteBreakAnimation(
+      update.id,
+      target,
+      update.breakDurationMs ?? this.breakDurationFor(target),
+    );
+    this.getRemotePlayer(update.id)?.syncToolUseState(
+      true,
+      Number.POSITIVE_INFINITY,
+    );
   }
 
   public removeRemoteBreakAnimation(playerId: string) {
@@ -172,21 +192,27 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   private tilePositionAt(worldPos: ex.Vector) {
     return {
-      column: Math.floor((worldPos.x - this.terrain.map.pos.x) / this.terrain.map.tileWidth),
-      row: Math.floor((worldPos.y - this.terrain.map.pos.y) / this.terrain.map.tileHeight),
+      column: Math.floor(
+        (worldPos.x - this.terrain.map.pos.x) / this.terrain.map.tileWidth,
+      ),
+      row: Math.floor(
+        (worldPos.y - this.terrain.map.pos.y) / this.terrain.map.tileHeight,
+      ),
     };
   }
 
   private isSolidTile(target: TargetBlockPosition) {
-    return !!this.terrain.map.getTile(target.column, target.row)?.getGraphics().length;
+    return !!this.terrain.blockAt(target.column, target.row);
   }
 
   private isWithinPlayerRange(player: Player, target: TargetBlockPosition) {
     const playerColumn = Math.floor(
-      (player.pos.x + TILE_PX / 2 - this.terrain.map.pos.x) / this.terrain.map.tileWidth,
+      (player.pos.x + TILE_PX / 2 - this.terrain.map.pos.x) /
+        this.terrain.map.tileWidth,
     );
     const playerRow = Math.floor(
-      (player.pos.y + TILE_PX / 2 - this.terrain.map.pos.y) / this.terrain.map.tileHeight,
+      (player.pos.y + TILE_PX / 2 - this.terrain.map.pos.y) /
+        this.terrain.map.tileHeight,
     );
     const columnDistance = Math.abs(target.column - playerColumn);
     const rowDistance = Math.abs(target.row - playerRow);
@@ -199,13 +225,17 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.pos.y = -TILE_PX;
       return;
     }
-    this.pos.x = this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
-    this.pos.y = this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+    this.pos.x =
+      this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
+    this.pos.y =
+      this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
   }
 
   private updateHighlightColor(delta: number) {
     this.highlightElapsedMs += delta;
-    this.highlightGraphic.setColor(blockHighlightColorAt(this.highlightElapsedMs));
+    this.highlightGraphic.setColor(
+      blockHighlightColorAt(this.highlightElapsedMs),
+    );
   }
 
   private startToolUseAt(target: TargetBlockPosition | null) {
@@ -224,18 +254,27 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!localPlayer) {
       return;
     }
-    if (!localPlayer.isUsingTool && !localPlayer.useTool(Number.POSITIVE_INFINITY)) {
+    const breakDurationMs = this.breakDurationFor(target);
+    if (!Number.isFinite(breakDurationMs)) {
       return;
     }
-    this.sendBlockBreakUpdate(target, true);
+    if (!localPlayer.keepUsingTool(Number.POSITIVE_INFINITY)) {
+      return;
+    }
+    this.sendBlockBreakUpdate(target, true, breakDurationMs);
     this.breakingTarget = target;
     this.breakProgressMs = 0;
     this.moveBreakAnimationToTarget(target);
+    this.breakAnimation = this.createBlockBreakAnimation(breakDurationMs);
+    this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.breakAnimation.reset();
     this.breakAnimation.play();
   }
 
-  private updateBreakingTarget(target: TargetBlockPosition | null, delta: number) {
+  private updateBreakingTarget(
+    target: TargetBlockPosition | null,
+    delta: number,
+  ) {
     if (!this.isPointerHeld) {
       this.cancelBreakingTarget();
       return;
@@ -246,13 +285,16 @@ export class BlockTargetingHighlight extends ex.Actor {
       }
       return;
     }
-    if (!this.breakingTarget || !this.isSameTarget(target, this.breakingTarget)) {
+    if (
+      !this.breakingTarget ||
+      !this.isSameTarget(target, this.breakingTarget)
+    ) {
       this.startBreakingTarget(target);
       return;
     }
     this.breakProgressMs += delta;
     this.moveBreakAnimationToTarget(this.breakingTarget);
-    if (this.breakProgressMs < blockBreakDurationMs) {
+    if (this.breakProgressMs < this.breakDurationFor(this.breakingTarget)) {
       return;
     }
     this.client.send(messageTypes.updateBlock, {
@@ -277,19 +319,32 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
   }
 
-  private sendBlockBreakUpdate(target: TargetBlockPosition, isBreaking: boolean) {
+  private sendBlockBreakUpdate(
+    target: TargetBlockPosition,
+    isBreaking: boolean,
+    breakDurationMs?: number,
+  ) {
     this.client.send(messageTypes.updateBlockBreak, {
       column: target.column,
       row: target.row,
       isBreaking,
+      ...(breakDurationMs === undefined ? {} : { breakDurationMs }),
     });
   }
 
-  private showRemoteBreakAnimation(playerId: string, target: TargetBlockPosition) {
+  private showRemoteBreakAnimation(
+    playerId: string,
+    target: TargetBlockPosition,
+    breakDurationMs: number,
+  ) {
     const actor = this.remoteBreakAnimationActorFor(playerId);
-    const animation = this.remoteBreakAnimationFor(playerId);
-    actor.pos.x = this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
-    actor.pos.y = this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+    const animation = this.createBlockBreakAnimation(breakDurationMs);
+    this.remoteBreakAnimationsByPlayerId[playerId] = animation;
+    actor.graphics.use(animation);
+    actor.pos.x =
+      this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
+    actor.pos.y =
+      this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
     animation.reset();
     animation.play();
   }
@@ -331,7 +386,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     return animation;
   }
 
-  private createBlockBreakAnimation() {
+  private createBlockBreakAnimation(
+    breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
+  ) {
     return new ex.Animation({
       frames: [
         { graphic: Resources.BlockBreak1.toSprite() },
@@ -339,7 +396,7 @@ export class BlockTargetingHighlight extends ex.Actor {
         { graphic: Resources.BlockBreak3.toSprite() },
         { graphic: Resources.BlockBreak4.toSprite() },
       ],
-      frameDuration: blockBreakFrameDurationMs,
+      frameDuration: breakDurationMs / blockBreakFrameCount,
       strategy: ex.AnimationStrategy.End,
     });
   }
@@ -349,6 +406,11 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
     this.breakAnimationActor.pos.y =
       this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+  }
+
+  private breakDurationFor(target: TargetBlockPosition) {
+    return this.terrain.blockAt(target.column, target.row)?.breakDurationMs ??
+      Number.POSITIVE_INFINITY;
   }
 
   private isSameTarget(a: TargetBlockPosition, b: TargetBlockPosition) {
