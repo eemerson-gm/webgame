@@ -14,6 +14,7 @@ const gameServer = new GameServer(server);
 gameServer.listen({
   [messageTypes.createPlayer]: "others",
   [messageTypes.updatePlayer]: "others",
+  [messageTypes.updatePing]: "others",
   [messageTypes.updateBlock]: "all",
   [messageTypes.updateBlockBreak]: "others",
   [messageTypes.knockbackPlayer]: "all",
@@ -22,4 +23,5 @@ gameServer.listen({
   [messageTypes.createEntity]: "all",
   [messageTypes.updateEntity]: "all",
   [messageTypes.createParticle]: "others",
+  [messageTypes.ping]: "player",
 });

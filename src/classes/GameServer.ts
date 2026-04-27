@@ -33,6 +33,7 @@ type MessageRouting = Record<string, "all" | "player" | "others">;
 const playerStateMessageTypes: string[] = [
   messageTypes.createPlayer,
   messageTypes.updatePlayer,
+  messageTypes.updatePing,
 ];
 const entityDamageKnockbackHorizontalSpeed = 1.5;
 const entityDamageKnockbackVerticalSpeed = -1.6;
@@ -487,6 +488,9 @@ export class GameServer {
   }
 
   private outgoingMessageType(type: string) {
+    if (type === messageTypes.ping) {
+      return messageTypes.pong;
+    }
     if (type === messageTypes.createEntity) {
       return messageTypes.updateEntities;
     }

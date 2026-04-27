@@ -25,10 +25,13 @@ import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
+const playerPingById: Record<string, number | undefined> = {};
+const pingLoopSlot = { intervalId: null as number | null };
 const slimeById: Record<string, Slime> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
 const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
 const remotePlayerPositionTolerance = 0.5;
+const pingIntervalMs = 2000;
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
@@ -76,6 +79,59 @@ const focusGameCanvas = (engine: ex.Engine) => {
       return;
     }
     event.preventDefault();
+  });
+};
+
+const playerListElement = () => document.getElementById("player-list");
+
+const playerDisplayName = (playerId: string) => {
+  if (playerId === clientSlot.client?.clientId) {
+    return `Player ${playerId} (you)`;
+  }
+  return `Player ${playerId}`;
+};
+
+const playerPingText = (playerId: string) => {
+  const pingMs = playerPingById[playerId];
+  if (pingMs === undefined) {
+    return "-- ms";
+  }
+  return `${Math.round(pingMs)} ms`;
+};
+
+const playerListIds = () =>
+  [
+    clientSlot.client?.clientId,
+    ...Object.keys(playerById),
+    ...Object.keys(playerPingById),
+  ]
+    .filter((playerId): playerId is string => !!playerId)
+    .filter((playerId, index, playerIds) => playerIds.indexOf(playerId) === index)
+    .sort((a, b) => Number(a) - Number(b));
+
+const createPlayerListRow = (playerId: string) => {
+  const row = document.createElement("div");
+  const name = document.createElement("span");
+  const ping = document.createElement("span");
+  row.className = "player-list__row";
+  ping.className = "player-list__ping";
+  name.textContent = playerDisplayName(playerId);
+  ping.textContent = playerPingText(playerId);
+  row.replaceChildren(name, ping);
+  return row;
+};
+
+const renderPlayerList = () => {
+  const list = playerListElement();
+  if (!list) {
+    return;
+  }
+  list.replaceChildren(...playerListIds().map(createPlayerListRow));
+};
+
+const rememberPlayerPings = (playersData: Record<string, PlayerState>) => {
+  Object.entries(playersData).forEach(([playerId, state]) => {
+    playerPingById[playerId] = state.pingMs;
   });
 };
 
@@ -161,6 +217,7 @@ const playerStateFromActor = (
     horizontalSpeed: player.hspeed,
     verticalSpeed: player.vspeed,
     health: player.health,
+    pingMs: playerPingById[playerId],
   },
 ];
 
@@ -332,6 +389,41 @@ const applyPlayerDamageUpdate = (payload: Data) => {
   target.takeDamageFrom(attacker, update.damage, "flash");
 };
 
+const applyPlayerPingUpdate = (payload: Data) => {
+  const playerId = String(payload.id ?? "");
+  const pingMs = Number(payload.pingMs);
+  if (!playerId || !Number.isFinite(pingMs)) {
+    return;
+  }
+  playerPingById[playerId] = pingMs;
+  renderPlayerList();
+};
+
+const applyPongUpdate = (client: GameClient, payload: Data) => {
+  const sentAt = Number(payload.sentAt);
+  if (!Number.isFinite(sentAt)) {
+    return;
+  }
+  const pingMs = Math.max(0, Math.round(performance.now() - sentAt));
+  playerPingById[client.clientId] = pingMs;
+  renderPlayerList();
+  client.send(messageTypes.updatePing, { pingMs });
+};
+
+const sendPing = (client: GameClient) => {
+  client.send(messageTypes.ping, { sentAt: performance.now() });
+};
+
+const startPingLoop = (client: GameClient) => {
+  if (pingLoopSlot.intervalId !== null) {
+    return;
+  }
+  sendPing(client);
+  pingLoopSlot.intervalId = window.setInterval(() => {
+    sendPing(client);
+  }, pingIntervalMs);
+};
+
 const clientSlot = { client: null as GameClient | null };
 
 game.start(loader).then(() => {
@@ -344,6 +436,10 @@ game.start(loader).then(() => {
         console.error("Invalid or missing world payload from server");
         return;
       }
+      rememberPlayerPings(playersData);
+      playerPingById[myPlayerId] = playersData[myPlayerId]?.pingMs;
+      renderPlayerList();
+      startPingLoop(client);
       const terrain = new TerrainTileMap({
         pos: ex.vec(0, 0),
         tileWidth: TILE_PX,
@@ -393,12 +489,15 @@ game.start(loader).then(() => {
       syncLocalPauseState();
       console.log("Players:", playersData);
       joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
+      renderPlayerList();
       applyEntitiesSnapshot({ entitiesData });
     },
     onDisconnect: (gonePlayerId) => {
       blockTargetingSlot.highlight?.removeRemoteBreakAnimation(gonePlayerId);
       playerById[gonePlayerId].kill();
       delete playerById[gonePlayerId];
+      delete playerPingById[gonePlayerId];
+      renderPlayerList();
     },
     listener: () => ({
       [messageTypes.createPlayer]: (payload) => {
@@ -411,14 +510,18 @@ game.start(loader).then(() => {
           return;
         }
         spawnPlayerAt(game, terrain.map, id, Number(x), Number(y));
+        playerPingById[id] = (payload as PlayerState).pingMs;
+        renderPlayerList();
       },
       [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
+      [messageTypes.updatePing]: applyPlayerPingUpdate,
       [messageTypes.updateBlock]: applyTerrainBlockUpdate,
       [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
       [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
       [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
       [messageTypes.updateEntities]: applyEntitiesSnapshot,
       [messageTypes.createParticle]: applyParticleCreate,
+      [messageTypes.pong]: (payload) => applyPongUpdate(client, payload),
     }),
   });
 });

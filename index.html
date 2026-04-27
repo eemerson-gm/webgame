@@ -54,15 +54,57 @@
         image-rendering: pixelated;
         outline: none;
       }
+
+      .player-list {
+        width: min(1280px, 100%);
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        padding: 0.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 0.25rem;
+        background: rgba(5, 7, 11, 0.72);
+        color: #f5f7fb;
+        font-size: 0.875rem;
+      }
+
+      .player-list__title {
+        color: #9aa3b5;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .player-list__rows {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .player-list__row {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .player-list__ping {
+        color: #9ff3b3;
+        font-variant-numeric: tabular-nums;
+      }
     </style>
-    <title>Placeholder Title</title>
+    <title>Block Game</title>
   </head>
   <body>
     <main class="page">
-      <h1>Placeholder Title</h1>
+      <h1>Block Game</h1>
       <div class="game-frame">
         <canvas id="game"></canvas>
       </div>
+      <section class="player-list" aria-label="Players">
+        <div class="player-list__title">Players</div>
+        <div id="player-list" class="player-list__rows"></div>
+      </section>
     </main>
     <script type="module" src="./src/main.ts"></script>
   </body>

@@ -26,6 +26,7 @@ export type PlayerState = {
   horizontalSpeed?: number;
   verticalSpeed?: number;
   health?: number;
+  pingMs?: number;
   activeTool?: PlayerTool;
 };
 
@@ -129,6 +130,7 @@ export const messageTypes = {
   disconnected: "_disconnected",
   createPlayer: "create_player",
   updatePlayer: "update_player",
+  updatePing: "update_ping",
   updateBlock: "update_block",
   updateBlockBreak: "update_block_break",
   knockbackPlayer: "knockback_player",
@@ -138,6 +140,8 @@ export const messageTypes = {
   updateEntity: "update_entity",
   updateEntities: "update_entities",
   createParticle: "create_particle",
+  ping: "ping",
+  pong: "pong",
 } as const;
 
 export const encodeMessage = (message: GameMessage) => {
