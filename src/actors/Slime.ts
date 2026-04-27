@@ -7,6 +7,7 @@ import { stepSlimeEntity } from "../simulation/slimeEntityBehavior";
 import { DamageFlash } from "./DamageableActor";
 import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
+import { SmashParticleActor } from "./SmashParticleActor";
 
 type SlimeSimulationProviders = {
   world: () => TileCollisionWorld | null;
@@ -15,7 +16,7 @@ type SlimeSimulationProviders = {
   sendState: (state: EntityState) => void;
 };
 
-const correctionSnapDistance = TILE_PX * 1.5;
+const correctionSnapDistance = TILE_PX * 4;
 const ownerStateSyncIntervalMs = 200;
 const slimeContactDamage = 1;
 const slimeSwordDamage = 1;
@@ -78,6 +79,15 @@ export class Slime extends ex.Actor implements EntityActor {
       };
       return;
     }
+    if (didLoseHealth) {
+      this.state = {
+        ...state,
+        x: this.state.x,
+        y: this.state.y,
+      };
+      this.renderState();
+      return;
+    }
     const correctionPosition = ex.vec(state.x, state.y);
     if (this.pos.distance(correctionPosition) > correctionSnapDistance) {
       this.state = { ...state };
@@ -127,7 +137,7 @@ export class Slime extends ex.Actor implements EntityActor {
       knockbackMs: slimeDamageKnockbackDurationMs,
     };
     if (damage > 0) {
-      this.damageFlash.start();
+      this.showDamageFeedback(this.damageParticlePosition());
     }
     this.renderState();
     if (nextHealth > 0) {
@@ -170,6 +180,15 @@ export class Slime extends ex.Actor implements EntityActor {
     this.pos.x = this.state.x;
     this.pos.y = this.state.y;
     this.graphics.flipHorizontal = this.state.facingLeft;
+  }
+
+  private damageParticlePosition() {
+    return ex.vec(this.pos.x + this.width / 2, this.pos.y + this.height / 2);
+  }
+
+  private showDamageFeedback(position: ex.Vector) {
+    this.damageFlash.start();
+    this.scene?.add(new SmashParticleActor(position));
   }
 
   private syncOwnerStatePeriodically(delta: number) {

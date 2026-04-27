@@ -324,14 +324,6 @@ export class GameServer {
     };
   }
 
-  private removedEntityPayload(entityId: string): EntitiesSnapshotPayload {
-    return {
-      entitiesData: {},
-      removedEntityIds: [entityId],
-      replaceExisting: false,
-    };
-  }
-
   private activePlayerIds() {
     return Object.keys(this.playerSockets).filter((playerId) =>
       this.isActivePlayer(playerId),
@@ -435,10 +427,6 @@ export class GameServer {
     }
     const damage = update.damage ?? 1;
     const nextHealth = Math.max(storedEntity.health - damage, 0);
-    if (nextHealth <= 0) {
-      delete this.entitiesData[storedEntity.id];
-      return this.removedEntityPayload(storedEntity.id);
-    }
     const player = this.playersData[playerId];
     const playerX = Number(player?.x);
     const direction =
@@ -452,6 +440,10 @@ export class GameServer {
       verticalSpeed: entityDamageKnockbackVerticalSpeed,
       knockbackMs: entityDamageKnockbackDurationMs,
     };
+    if (nextHealth <= 0) {
+      delete this.entitiesData[storedEntity.id];
+      return this.entityPayload(updatedEntity);
+    }
     this.entitiesData = {
       ...this.entitiesData,
       [storedEntity.id]: updatedEntity,

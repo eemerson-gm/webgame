@@ -3,6 +3,7 @@ import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { Slime } from "./actors/Slime";
+import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -10,6 +11,7 @@ import type {
   Data,
   EntitiesSnapshotPayload,
   EntityState,
+  ParticleCreatePayload,
   PlayerDamageUpdate,
   PlayerKnockbackUpdate,
   TerrainBlockBreakUpdate,
@@ -108,6 +110,7 @@ const spawnPlayerAt = (
 const applyPositionFromPayloadIfPresent = (
   player: Player,
   payload: PlayerState,
+  tolerance: number = remotePlayerPositionTolerance,
 ) => {
   if (payload.x === undefined && payload.y === undefined) {
     return;
@@ -116,7 +119,7 @@ const applyPositionFromPayloadIfPresent = (
     payload.x === undefined ? player.pos.x : Number(payload.x),
     payload.y === undefined ? player.pos.y : Number(payload.y),
   );
-  if (player.pos.distance(nextPosition) < remotePlayerPositionTolerance) {
+  if (player.pos.distance(nextPosition) < tolerance) {
     return;
   }
   player.pos = nextPosition;
@@ -133,7 +136,6 @@ const syncMovementFieldsFromPayload = (
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
   player.keyDown = payload.keyDown ?? player.keyDown;
-  player.keyUp = payload.keyUp ?? player.keyUp;
   if (payload.isUsingTool !== undefined) {
     player.syncToolUseState(payload.isUsingTool, undefined, payload.activeTool);
   }
@@ -228,7 +230,8 @@ const applyEntityState = (state: EntityState) => {
     return;
   }
   if (state.health <= 0) {
-    slimeById[state.id]?.kill();
+    const slime = slimeById[state.id];
+    slime?.kill();
     delete slimeById[state.id];
     return;
   }
@@ -283,6 +286,19 @@ const applyTerrainBlockBreakUpdate = (payload: Data) => {
   );
 };
 
+const applyParticleCreate = (payload: Data) => {
+  const particle = payload as ParticleCreatePayload;
+  const x = Number(particle.x);
+  const y = Number(particle.y);
+  if (particle.kind !== "smash") {
+    return;
+  }
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return;
+  }
+  game.add(new SmashParticleActor(ex.vec(x, y)));
+};
+
 const playerForKnockbackId = (playerId: string) => {
   if (clientSlot.client?.clientId === playerId) {
     return localPlayerSlot.player;
@@ -313,7 +329,7 @@ const applyPlayerDamageUpdate = (payload: Data) => {
   if (!attacker || !target) {
     return;
   }
-  target.takeDamageFrom(attacker, update.damage);
+  target.takeDamageFrom(attacker, update.damage, "flash");
 };
 
 const clientSlot = { client: null as GameClient | null };
@@ -402,6 +418,7 @@ game.start(loader).then(() => {
       [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
       [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
       [messageTypes.updateEntities]: applyEntitiesSnapshot,
+      [messageTypes.createParticle]: applyParticleCreate,
     }),
   });
 });

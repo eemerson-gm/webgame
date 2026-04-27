@@ -20,7 +20,6 @@ export type PlayerState = {
   keyRight?: boolean;
   keyJump?: boolean;
   keyDown?: boolean;
-  keyUp?: boolean;
   isUsingTool?: boolean;
   isPaused?: boolean;
   isFlying?: boolean;
@@ -109,6 +108,15 @@ export type EntityDamageUpdate = {
   damage?: number;
 };
 
+export type ParticleKind = "smash";
+
+export type ParticleCreatePayload = {
+  id?: string;
+  kind: ParticleKind;
+  x: number;
+  y: number;
+};
+
 export type ConnectedPayload = {
   id: string;
   playersData: Record<string, PlayerState>;
@@ -129,6 +137,7 @@ export const messageTypes = {
   createEntity: "create_entity",
   updateEntity: "update_entity",
   updateEntities: "update_entities",
+  createParticle: "create_particle",
 } as const;
 
 export const encodeMessage = (message: GameMessage) => {

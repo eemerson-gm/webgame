@@ -417,6 +417,7 @@ export class BlockTargetingHighlight extends ex.Actor {
           entityId: entity.entityId(),
           damage: swordDamage,
         });
+        this.sendSmashParticleAt(this.actorCenter(entity));
       });
   }
 
@@ -441,6 +442,7 @@ export class BlockTargetingHighlight extends ex.Actor {
           targetId: id,
           damage: swordDamage,
         });
+        this.sendSmashParticleAt(this.actorCenter(player));
       });
   }
 
@@ -454,8 +456,23 @@ export class BlockTargetingHighlight extends ex.Actor {
       .filter((entity) => localPlayer.overlapsWorldBounds(this.actorBounds(entity)))
       .slice(0, 1)
       .forEach((entity) => {
-        localPlayer.takeDamageFrom(entity, entity.contactDamage());
+        if (!localPlayer.takeDamageFrom(entity, entity.contactDamage())) {
+          return;
+        }
+        this.sendSmashParticleAt(this.actorCenter(localPlayer));
       });
+  }
+
+  private sendSmashParticleAt(position: ex.Vector) {
+    this.client.send(messageTypes.createParticle, {
+      kind: "smash",
+      x: position.x,
+      y: position.y,
+    });
+  }
+
+  private actorCenter(actor: ex.Actor) {
+    return ex.vec(actor.pos.x + actor.width / 2, actor.pos.y + actor.height / 2);
   }
 
   private actorBounds(actor: ex.Actor) {

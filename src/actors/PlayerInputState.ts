@@ -8,12 +8,10 @@ export class PlayerInputState {
   public keyRight: boolean = false;
   public keyJump: boolean = false;
   public keyDown: boolean = false;
-  public keyUp: boolean = false;
   private previousKeyLeft: boolean = false;
   private previousKeyRight: boolean = false;
   private previousKeyJump: boolean = false;
   private previousKeyDown: boolean = false;
-  private previousKeyUp: boolean = false;
   private previousIsFlying: boolean = false;
 
   public readKeyboard(engine: ex.Engine, isFlying: boolean) {
@@ -30,10 +28,6 @@ export class PlayerInputState {
     this.keyDown =
       engine.input.keyboard.isHeld(ex.Keys.S) ||
       engine.input.keyboard.isHeld(ex.Keys.ArrowDown);
-    this.keyUp =
-      !nextIsFlying &&
-      (engine.input.keyboard.isHeld(ex.Keys.W) ||
-        engine.input.keyboard.isHeld(ex.Keys.ArrowUp));
 
     return {
       didToggleFlying,
@@ -54,9 +48,6 @@ export class PlayerInputState {
     if (this.keyDown !== this.previousKeyDown) {
       return true;
     }
-    if (this.keyUp !== this.previousKeyUp) {
-      return true;
-    }
     return isFlying !== this.previousIsFlying;
   }
 
@@ -70,7 +61,6 @@ export class PlayerInputState {
       keyRight: this.keyRight,
       keyJump: this.keyJump,
       keyDown: this.keyDown,
-      keyUp: this.keyUp,
       isFlying,
       ...movementState,
     };
@@ -85,7 +75,6 @@ export class PlayerInputState {
       keyRight: this.keyRight,
       keyJump: this.keyJump,
       keyDown: this.keyDown,
-      keyUp: this.keyUp,
       isFlying,
     };
   }
@@ -95,7 +84,6 @@ export class PlayerInputState {
     this.previousKeyRight = this.keyRight;
     this.previousKeyJump = this.keyJump;
     this.previousKeyDown = this.keyDown;
-    this.previousKeyUp = this.keyUp;
     this.previousIsFlying = isFlying;
   }
 

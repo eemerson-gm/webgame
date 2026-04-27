@@ -9,6 +9,7 @@ import { MovingActor } from "./MovingActor";
 import type { WorldBounds } from "./MovingActor";
 import { SwordHitboxOutlineRaster } from "./SwordHitboxOutlineRaster";
 import { DamageFlash } from "./DamageableActor";
+import { SmashParticleActor } from "./SmashParticleActor";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -47,13 +48,13 @@ const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const positionPrecision = 1000;
 const serverMovementSyncIntervalMs = 150;
+const serverKnockbackMovementSyncIntervalMs = 50;
 const serverMovementPositionThreshold = 0.5;
 const serverMovementSpeedThreshold = 0.05;
 const useToolFrameDurationMs = 75;
 const useToolFrameCount = 5;
 const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
 const swordFacingLockStartMs = useToolDurationMs / 3;
-const useToolSpeedMultiplier = 0.7;
 const useToolAnchor = ex.vec(0, 1);
 const useToolMirroredAnchor = ex.vec(1, 1);
 const useToolHiddenOffset = () => ex.vec(-100000, -100000);
@@ -75,7 +76,7 @@ const playerToolByName: Record<string, PlayerTool> = {
   pickaxe: "pickaxe",
   sword: "sword",
 };
-type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "lookUp" | "useTool";
+type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "useTool";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
@@ -100,7 +101,6 @@ export class Player extends MovingActor {
   private idleSprite: ex.Sprite;
   private jumpSprite: ex.Sprite;
   private crouchSprite: ex.Sprite;
-  private lookUpSprite: ex.Sprite;
   private toolSprites: Record<PlayerTool, ex.Sprite>;
   private toolActor: ex.Actor;
   private swordHitboxActor: ex.Actor;
@@ -134,7 +134,6 @@ export class Player extends MovingActor {
     this.idleSprite = Resources.Player.toSprite();
     this.jumpSprite = Resources.PlayerJump.toSprite();
     this.crouchSprite = Resources.PlayerCrouch.toSprite();
-    this.lookUpSprite = Resources.PlayerLookUp.toSprite();
     this.toolSprites = {
       pickaxe: Resources.BronzePickaxe.toSprite(),
       sword: Resources.BronzeSword.toSprite(),
@@ -226,14 +225,6 @@ export class Player extends MovingActor {
 
   set keyDown(value: boolean) {
     this.inputState.keyDown = value;
-  }
-
-  get keyUp() {
-    return this.inputState.keyUp;
-  }
-
-  set keyUp(value: boolean) {
-    this.inputState.keyUp = value;
   }
 
   override onInitialize(engine: ex.Engine) {
@@ -329,13 +320,17 @@ export class Player extends MovingActor {
     this.sendClient(messageTypes.updatePlayer, movementState);
   }
 
-  public takeDamageFrom(actor: ex.Actor, damage: number = 1) {
+  public takeDamageFrom(
+    actor: ex.Actor,
+    damage: number = 1,
+    damageFeedback: "full" | "flash" = "full",
+  ) {
     if (!this.canTakeDamage()) {
       return false;
     }
     this.health = Math.max(this.health - damage, 0);
     this.damageImmunityTimeRemainingMs = playerDamageImmunityDurationMs;
-    this.damageFlash.start();
+    this.showDamageFeedback(this.damageParticlePosition(), damageFeedback);
     if (this.health <= 0) {
       this.respawnAtJoinPosition();
       return true;
@@ -354,7 +349,26 @@ export class Player extends MovingActor {
     if (!Number.isFinite(nextHealth)) {
       return;
     }
+    const previousHealth = this.health;
     this.health = Math.max(0, Math.min(nextHealth, this.maxHealth));
+    if (this.health < previousHealth) {
+      this.damageFlash.start();
+    }
+  }
+
+  private damageParticlePosition() {
+    return ex.vec(this.pos.x + this.width / 2, this.pos.y + this.height / 2);
+  }
+
+  private showDamageFeedback(
+    position: ex.Vector,
+    damageFeedback: "full" | "flash" = "full",
+  ) {
+    this.damageFlash.start();
+    if (damageFeedback === "flash") {
+      return;
+    }
+    this.scene?.add(new SmashParticleActor(position));
   }
 
   private canTakeDamage() {
@@ -436,7 +450,6 @@ export class Player extends MovingActor {
       keyRight: false,
       keyJump: false,
       keyDown: false,
-      keyUp: false,
       isUsingTool: false,
       horizontalSpeed: 0,
       verticalSpeed: 0,
@@ -455,7 +468,6 @@ export class Player extends MovingActor {
     this.keyRight = false;
     this.keyJump = false;
     this.keyDown = false;
-    this.keyUp = false;
     this.hspeed = 0;
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
@@ -632,16 +644,19 @@ export class Player extends MovingActor {
     this.sendClient(messageTypes.updatePlayer, movementState, movementState);
   }
 
-  private syncMovementPeriodically(delta: number) {
+  private syncMovementPeriodically(delta: number, shouldBroadcastMovement = false) {
     if (!this.client) {
       return;
     }
     this.serverMovementSyncElapsedMs += delta;
-    if (this.serverMovementSyncElapsedMs < serverMovementSyncIntervalMs) {
+    const syncIntervalMs = shouldBroadcastMovement
+      ? serverKnockbackMovementSyncIntervalMs
+      : serverMovementSyncIntervalMs;
+    if (this.serverMovementSyncElapsedMs < syncIntervalMs) {
       return;
     }
     this.serverMovementSyncElapsedMs =
-      this.serverMovementSyncElapsedMs % serverMovementSyncIntervalMs;
+      this.serverMovementSyncElapsedMs % syncIntervalMs;
     const movementState = {
       ...this.currentMovementState(),
       isFlying: this.isFlying,
@@ -650,7 +665,9 @@ export class Player extends MovingActor {
       return;
     }
     this.lastServerMovementState = movementState;
-    this.sendClient(messageTypes.updatePlayer, {}, movementState);
+    const payload = shouldBroadcastMovement ? movementState : {};
+    const statePatch = shouldBroadcastMovement ? undefined : movementState;
+    this.sendClient(messageTypes.updatePlayer, payload, statePatch);
   }
 
   private shouldSyncMovementState(movementState: Data) {
@@ -758,11 +775,9 @@ export class Player extends MovingActor {
       ? "jump"
       : this.keyDown && !this.isFlying
         ? "crouch"
-        : this.keyUp
-          ? "lookUp"
-          : keySign !== 0
-            ? "walk"
-            : "idle";
+        : keySign !== 0
+          ? "walk"
+          : "idle";
     if (nextVisual !== this.currentVisual) {
       if (this.currentVisual === "walk") {
         this.walkAnimation.pause();
@@ -781,9 +796,6 @@ export class Player extends MovingActor {
       }
       if (nextVisual === "crouch") {
         this.graphics.use(this.crouchSprite);
-      }
-      if (nextVisual === "lookUp") {
-        this.graphics.use(this.lookUpSprite);
       }
     }
     this.graphics.flipHorizontal = this.facingLeft;
@@ -805,15 +817,14 @@ export class Player extends MovingActor {
 
   private moveWithFlying(dt: number, keySign: number) {
     const verticalSign = this.flyVerticalInput();
-    const speedMultiplier = this.isUsingTool ? useToolSpeedMultiplier : 1;
     this.hspeed = approach(
       this.hspeed,
-      keySign * flySpeed * speedMultiplier,
+      keySign * flySpeed,
       flyAcceleration * 60 * dt,
     );
     this.vspeed = approach(
       this.vspeed,
-      verticalSign * flySpeed * speedMultiplier,
+      verticalSign * flySpeed,
       flyAcceleration * 60 * dt,
     );
     this.moveFreely(positionScale, dt);
@@ -823,8 +834,7 @@ export class Player extends MovingActor {
     const targetHspeed =
       keySign *
       walkSpeed *
-      (this.isRunning ? runSpeedMultiplier : 1) *
-      (this.isUsingTool ? useToolSpeedMultiplier : 1);
+      (this.isRunning ? runSpeedMultiplier : 1);
     const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
 
     this.hspeed = approach(
@@ -920,7 +930,7 @@ export class Player extends MovingActor {
     }
 
     this.syncPlayerVisuals(keySign);
-    this.syncMovementPeriodically(delta);
+    this.syncMovementPeriodically(delta, isKnockbackActive);
     this.updateToolOverlay(delta);
     this.updateToolUseTimer(delta);
   }
