@@ -60,9 +60,14 @@ const useToolMirroredAnchor = ex.vec(1, 1);
 const useToolHiddenOffset = () => ex.vec(-100000, -100000);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 const sleepBubbleAnchor = ex.vec(0.5, 1);
-const swordHitboxSize = TILE_PX * 0.75;
-const swordHitboxInset = (TILE_PX - swordHitboxSize) / 2;
-const swordHitboxOutlineScale = swordHitboxSize / TILE_PX;
+const swordHitboxWidth = TILE_PX * 0.75;
+const swordHitboxHeight = TILE_PX * 0.875;
+const swordHitboxInsetX = (TILE_PX - swordHitboxWidth) / 2;
+const swordHitboxInsetY = (TILE_PX - swordHitboxHeight) / 2;
+const swordHitboxOutlineScale = ex.vec(
+  swordHitboxWidth / TILE_PX,
+  swordHitboxHeight / TILE_PX,
+);
 const swordHitboxOffset = ex.vec(14, 14);
 const swordHitboxOutlineToggleKeys = ["AltLeft", "AltRight", "Alt"];
 const useToolFrames = [
@@ -404,13 +409,13 @@ export class Player extends MovingActor {
       ? this.pos.x + offset.x - TILE_PX
       : this.pos.x + offset.x;
     const top = this.pos.y + offset.y - TILE_PX;
-    const insetLeft = left + swordHitboxInset;
-    const insetTop = top + swordHitboxInset;
+    const insetLeft = left + swordHitboxInsetX;
+    const insetTop = top + swordHitboxInsetY;
     return {
       left: insetLeft,
-      right: insetLeft + swordHitboxSize,
+      right: insetLeft + swordHitboxWidth,
       top: insetTop,
-      bottom: insetTop + swordHitboxSize,
+      bottom: insetTop + swordHitboxHeight,
     };
   }
 
@@ -578,10 +583,7 @@ export class Player extends MovingActor {
       swordHitBounds.left - this.pos.x,
       swordHitBounds.top - this.pos.y,
     );
-    this.swordHitboxActor.scale = ex.vec(
-      swordHitboxOutlineScale,
-      swordHitboxOutlineScale,
-    );
+    this.swordHitboxActor.scale = swordHitboxOutlineScale;
     this.swordHitboxActor.graphics.opacity = 1;
     this.swordHitboxActor.graphics.visible = true;
   }

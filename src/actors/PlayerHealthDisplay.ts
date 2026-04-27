@@ -7,9 +7,16 @@ type HealthProvider = () => {
 } | null;
 
 const heartCount = 3;
-const heartWidth = 8;
-const heartSpacing = 9;
+const heartOverlap = 1;
 const displayPosition = ex.vec(4, 4);
+
+const heartSize = () => {
+  const heartSprite = Resources.HeartFull.toSprite();
+  return {
+    width: heartSprite.width,
+    height: heartSprite.height,
+  };
+};
 
 export class PlayerHealthDisplay extends ex.ScreenElement {
   private readonly getHealth: HealthProvider;
@@ -22,12 +29,14 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       z: 1000,
     });
     this.getHealth = getHealth;
+    const size = heartSize();
+    const heartSpacing = size.width - heartOverlap;
     this.heartActors = Array.from({ length: heartCount }, (_value, index) => {
       const actor = new ex.Actor({
         pos: ex.vec(index * heartSpacing, 0),
         anchor: ex.vec(0, 0),
-        width: heartWidth,
-        height: heartWidth,
+        width: size.width,
+        height: size.height,
       });
       actor.graphics.anchor = ex.vec(0, 0);
       return actor;
