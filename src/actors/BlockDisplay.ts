@@ -31,10 +31,11 @@ class BlockDisplayOutlineRaster extends ex.Raster {
 }
 
 export class BlockDisplay extends ex.Actor {
-  private readonly image: ex.ImageSource;
+  private image: ex.ImageSource;
   private outlineActor: ex.Actor | null = null;
   private blockActor: ex.Actor | null = null;
   private isDisplayVisible: boolean = true;
+  private displayOpacity: number = 1;
 
   constructor(image: ex.ImageSource, pos: ex.Vector = ex.vec(0, 0)) {
     super({
@@ -67,6 +68,7 @@ export class BlockDisplay extends ex.Actor {
     this.outlineActor = outline;
     this.blockActor = block;
     this.syncDisplayVisibility();
+    this.syncDisplayOpacity();
     this.addChild(outline);
     this.addChild(block);
   }
@@ -74,6 +76,18 @@ export class BlockDisplay extends ex.Actor {
   public setDisplayVisible(isVisible: boolean) {
     this.isDisplayVisible = isVisible;
     this.syncDisplayVisibility();
+  }
+
+  public setImage(image: ex.ImageSource) {
+    this.image = image;
+    if (this.blockActor) {
+      this.blockActor.graphics.use(this.createBlockSprite());
+    }
+  }
+
+  public setDisplayOpacity(opacity: number) {
+    this.displayOpacity = opacity;
+    this.syncDisplayOpacity();
   }
 
   private createBlockSprite() {
@@ -103,6 +117,15 @@ export class BlockDisplay extends ex.Actor {
     }
     if (this.blockActor) {
       this.blockActor.graphics.visible = this.isDisplayVisible;
+    }
+  }
+
+  private syncDisplayOpacity() {
+    if (this.outlineActor) {
+      this.outlineActor.graphics.opacity = this.displayOpacity;
+    }
+    if (this.blockActor) {
+      this.blockActor.graphics.opacity = this.displayOpacity;
     }
   }
 }

@@ -1,5 +1,6 @@
 import * as ex from "excalibur";
 import {
+  type PlaceableBlockKind,
   toolbarModes,
   toolbarSelection,
   type ToolbarMode,
@@ -23,13 +24,17 @@ const toolbarIncomingZ = 3;
 const toolbarItemZOffset = 1;
 const toolbarIconZOffset = 2;
 const toolbarIconSlotGap = 2;
+const buildBlockPreviewCount = 3;
+const buildBlockPreviewGap = 2;
 
 type ToolbarSlotView = {
   slot: ex.Actor;
   item: ex.Actor;
   icon: ex.Actor;
+  previewItems: BlockDisplay[];
   itemOffset: ex.Vector;
   iconOffset: ex.Vector;
+  previewOffsets: ex.Vector[];
 };
 type ToolbarAnimation = {
   from: ToolbarMode;
@@ -41,6 +46,13 @@ const lerp = (start: number, end: number, amount: number) =>
   start + (end - start) * amount;
 
 const easeOutCubic = (amount: number) => 1 - Math.pow(1 - amount, 3);
+
+const blockItemResourceByKind = {
+  dirt: Resources.Dirt,
+  grass: Resources.Grass,
+  lamp: Resources.Lamp,
+  stone: Resources.Stone,
+} satisfies Record<PlaceableBlockKind, ex.ImageSource>;
 
 const heartSize = () => {
   const heartSprite = Resources.HeartFull.toSprite();
@@ -58,7 +70,21 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   private readonly toolbarOnscreenPosition: ex.Vector;
   private readonly toolbarOffscreenPosition: ex.Vector;
   private toolbarMode: ToolbarMode = toolbarSelection.mode();
+  private selectedBuildBlockKind: PlaceableBlockKind =
+    toolbarSelection.selectedPlaceableBlockKind();
   private toolbarAnimation: ToolbarAnimation | null = null;
+  private readonly selectBlockFromWheel = (event: WheelEvent) => {
+    if (!toolbarSelection.isBuildMode()) {
+      return;
+    }
+    const direction = Math.sign(event.deltaY);
+    if (direction === 0) {
+      return;
+    }
+    event.preventDefault();
+    toolbarSelection.selectNextBlock(direction);
+    this.syncBuildBlockItem();
+  };
 
   constructor(getHealth: HealthProvider) {
     super({
@@ -96,19 +122,25 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       ...Object.values(this.inventorySlotViews).map((view) => view.slot),
       ...Object.values(this.inventorySlotViews).map((view) => view.item),
       ...Object.values(this.inventorySlotViews).map((view) => view.icon),
+      ...Object.values(this.inventorySlotViews).flatMap((view) => view.previewItems),
     ];
   }
 
-  override onInitialize() {
+  override onInitialize(engine: ex.Engine) {
+    engine.canvas.addEventListener("wheel", this.selectBlockFromWheel, {
+      passive: false,
+    });
     this.heartActors.forEach((actor) => this.addChild(actor));
     this.inventorySlotActors.forEach((actor) => this.addChild(actor));
     this.syncToolbarMode();
+    this.syncBuildBlockItem();
     this.syncHearts();
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateToolbarMode(engine);
     this.tickToolbarAnimation(delta);
+    this.syncBuildBlockItem();
     this.syncHearts();
   }
 
@@ -134,8 +166,10 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     const slotSprite = this.slotSpriteForMode(mode);
     const item = this.itemActorForMode(mode, slotSprite, slotPosition);
     const icon = this.iconActorForMode(mode, slotSprite, slotPosition);
+    const previewItems = this.previewItemActorsForMode(mode, slotSprite, slotPosition);
     const itemOffset = item.pos.sub(slotPosition);
     const iconOffset = icon.pos.sub(slotPosition);
+    const previewOffsets = previewItems.map((preview) => preview.pos.sub(slotPosition));
     const slot = new ex.Actor({
       pos: slotPosition,
       anchor: ex.vec(0, 0),
@@ -145,14 +179,19 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     });
     item.z = toolbarOutgoingZ + toolbarItemZOffset;
     icon.z = toolbarOutgoingZ + toolbarIconZOffset;
+    previewItems.forEach((preview) => {
+      preview.z = toolbarOutgoingZ + toolbarItemZOffset;
+    });
     slot.graphics.anchor = ex.vec(0, 0);
     slot.graphics.use(slotSprite);
     return {
       slot,
       item,
       icon,
+      previewItems,
       itemOffset,
       iconOffset,
+      previewOffsets,
     };
   }
 
@@ -228,16 +267,25 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     view.slot.pos = slotPosition;
     view.item.pos = slotPosition.add(view.itemOffset);
     view.icon.pos = slotPosition.add(view.iconOffset);
+    view.previewItems.forEach((preview, index) => {
+      preview.pos = slotPosition.add(view.previewOffsets[index]);
+    });
   }
 
   private setToolbarViewZ(view: ToolbarSlotView, z: number) {
     view.slot.z = z;
     view.item.z = z + toolbarItemZOffset;
     view.icon.z = z + toolbarIconZOffset;
+    view.previewItems.forEach((preview) => {
+      preview.z = z + toolbarItemZOffset;
+    });
   }
 
   private setToolbarViewOpacity(view: ToolbarSlotView, opacity: number) {
     view.icon.graphics.opacity = opacity;
+    view.previewItems.forEach((preview) => {
+      preview.setDisplayOpacity(opacity);
+    });
   }
 
   private itemActorForMode(
@@ -250,9 +298,31 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
         Math.floor((slotSprite.width - blockDisplaySize) / 2),
         Math.floor((slotSprite.height - blockDisplaySize) / 2),
       );
-      return new BlockDisplay(Resources.Dirt, slotPosition.add(itemOffset));
+      return new BlockDisplay(
+        blockItemResourceByKind[this.selectedBuildBlockKind],
+        slotPosition.add(itemOffset),
+      );
     }
     return this.weaponItemActor(slotSprite, slotPosition);
+  }
+
+  private syncBuildBlockItem() {
+    const blockKind = toolbarSelection.selectedPlaceableBlockKind();
+    if (blockKind === this.selectedBuildBlockKind) {
+      return;
+    }
+    this.selectedBuildBlockKind = blockKind;
+    const item = this.inventorySlotViews.build.item;
+    if (item instanceof BlockDisplay) {
+      item.setImage(blockItemResourceByKind[blockKind]);
+    }
+    const previewKinds = toolbarSelection.nextPlaceableBlockKinds(
+      buildBlockPreviewCount,
+    );
+    this.inventorySlotViews.build.previewItems.forEach((preview, index) => {
+      const previewKind = previewKinds[index];
+      preview.setImage(blockItemResourceByKind[previewKind]);
+    });
   }
 
   private weaponItemActor(slotSprite: ex.Sprite, slotPosition: ex.Vector) {
@@ -292,6 +362,32 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     icon.graphics.use(iconSprite);
     icon.graphics.opacity = mode === this.toolbarMode ? 1 : 0;
     return icon;
+  }
+
+  private previewItemActorsForMode(
+    mode: ToolbarMode,
+    slotSprite: ex.Sprite,
+    slotPosition: ex.Vector,
+  ) {
+    if (mode !== "build") {
+      return [];
+    }
+    return toolbarSelection
+      .nextPlaceableBlockKinds(buildBlockPreviewCount)
+      .map((kind, index) => {
+        const previewOffset = ex.vec(
+          slotSprite.width +
+            buildBlockPreviewGap +
+            index * (blockDisplaySize + buildBlockPreviewGap),
+          Math.floor((slotSprite.height - blockDisplaySize) / 2),
+        );
+        const preview = new BlockDisplay(
+          blockItemResourceByKind[kind],
+          slotPosition.add(previewOffset),
+        );
+        preview.setDisplayOpacity(mode === this.toolbarMode ? 1 : 0);
+        return preview;
+      });
   }
 
   private slotSpriteForMode(mode: ToolbarMode) {
