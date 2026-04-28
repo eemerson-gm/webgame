@@ -3,16 +3,16 @@ import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type {
   TerrainBlockBreakUpdate,
-  TerrainTileKind,
 } from "../classes/GameProtocol";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
+import { toolbarSelection } from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
 import { BlockHighlightRaster } from "./BlockHighlightRaster";
 import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
 
-const blockTargetRange = 2;
+const blockTargetRange = 3;
 const blockBreakFrameDurationMs = 90;
 const blockBreakFrameCount = 4;
 const blockHighlightGradientDurationMs = 2200;
@@ -20,7 +20,6 @@ const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
 const swordDamage = 1;
 const slimeSpawnKey = ex.Keys.R;
-const lightBlockPlacementKeys = ["ShiftLeft", "ShiftRight", "Shift"];
 const blockHighlightGradient = [
   [255, 214, 36],
   [255, 255, 255],
@@ -180,8 +179,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     const mouseWorldPos = this.currentMouseWorldPosition(engine);
     const target = this.targetAt(mouseWorldPos);
     const placeTarget = this.placeTargetAt(mouseWorldPos);
-    this.moveToTarget(target);
-    this.syncHighlightVisibility(target);
+    const highlightTarget = this.highlightTargetFor(target, placeTarget);
+    this.moveToTarget(highlightTarget);
+    this.syncHighlightVisibility(highlightTarget);
     this.updateHighlightColor(delta);
     this.updatePlacingTarget(placeTarget);
     this.updateBreakingTarget(target, delta);
@@ -237,6 +237,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!mouseWorldPos || !localPlayer) {
       return null;
     }
+    if (!toolbarSelection.isBuildMode()) {
+      return null;
+    }
     if (localPlayer.isPaused) {
       return null;
     }
@@ -265,6 +268,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!this.isWithinPlayerRange(localPlayer, target)) {
       return null;
     }
+    if (!this.isNextToSolidTile(target)) {
+      return null;
+    }
+    if (this.isBlockedByPlayer(target, localPlayer)) {
+      return null;
+    }
     return target;
   }
 
@@ -281,6 +290,19 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   private isSolidTile(target: TargetBlockPosition) {
     return !!this.terrain.blockAt(target.column, target.row);
+  }
+
+  private isNextToSolidTile(target: TargetBlockPosition) {
+    return [
+      { column: target.column - 1, row: target.row },
+      { column: target.column + 1, row: target.row },
+      { column: target.column, row: target.row - 1 },
+      { column: target.column, row: target.row + 1 },
+    ].some(
+      (neighbor) =>
+        this.terrain.isInside(neighbor.column, neighbor.row) &&
+        this.isSolidTile(neighbor),
+    );
   }
 
   private targetKey(target: TargetBlockPosition) {
@@ -301,6 +323,29 @@ export class BlockTargetingHighlight extends ex.Actor {
     return Math.max(columnDistance, rowDistance) <= blockTargetRange;
   }
 
+  private isBlockedByPlayer(target: TargetBlockPosition, localPlayer: Player) {
+    const tileBounds = this.tileBounds(target);
+    if (localPlayer.overlapsWorldBounds(tileBounds)) {
+      return true;
+    }
+    return this.getRemotePlayers().some(({ player }) =>
+      player.overlapsWorldBounds(tileBounds),
+    );
+  }
+
+  private tileBounds(target: TargetBlockPosition) {
+    const left =
+      this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
+    const top =
+      this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+    return {
+      left,
+      right: left + this.terrain.map.tileWidth,
+      top,
+      bottom: top + this.terrain.map.tileHeight,
+    };
+  }
+
   private moveToTarget(target: TargetBlockPosition | null) {
     if (!target) {
       this.pos.x = -TILE_PX;
@@ -316,6 +361,19 @@ export class BlockTargetingHighlight extends ex.Actor {
   private syncHighlightVisibility(target: TargetBlockPosition | null) {
     this.graphics.visible = !!target;
     this.graphics.opacity = target ? 1 : 0;
+  }
+
+  private highlightTargetFor(
+    breakTarget: TargetBlockPosition | null,
+    placeTarget: TargetBlockPosition | null,
+  ) {
+    if (!toolbarSelection.isBuildMode()) {
+      return null;
+    }
+    if (breakTarget) {
+      return breakTarget;
+    }
+    return placeTarget;
   }
 
   private updateHighlightColor(delta: number) {
@@ -341,12 +399,16 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (this.lastPlacedTargetKey === targetKey) {
       return;
     }
+    const kind = toolbarSelection.selectedBlockKind();
+    if (!kind) {
+      return;
+    }
     this.lastPlacedTargetKey = targetKey;
     this.client.send(messageTypes.updateBlock, {
       column: target.column,
       row: target.row,
       solid: true,
-      kind: this.placeBlockKind(),
+      kind,
     });
   }
 
@@ -369,21 +431,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     });
   }
 
-  private placeBlockKind(): TerrainTileKind {
-    if (
-      this.engine &&
-      lightBlockPlacementKeys.some((key) =>
-        this.engine?.input.keyboard.isHeld(key as ex.Keys),
-      )
-    ) {
-      return "lamp";
-    }
-    return "dirt";
-  }
-
   private startToolUseAt(target: TargetBlockPosition | null) {
-    if (target) {
+    if (toolbarSelection.isBuildMode() && target) {
       this.startBreakingTarget(target);
+      return;
+    }
+    if (!toolbarSelection.isCombatMode()) {
       return;
     }
     const localPlayer = this.getLocalPlayer();

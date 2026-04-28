@@ -1,5 +1,11 @@
 import * as ex from "excalibur";
+import {
+  toolbarModes,
+  toolbarSelection,
+  type ToolbarMode,
+} from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
+import { BlockDisplay, blockDisplaySize } from "./BlockDisplay";
 
 type HealthProvider = () => {
   health: number;
@@ -9,6 +15,32 @@ type HealthProvider = () => {
 const heartCount = 3;
 const heartOverlap = 1;
 const displayPosition = ex.vec(4, 4);
+const viewHeight = 180;
+const inventorySlotScreenMargin = 4;
+const toolbarAnimationDurationMs = 140;
+const toolbarOutgoingZ = 0;
+const toolbarIncomingZ = 3;
+const toolbarItemZOffset = 1;
+const toolbarIconZOffset = 2;
+const toolbarIconSlotGap = 2;
+
+type ToolbarSlotView = {
+  slot: ex.Actor;
+  item: ex.Actor;
+  icon: ex.Actor;
+  itemOffset: ex.Vector;
+  iconOffset: ex.Vector;
+};
+type ToolbarAnimation = {
+  from: ToolbarMode;
+  to: ToolbarMode;
+  elapsedMs: number;
+};
+
+const lerp = (start: number, end: number, amount: number) =>
+  start + (end - start) * amount;
+
+const easeOutCubic = (amount: number) => 1 - Math.pow(1 - amount, 3);
 
 const heartSize = () => {
   const heartSprite = Resources.HeartFull.toSprite();
@@ -21,6 +53,12 @@ const heartSize = () => {
 export class PlayerHealthDisplay extends ex.ScreenElement {
   private readonly getHealth: HealthProvider;
   private readonly heartActors: ex.Actor[];
+  private readonly inventorySlotViews: Record<ToolbarMode, ToolbarSlotView>;
+  private readonly inventorySlotActors: ex.Actor[];
+  private readonly toolbarOnscreenPosition: ex.Vector;
+  private readonly toolbarOffscreenPosition: ex.Vector;
+  private toolbarMode: ToolbarMode = toolbarSelection.mode();
+  private toolbarAnimation: ToolbarAnimation | null = null;
 
   constructor(getHealth: HealthProvider) {
     super({
@@ -31,6 +69,15 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.getHealth = getHealth;
     const size = heartSize();
     const heartSpacing = size.width - heartOverlap;
+    const slotSprite = Resources.InventoryBlockSlot.toSprite();
+    this.toolbarOnscreenPosition = ex.vec(
+      0,
+      viewHeight - displayPosition.y - inventorySlotScreenMargin - slotSprite.height,
+    );
+    this.toolbarOffscreenPosition = ex.vec(
+      -displayPosition.x - slotSprite.width,
+      this.toolbarOnscreenPosition.y,
+    );
     this.heartActors = Array.from({ length: heartCount }, (_value, index) => {
       const actor = new ex.Actor({
         pos: ex.vec(index * heartSpacing, 0),
@@ -41,14 +88,27 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       actor.graphics.anchor = ex.vec(0, 0);
       return actor;
     });
+    this.inventorySlotViews = {
+      build: this.createToolbarSlotView("build", this.toolbarOnscreenPosition),
+      combat: this.createToolbarSlotView("combat", this.toolbarOffscreenPosition),
+    };
+    this.inventorySlotActors = [
+      ...Object.values(this.inventorySlotViews).map((view) => view.slot),
+      ...Object.values(this.inventorySlotViews).map((view) => view.item),
+      ...Object.values(this.inventorySlotViews).map((view) => view.icon),
+    ];
   }
 
   override onInitialize() {
     this.heartActors.forEach((actor) => this.addChild(actor));
+    this.inventorySlotActors.forEach((actor) => this.addChild(actor));
+    this.syncToolbarMode();
     this.syncHearts();
   }
 
-  override onPostUpdate() {
+  override onPostUpdate(engine: ex.Engine, delta: number) {
+    this.updateToolbarMode(engine);
+    this.tickToolbarAnimation(delta);
     this.syncHearts();
   }
 
@@ -68,5 +128,183 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       return Resources.HeartHalf.toSprite();
     }
     return Resources.HeartEmpty.toSprite();
+  }
+
+  private createToolbarSlotView(mode: ToolbarMode, slotPosition: ex.Vector) {
+    const slotSprite = this.slotSpriteForMode(mode);
+    const item = this.itemActorForMode(mode, slotSprite, slotPosition);
+    const icon = this.iconActorForMode(mode, slotSprite, slotPosition);
+    const itemOffset = item.pos.sub(slotPosition);
+    const iconOffset = icon.pos.sub(slotPosition);
+    const slot = new ex.Actor({
+      pos: slotPosition,
+      anchor: ex.vec(0, 0),
+      width: slotSprite.width,
+      height: slotSprite.height,
+      z: toolbarOutgoingZ,
+    });
+    item.z = toolbarOutgoingZ + toolbarItemZOffset;
+    icon.z = toolbarOutgoingZ + toolbarIconZOffset;
+    slot.graphics.anchor = ex.vec(0, 0);
+    slot.graphics.use(slotSprite);
+    return {
+      slot,
+      item,
+      icon,
+      itemOffset,
+      iconOffset,
+    };
+  }
+
+  private updateToolbarMode(engine: ex.Engine) {
+    if (!engine.input.keyboard.wasPressed(ex.Keys.Tab)) {
+      return;
+    }
+    if (this.toolbarAnimation) {
+      return;
+    }
+    const currentMode = toolbarSelection.mode();
+    const nextMode = toolbarSelection.toggleMode();
+    this.toolbarAnimation = {
+      from: currentMode,
+      to: nextMode,
+      elapsedMs: 0,
+    };
+    this.setToolbarViewZ(this.inventorySlotViews[currentMode], toolbarOutgoingZ);
+    this.setToolbarViewZ(this.inventorySlotViews[nextMode], toolbarIncomingZ);
+    this.toolbarMode = toolbarSelection.mode();
+  }
+
+  private syncToolbarMode() {
+    toolbarModes.forEach((mode) =>
+      this.setToolbarViewPosition(
+        this.inventorySlotViews[mode],
+        mode === this.toolbarMode
+          ? this.toolbarOnscreenPosition
+          : this.toolbarOffscreenPosition,
+      ),
+    );
+  }
+
+  private tickToolbarAnimation(delta: number) {
+    const animation = this.toolbarAnimation;
+    if (!animation) {
+      return;
+    }
+    const elapsedMs = Math.min(
+      animation.elapsedMs + delta,
+      toolbarAnimationDurationMs,
+    );
+    const amount = easeOutCubic(elapsedMs / toolbarAnimationDurationMs);
+    this.toolbarAnimation = {
+      ...animation,
+      elapsedMs,
+    };
+    this.setToolbarViewPosition(
+      this.inventorySlotViews[animation.from],
+      ex.vec(
+        lerp(this.toolbarOnscreenPosition.x, this.toolbarOffscreenPosition.x, amount),
+        this.toolbarOnscreenPosition.y,
+      ),
+    );
+    this.setToolbarViewOpacity(this.inventorySlotViews[animation.from], 1 - amount);
+    this.setToolbarViewPosition(
+      this.inventorySlotViews[animation.to],
+      ex.vec(
+        lerp(this.toolbarOffscreenPosition.x, this.toolbarOnscreenPosition.x, amount),
+        this.toolbarOnscreenPosition.y,
+      ),
+    );
+    this.setToolbarViewOpacity(this.inventorySlotViews[animation.to], amount);
+    if (elapsedMs < toolbarAnimationDurationMs) {
+      return;
+    }
+    this.toolbarAnimation = null;
+    this.syncToolbarMode();
+    this.setToolbarViewZ(this.inventorySlotViews[animation.to], toolbarOutgoingZ);
+  }
+
+  private setToolbarViewPosition(view: ToolbarSlotView, slotPosition: ex.Vector) {
+    view.slot.pos = slotPosition;
+    view.item.pos = slotPosition.add(view.itemOffset);
+    view.icon.pos = slotPosition.add(view.iconOffset);
+  }
+
+  private setToolbarViewZ(view: ToolbarSlotView, z: number) {
+    view.slot.z = z;
+    view.item.z = z + toolbarItemZOffset;
+    view.icon.z = z + toolbarIconZOffset;
+  }
+
+  private setToolbarViewOpacity(view: ToolbarSlotView, opacity: number) {
+    view.icon.graphics.opacity = opacity;
+  }
+
+  private itemActorForMode(
+    mode: ToolbarMode,
+    slotSprite: ex.Sprite,
+    slotPosition: ex.Vector,
+  ) {
+    if (mode === "build") {
+      const itemOffset = ex.vec(
+        Math.floor((slotSprite.width - blockDisplaySize) / 2),
+        Math.floor((slotSprite.height - blockDisplaySize) / 2),
+      );
+      return new BlockDisplay(Resources.Dirt, slotPosition.add(itemOffset));
+    }
+    return this.weaponItemActor(slotSprite, slotPosition);
+  }
+
+  private weaponItemActor(slotSprite: ex.Sprite, slotPosition: ex.Vector) {
+    const weaponSprite = Resources.BronzeSwordItem.toSprite();
+    const weaponOffset = ex.vec(
+      Math.floor((slotSprite.width - weaponSprite.width) / 2),
+      Math.floor((slotSprite.height - weaponSprite.height) / 2),
+    );
+    const weapon = new ex.Actor({
+      pos: slotPosition.add(weaponOffset),
+      anchor: ex.vec(0, 0),
+      width: weaponSprite.width,
+      height: weaponSprite.height,
+    });
+    weapon.graphics.anchor = ex.vec(0, 0);
+    weapon.graphics.use(weaponSprite);
+    return weapon;
+  }
+
+  private iconActorForMode(
+    mode: ToolbarMode,
+    slotSprite: ex.Sprite,
+    slotPosition: ex.Vector,
+  ) {
+    const iconSprite = this.iconSpriteForMode(mode);
+    const iconOffset = ex.vec(
+      Math.floor((slotSprite.width - iconSprite.width) / 2),
+      -iconSprite.height - toolbarIconSlotGap,
+    );
+    const icon = new ex.Actor({
+      pos: slotPosition.add(iconOffset),
+      anchor: ex.vec(0, 0),
+      width: iconSprite.width,
+      height: iconSprite.height,
+    });
+    icon.graphics.anchor = ex.vec(0, 0);
+    icon.graphics.use(iconSprite);
+    icon.graphics.opacity = mode === this.toolbarMode ? 1 : 0;
+    return icon;
+  }
+
+  private slotSpriteForMode(mode: ToolbarMode) {
+    if (mode === "build") {
+      return Resources.InventoryBlockSlot.toSprite();
+    }
+    return Resources.InventoryWeaponSlot.toSprite();
+  }
+
+  private iconSpriteForMode(mode: ToolbarMode) {
+    if (mode === "build") {
+      return Resources.BuildIcon.toSprite();
+    }
+    return Resources.CombatIcon.toSprite();
   }
 }
