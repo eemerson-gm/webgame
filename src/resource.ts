@@ -1,7 +1,7 @@
 import * as ex from "excalibur";
 
 export const Resources = {
-  GameFont: new ex.FontSource("./fonts/game_font.ttf", "Game Font"),
+  GameFont: new ex.FontSource("./fonts/m5x7.ttf", "Game Font"),
   Player: new ex.ImageSource("./assets/player/player.png"),
   PlayerWalk1: new ex.ImageSource("./assets/player/player_walk1.png"),
   PlayerWalk2: new ex.ImageSource("./assets/player/player_walk2.png"),
