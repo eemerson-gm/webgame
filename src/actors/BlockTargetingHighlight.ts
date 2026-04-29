@@ -3,7 +3,7 @@ import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { TerrainBlockBreakUpdate } from "../classes/GameProtocol";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
-import { toolbarSelection } from "../classes/ToolbarSelection";
+import { isPlaceableBlockKind, toolbarSelection } from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
 import { BlockBreakParticleEmitter } from "./BlockBreakParticleEmitter";
@@ -409,7 +409,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (this.lastPlacedTargetKey === targetKey) {
       return;
     }
-    const kind = toolbarSelection.selectedBlockKind();
+    const kind = toolbarSelection.takeSelectedBlock();
     if (!kind) {
       return;
     }
@@ -470,6 +470,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private breakTargetInstantly(target: TargetBlockPosition) {
+    this.collectBlockAt(target);
     this.client.send(messageTypes.updateBlock, {
       column: target.column,
       row: target.row,
@@ -504,12 +505,21 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (this.breakProgressMs < this.breakDurationFor(this.breakingTarget)) {
       return;
     }
+    this.collectBlockAt(this.breakingTarget);
     this.client.send(messageTypes.updateBlock, {
       column: this.breakingTarget.column,
       row: this.breakingTarget.row,
       solid: false,
     });
     this.cancelBreakingTarget();
+  }
+
+  private collectBlockAt(target: TargetBlockPosition) {
+    const kind = this.terrain.tileKindAt(target.column, target.row);
+    if (!isPlaceableBlockKind(kind)) {
+      return;
+    }
+    toolbarSelection.addBlock(kind);
   }
 
   private cancelBreakingTarget() {

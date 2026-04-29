@@ -23,17 +23,59 @@ const toolbarOutgoingZ = 0;
 const toolbarIncomingZ = 3;
 const toolbarItemZOffset = 1;
 const toolbarIconZOffset = 2;
+const toolbarCountZOffset = 3;
 const toolbarIconSlotGap = 2;
 const buildBlockPreviewCount = 3;
 const buildBlockPreviewGap = 2;
+const blockCountMarginX = 4;
+const blockCountMarginY = 3;
+const blockCountPixelSize = 1;
+const blockCountDigitGap = 1;
+const blockCountOutlineSize = 1;
+const blockCountMinimumDigits = 2;
+const blockCountDigitGlyphs = {
+  "0": ["111", "101", "101", "101", "111"],
+  "1": ["010", "110", "010", "010", "111"],
+  "2": ["111", "001", "111", "100", "111"],
+  "3": ["111", "001", "111", "001", "111"],
+  "4": ["101", "101", "111", "001", "001"],
+  "5": ["111", "100", "111", "001", "111"],
+  "6": ["111", "100", "111", "101", "111"],
+  "7": ["111", "001", "010", "010", "010"],
+  "8": ["111", "101", "111", "101", "111"],
+  "9": ["111", "101", "111", "001", "111"],
+} satisfies Record<string, string[]>;
+const blockCountOutlineOffsets = [
+  ex.vec(-1, -1),
+  ex.vec(0, -1),
+  ex.vec(1, -1),
+  ex.vec(-1, 0),
+  ex.vec(1, 0),
+  ex.vec(-1, 1),
+  ex.vec(0, 1),
+  ex.vec(1, 1),
+];
+const blockCountDigitWidth = blockCountDigitGlyphs["0"][0].length;
+const blockCountDigitHeight = blockCountDigitGlyphs["0"].length;
+const blockCountDigitSlots = (text: string) =>
+  Math.max(blockCountMinimumDigits, text.length);
+const blockCountContentWidth = (digits: number) =>
+  digits * blockCountDigitWidth * blockCountPixelSize +
+  (digits - 1) * blockCountDigitGap * blockCountPixelSize;
+const blockCountTextSize = (text: string) => ({
+  width: blockCountContentWidth(blockCountDigitSlots(text)) + blockCountOutlineSize * 2,
+  height: blockCountDigitHeight * blockCountPixelSize + blockCountOutlineSize * 2,
+});
 
 type ToolbarSlotView = {
   slot: ex.Actor;
   item: ex.Actor;
   icon: ex.Actor;
+  count: BlockCountDisplay | null;
   previewItems: BlockDisplay[];
   itemOffset: ex.Vector;
   iconOffset: ex.Vector;
+  countOffset: ex.Vector | null;
   previewOffsets: ex.Vector[];
 };
 type ToolbarAnimation = {
@@ -46,6 +88,91 @@ const lerp = (start: number, end: number, amount: number) =>
   start + (end - start) * amount;
 
 const easeOutCubic = (amount: number) => 1 - Math.pow(1 - amount, 3);
+
+class BlockCountRaster extends ex.Raster {
+  private readonly text: string;
+
+  constructor(count: number) {
+    const text = String(count);
+    const size = blockCountTextSize(text);
+    super({
+      width: size.width,
+      height: size.height,
+      origin: ex.vec(size.width, size.height),
+      smoothing: false,
+      filtering: ex.ImageFiltering.Pixel,
+    });
+    this.text = text;
+  }
+
+  override clone() {
+    return new BlockCountRaster(Number(this.text));
+  }
+
+  override execute(ctx: CanvasRenderingContext2D) {
+    const textOffset = ex.vec(blockCountOutlineSize, blockCountOutlineSize);
+    blockCountOutlineOffsets.forEach((offset) =>
+      this.drawText(ctx, textOffset.add(offset), "#000000"),
+    );
+    this.drawText(ctx, textOffset, "#ffffff");
+  }
+
+  private drawText(
+    ctx: CanvasRenderingContext2D,
+    offset: ex.Vector,
+    color: string,
+  ) {
+    ctx.fillStyle = color;
+    const startX =
+      blockCountContentWidth(blockCountDigitSlots(this.text)) -
+      blockCountContentWidth(this.text.length);
+    this.text.split("").forEach((digit, digitIndex) => {
+      const glyph = blockCountDigitGlyphs[digit];
+      const digitX =
+        startX +
+        digitIndex *
+        (blockCountDigitWidth + blockCountDigitGap) *
+        blockCountPixelSize;
+      glyph.forEach((row, rowIndex) => {
+        row.split("").forEach((pixel, columnIndex) => {
+          if (pixel !== "1") {
+            return;
+          }
+          ctx.fillRect(
+            digitX + columnIndex * blockCountPixelSize + offset.x,
+            rowIndex * blockCountPixelSize + offset.y,
+            blockCountPixelSize,
+            blockCountPixelSize,
+          );
+        });
+      });
+    });
+  }
+}
+
+class BlockCountDisplay extends ex.Actor {
+  private count: number;
+
+  constructor(count: number, pos: ex.Vector) {
+    const size = blockCountTextSize(String(count));
+    super({
+      pos,
+      anchor: ex.vec(0, 0),
+      width: size.width,
+      height: size.height,
+    });
+    this.count = count;
+    this.graphics.use(new BlockCountRaster(count));
+  }
+
+  public setCount(count: number) {
+    if (count === this.count) {
+      return;
+    }
+    this.count = count;
+    this.graphics.use(new BlockCountRaster(count));
+  }
+}
 
 const blockItemResourceByKind = {
   dirt: Resources.Dirt,
@@ -122,6 +249,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       ...Object.values(this.inventorySlotViews).map((view) => view.slot),
       ...Object.values(this.inventorySlotViews).map((view) => view.item),
       ...Object.values(this.inventorySlotViews).map((view) => view.icon),
+      ...Object.values(this.inventorySlotViews)
+        .map((view) => view.count)
+        .filter((count): count is BlockCountDisplay => !!count),
       ...Object.values(this.inventorySlotViews).flatMap((view) => view.previewItems),
     ];
   }
@@ -134,6 +264,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.inventorySlotActors.forEach((actor) => this.addChild(actor));
     this.syncToolbarMode();
     this.syncBuildBlockItem();
+    this.syncBuildBlockCount();
     this.syncHearts();
   }
 
@@ -141,6 +272,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.updateToolbarMode(engine);
     this.tickToolbarAnimation(delta);
     this.syncBuildBlockItem();
+    this.syncBuildBlockCount();
     this.syncHearts();
   }
 
@@ -166,9 +298,11 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     const slotSprite = this.slotSpriteForMode(mode);
     const item = this.itemActorForMode(mode, slotSprite, slotPosition);
     const icon = this.iconActorForMode(mode, slotSprite, slotPosition);
+    const count = this.countActorForMode(mode, slotSprite, slotPosition);
     const previewItems = this.previewItemActorsForMode(mode, slotSprite, slotPosition);
     const itemOffset = item.pos.sub(slotPosition);
     const iconOffset = icon.pos.sub(slotPosition);
+    const countOffset = count ? count.pos.sub(slotPosition) : null;
     const previewOffsets = previewItems.map((preview) => preview.pos.sub(slotPosition));
     const slot = new ex.Actor({
       pos: slotPosition,
@@ -179,6 +313,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     });
     item.z = toolbarOutgoingZ + toolbarItemZOffset;
     icon.z = toolbarOutgoingZ + toolbarIconZOffset;
+    if (count) {
+      count.z = toolbarOutgoingZ + toolbarCountZOffset;
+    }
     previewItems.forEach((preview) => {
       preview.z = toolbarOutgoingZ + toolbarItemZOffset;
     });
@@ -188,9 +325,11 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       slot,
       item,
       icon,
+      count,
       previewItems,
       itemOffset,
       iconOffset,
+      countOffset,
       previewOffsets,
     };
   }
@@ -267,6 +406,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     view.slot.pos = slotPosition;
     view.item.pos = slotPosition.add(view.itemOffset);
     view.icon.pos = slotPosition.add(view.iconOffset);
+    if (view.count && view.countOffset) {
+      view.count.pos = slotPosition.add(view.countOffset);
+    }
     view.previewItems.forEach((preview, index) => {
       preview.pos = slotPosition.add(view.previewOffsets[index]);
     });
@@ -276,6 +418,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     view.slot.z = z;
     view.item.z = z + toolbarItemZOffset;
     view.icon.z = z + toolbarIconZOffset;
+    if (view.count) {
+      view.count.z = z + toolbarCountZOffset;
+    }
     view.previewItems.forEach((preview) => {
       preview.z = z + toolbarItemZOffset;
     });
@@ -283,6 +428,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
 
   private setToolbarViewOpacity(view: ToolbarSlotView, opacity: number) {
     view.icon.graphics.opacity = opacity;
+    if (view.count) {
+      view.count.graphics.opacity = opacity;
+    }
     view.previewItems.forEach((preview) => {
       preview.setDisplayOpacity(opacity);
     });
@@ -325,6 +473,10 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     });
   }
 
+  private syncBuildBlockCount() {
+    this.inventorySlotViews.build.count?.setCount(toolbarSelection.blockCount());
+  }
+
   private weaponItemActor(slotSprite: ex.Sprite, slotPosition: ex.Vector) {
     const weaponSprite = Resources.BronzeSwordItem.toSprite();
     const weaponOffset = ex.vec(
@@ -340,6 +492,31 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     weapon.graphics.anchor = ex.vec(0, 0);
     weapon.graphics.use(weaponSprite);
     return weapon;
+  }
+
+  private countActorForMode(
+    mode: ToolbarMode,
+    slotSprite: ex.Sprite,
+    slotPosition: ex.Vector,
+  ) {
+    if (mode !== "build") {
+      return null;
+    }
+    const itemOffset = ex.vec(
+      Math.floor((slotSprite.width - blockDisplaySize) / 2),
+      Math.floor((slotSprite.height - blockDisplaySize) / 2),
+    );
+    return new BlockCountDisplay(
+      toolbarSelection.blockCount(),
+      slotPosition.add(
+        itemOffset.add(
+          ex.vec(
+            blockDisplaySize - blockCountMarginX,
+            blockDisplaySize - blockCountMarginY,
+          ),
+        ),
+      ),
+    );
   }
 
   private iconActorForMode(

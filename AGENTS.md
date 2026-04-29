@@ -22,6 +22,7 @@ Excalibird is a small **multiplayer pixel platformer**. The browser runs an **Ex
 ## Code constraints
 
 - **No comments**: do not add `//`, `/* */`, or JSDoc in source. Make names and structure carry the meaning.
+- Do not assign to Excalibur `Actor.width` or `Actor.height` after construction; they are read-only getters. Size actors through constructor options or replace/update their graphics instead.
 - **No `let`**: use `const` and restructure with smaller scopes or helpers when a value would be reassigned.
 - **No `for` loops**: no `for`, `for...of`, or `for...in`; use `.forEach`, `.map`, `.filter`, `.reduce`, `while`, or recursion.
 - **No `else`**: use early `return`, guard clauses, or ternaries.

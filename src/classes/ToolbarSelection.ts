@@ -5,10 +5,26 @@ export const placeableBlockKinds = ["dirt", "grass", "lamp", "stone"] as const;
 
 export type ToolbarMode = (typeof toolbarModes)[number];
 export type PlaceableBlockKind = (typeof placeableBlockKinds)[number];
+export type BlockInventoryCounts = Record<PlaceableBlockKind, number>;
+
+const startingBlockInventoryCounts = {
+  dirt: 20,
+  grass: 20,
+  lamp: 10,
+  stone: 20,
+} satisfies BlockInventoryCounts;
+
+export const isPlaceableBlockKind = (
+  kind: TerrainTileKind | null,
+): kind is PlaceableBlockKind =>
+  !!kind && placeableBlockKinds.includes(kind as PlaceableBlockKind);
 
 class ToolbarSelection {
   private selectedMode: ToolbarMode = "build";
   private selectedPlaceableKind: PlaceableBlockKind = "dirt";
+  private blockInventoryCounts: BlockInventoryCounts = {
+    ...startingBlockInventoryCounts,
+  };
 
   public mode() {
     return this.selectedMode;
@@ -29,6 +45,29 @@ class ToolbarSelection {
 
   public selectedPlaceableBlockKind() {
     return this.selectedPlaceableKind;
+  }
+
+  public blockCount(kind: PlaceableBlockKind = this.selectedPlaceableKind) {
+    return this.blockInventoryCounts[kind];
+  }
+
+  public addBlock(kind: TerrainTileKind | null, count: number = 1) {
+    if (!isPlaceableBlockKind(kind)) {
+      return;
+    }
+    this.blockInventoryCounts[kind] += count;
+  }
+
+  public takeSelectedBlock() {
+    const kind = this.selectedBlockKind();
+    if (!kind) {
+      return null;
+    }
+    if (this.blockInventoryCounts[kind] <= 0) {
+      return null;
+    }
+    this.blockInventoryCounts[kind] -= 1;
+    return kind;
   }
 
   public nextPlaceableBlockKinds(count: number) {
