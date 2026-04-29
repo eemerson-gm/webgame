@@ -1,5 +1,6 @@
 import * as ex from "excalibur";
 import {
+  placeableBlockKinds,
   type PlaceableBlockKind,
   toolbarModes,
   toolbarSelection,
@@ -26,7 +27,8 @@ const toolbarItemZOffset = 1;
 const toolbarIconZOffset = 2;
 const toolbarCountZOffset = 3;
 const toolbarIconSlotGap = 2;
-const buildBlockPreviewCount = 3;
+const buildBlockVisibleItemCount = Math.min(10, placeableBlockKinds.length);
+const buildBlockPreviewCount = buildBlockVisibleItemCount - 1;
 const buildBlockPreviewGap = 2;
 const blockCountMarginX = 4;
 const blockCountMarginY = 3;
