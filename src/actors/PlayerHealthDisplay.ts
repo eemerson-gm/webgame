@@ -11,6 +11,7 @@ import { BlockDisplay, blockDisplaySize } from "./BlockDisplay";
 type HealthProvider = () => {
   health: number;
   maxHealth: number;
+  isFlying: boolean;
 } | null;
 
 const heartCount = 3;
@@ -44,6 +45,7 @@ const blockCountDigitGlyphs = {
   "7": ["111", "001", "010", "010", "010"],
   "8": ["111", "101", "111", "101", "111"],
   "9": ["111", "101", "111", "001", "111"],
+  "∞": ["00000", "01010", "10101", "01010", "00000"],
 } satisfies Record<string, string[]>;
 const blockCountOutlineOffsets = [
   ex.vec(-1, -1),
@@ -55,15 +57,26 @@ const blockCountOutlineOffsets = [
   ex.vec(0, 1),
   ex.vec(1, 1),
 ];
-const blockCountDigitWidth = blockCountDigitGlyphs["0"][0].length;
 const blockCountDigitHeight = blockCountDigitGlyphs["0"].length;
 const blockCountDigitSlots = (text: string) =>
   Math.max(blockCountMinimumDigits, text.length);
-const blockCountContentWidth = (digits: number) =>
-  digits * blockCountDigitWidth * blockCountPixelSize +
+const blockCountDigitWidth = (digit: string) => blockCountDigitGlyphs[digit][0].length;
+const blockCountTextContentWidth = (text: string) =>
+  text.split("").reduce(
+    (width, digit) => width + blockCountDigitWidth(digit) * blockCountPixelSize,
+    0,
+  ) +
+  Math.max(text.length - 1, 0) * blockCountDigitGap * blockCountPixelSize;
+const blockCountSlotContentWidth = (digits: number) =>
+  digits * blockCountDigitWidth("0") * blockCountPixelSize +
   (digits - 1) * blockCountDigitGap * blockCountPixelSize;
 const blockCountTextSize = (text: string) => ({
-  width: blockCountContentWidth(blockCountDigitSlots(text)) + blockCountOutlineSize * 2,
+  width:
+    Math.max(
+      blockCountSlotContentWidth(blockCountDigitSlots(text)),
+      blockCountTextContentWidth(text),
+    ) +
+    blockCountOutlineSize * 2,
   height: blockCountDigitHeight * blockCountPixelSize + blockCountOutlineSize * 2,
 });
 
@@ -89,11 +102,21 @@ const lerp = (start: number, end: number, amount: number) =>
 
 const easeOutCubic = (amount: number) => 1 - Math.pow(1 - amount, 3);
 
+const blockPlacementModeFor = (
+  playerStatus: ReturnType<HealthProvider>,
+): "creative" | "survival" => (playerStatus?.isFlying ? "creative" : "survival");
+
+const blockCountTextFor = (playerStatus: ReturnType<HealthProvider>) => {
+  if (blockPlacementModeFor(playerStatus) === "creative") {
+    return "∞";
+  }
+  return String(toolbarSelection.blockCount());
+};
+
 class BlockCountRaster extends ex.Raster {
   private readonly text: string;
 
-  constructor(count: number) {
-    const text = String(count);
+  constructor(text: string) {
     const size = blockCountTextSize(text);
     super({
       width: size.width,
@@ -106,7 +129,7 @@ class BlockCountRaster extends ex.Raster {
   }
 
   override clone() {
-    return new BlockCountRaster(Number(this.text));
+    return new BlockCountRaster(this.text);
   }
 
   override execute(ctx: CanvasRenderingContext2D) {
@@ -124,15 +147,23 @@ class BlockCountRaster extends ex.Raster {
   ) {
     ctx.fillStyle = color;
     const startX =
-      blockCountContentWidth(blockCountDigitSlots(this.text)) -
-      blockCountContentWidth(this.text.length);
+      blockCountTextSize(this.text).width -
+      blockCountOutlineSize * 2 -
+      blockCountTextContentWidth(this.text);
     this.text.split("").forEach((digit, digitIndex) => {
       const glyph = blockCountDigitGlyphs[digit];
       const digitX =
         startX +
-        digitIndex *
-        (blockCountDigitWidth + blockCountDigitGap) *
-        blockCountPixelSize;
+        this.text
+          .slice(0, digitIndex)
+          .split("")
+          .reduce(
+            (width, previousDigit) =>
+              width +
+              (blockCountDigitWidth(previousDigit) + blockCountDigitGap) *
+                blockCountPixelSize,
+            0,
+          );
       glyph.forEach((row, rowIndex) => {
         row.split("").forEach((pixel, columnIndex) => {
           if (pixel !== "1") {
@@ -151,26 +182,26 @@ class BlockCountRaster extends ex.Raster {
 }
 
 class BlockCountDisplay extends ex.Actor {
-  private count: number;
+  private text: string;
 
-  constructor(count: number, pos: ex.Vector) {
-    const size = blockCountTextSize(String(count));
+  constructor(text: string, pos: ex.Vector) {
+    const size = blockCountTextSize(text);
     super({
       pos,
       anchor: ex.vec(0, 0),
       width: size.width,
       height: size.height,
     });
-    this.count = count;
-    this.graphics.use(new BlockCountRaster(count));
+    this.text = text;
+    this.graphics.use(new BlockCountRaster(text));
   }
 
-  public setCount(count: number) {
-    if (count === this.count) {
+  public setText(text: string) {
+    if (text === this.text) {
       return;
     }
-    this.count = count;
-    this.graphics.use(new BlockCountRaster(count));
+    this.text = text;
+    this.graphics.use(new BlockCountRaster(text));
   }
 }
 
@@ -474,7 +505,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   }
 
   private syncBuildBlockCount() {
-    this.inventorySlotViews.build.count?.setCount(toolbarSelection.blockCount());
+    this.inventorySlotViews.build.count?.setText(blockCountTextFor(this.getHealth()));
   }
 
   private weaponItemActor(slotSprite: ex.Sprite, slotPosition: ex.Vector) {
@@ -507,7 +538,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       Math.floor((slotSprite.height - blockDisplaySize) / 2),
     );
     return new BlockCountDisplay(
-      toolbarSelection.blockCount(),
+      blockCountTextFor(this.getHealth()),
       slotPosition.add(
         itemOffset.add(
           ex.vec(

@@ -410,6 +410,9 @@ export class Player extends MovingActor {
     if (this.isPaused) {
       return;
     }
+    if (this.isFlying) {
+      return;
+    }
     const actorCenterX = actor.pos.x + actor.width / 2;
     const direction = this.centerX() < actorCenterX ? -1 : 1;
     this.isFlying = false;
@@ -477,6 +480,9 @@ export class Player extends MovingActor {
 
   private canTakeDamage() {
     if (this.isPaused) {
+      return false;
+    }
+    if (this.isFlying) {
       return false;
     }
     if (this.damageImmunityTimeRemainingMs > 0) {
@@ -1005,7 +1011,6 @@ export class Player extends MovingActor {
       return;
     }
     this.updateControls(engine);
-    this.onMove();
 
     const dt = delta / 1000;
 
@@ -1031,6 +1036,7 @@ export class Player extends MovingActor {
     }
 
     this.syncPlayerVisuals(keySign);
+    this.onMove();
     this.syncMovementPeriodically(delta, isKnockbackActive);
     this.updateToolOverlay(delta);
     this.updateToolUseTimer(delta);

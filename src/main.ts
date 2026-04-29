@@ -468,6 +468,7 @@ game.start(loader).then(() => {
           return {
             health: player.health,
             maxHealth: player.maxHealth,
+            isFlying: player.isFlying,
           };
         }),
       );

@@ -6,6 +6,7 @@ export const placeableBlockKinds = ["dirt", "grass", "lamp", "stone"] as const;
 export type ToolbarMode = (typeof toolbarModes)[number];
 export type PlaceableBlockKind = (typeof placeableBlockKinds)[number];
 export type BlockInventoryCounts = Record<PlaceableBlockKind, number>;
+export type BlockPlacementMode = "creative" | "survival";
 
 const startingBlockInventoryCounts = {
   dirt: 20,
@@ -58,10 +59,13 @@ class ToolbarSelection {
     this.blockInventoryCounts[kind] += count;
   }
 
-  public takeSelectedBlock() {
+  public selectedBlockForMode(mode: BlockPlacementMode) {
     const kind = this.selectedBlockKind();
     if (!kind) {
       return null;
+    }
+    if (mode === "creative") {
+      return kind;
     }
     if (this.blockInventoryCounts[kind] <= 0) {
       return null;

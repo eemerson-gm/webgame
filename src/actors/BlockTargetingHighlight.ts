@@ -409,7 +409,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (this.lastPlacedTargetKey === targetKey) {
       return;
     }
-    const kind = toolbarSelection.takeSelectedBlock();
+    const localPlayer = this.getLocalPlayer();
+    const placementMode = localPlayer?.isFlying ? "creative" : "survival";
+    const kind = toolbarSelection.selectedBlockForMode(placementMode);
     if (!kind) {
       return;
     }
