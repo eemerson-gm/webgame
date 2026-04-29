@@ -11,6 +11,7 @@ import type { TileCollisionWorld } from "../simulation/entityPhysics";
 import { SwordHitboxOutlineRaster } from "./SwordHitboxOutlineRaster";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
+import type { WaterTileMap } from "../classes/WaterTileMap";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -33,6 +34,15 @@ const stopDeceleration = 0.22;
 const turnAcceleration = 0.32;
 const gravity = 0.2;
 const jumpSpeed = -2.8;
+const waterGravity = 0.045;
+const waterHorizontalSpeed = 0.95;
+const waterHorizontalAcceleration = 0.18;
+const waterStopDeceleration = 0.14;
+const waterSwimSpeed = -1.05;
+const waterSwimAcceleration = 0.18;
+const waterSinkSpeed = 0.7;
+const waterFallSpeedCap = 0.75;
+const footWaterDrag = 0.82;
 const jumpHoldDurationMs = 220;
 const jumpHeldGravityMultiplier = 0.3;
 const jumpReleasedGravityMultiplier = 1.15;
@@ -130,6 +140,7 @@ export class Player extends MovingActor {
     tilemap: ex.TileMap,
     client?: GameClient,
     collisionWorld?: TileCollisionWorld,
+    private readonly water?: WaterTileMap,
   ) {
     const width = TILE_PX;
     const height = TILE_PX;
@@ -867,6 +878,66 @@ export class Player extends MovingActor {
     this.moveWithVelocity(positionScale, dt);
   }
 
+  private moveWithWater(dt: number, keySign: number) {
+    const targetHspeed = keySign * waterHorizontalSpeed;
+    const horizontalAcceleration =
+      keySign === 0 ? waterStopDeceleration : waterHorizontalAcceleration;
+    this.hspeed = approach(
+      this.hspeed,
+      targetHspeed,
+      horizontalAcceleration * 60 * dt,
+    );
+    if (this.keyJump) {
+      this.vspeed = approach(
+        this.vspeed,
+        waterSwimSpeed,
+        waterSwimAcceleration * 60 * dt,
+      );
+    }
+    if (!this.keyJump) {
+      this.applyGravity(waterGravity, dt);
+    }
+    if (this.keyDown) {
+      this.vspeed = approach(
+        this.vspeed,
+        waterSinkSpeed,
+        waterSwimAcceleration * 60 * dt,
+      );
+    }
+    this.vspeed = Math.min(this.vspeed, waterFallSpeedCap);
+    this.jumpHoldTimeRemainingMs = 0;
+    this.moveWithVelocity(positionScale, dt);
+  }
+
+  private boundsForWaterCheck() {
+    return {
+      left: this.pos.x + collisionOffsetX,
+      right: this.pos.x + collisionOffsetX + collisionWidth - collisionEdgeInset,
+      top: this.pos.y + collisionOffsetY,
+      bottom: this.pos.y + collisionOffsetY + collisionHeight - collisionEdgeInset,
+    };
+  }
+
+  private isBodyInWater() {
+    return this.water?.waterTilesTouchingBounds(this.boundsForWaterCheck()) ?? false;
+  }
+
+  private isFeetInWater() {
+    const bounds = this.boundsForWaterCheck();
+    return this.water?.waterTilesTouchingBounds({
+      ...bounds,
+      top: bounds.bottom - 2,
+    }) ?? false;
+  }
+
+  private applyFootWaterDrag() {
+    if (!this.isFeetInWater()) {
+      return;
+    }
+    this.hspeed *= footWaterDrag;
+    this.vspeed = Math.min(this.vspeed, waterFallSpeedCap);
+  }
+
   private currentJumpGravity(delta: number) {
     if (!this.isJumping) {
       this.jumpHoldTimeRemainingMs = 0;
@@ -931,14 +1002,19 @@ export class Player extends MovingActor {
 
     const previousGrounded = this.isGrounded;
     const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
+    const isBodyInWater = this.isBodyInWater();
     if (isKnockbackActive) {
       this.moveWithKnockback(delta, dt);
     }
     if (!isKnockbackActive && this.isFlying) {
       this.moveWithFlying(dt, keySign);
     }
-    if (!isKnockbackActive && !this.isFlying) {
+    if (!isKnockbackActive && !this.isFlying && isBodyInWater) {
+      this.moveWithWater(dt, keySign);
+    }
+    if (!isKnockbackActive && !this.isFlying && !isBodyInWater) {
       this.moveWithGravity(delta, dt, keySign);
+      this.applyFootWaterDrag();
     }
 
     if (!isKnockbackActive && !this.isFlying && this.isGrounded && this.keyJump) {

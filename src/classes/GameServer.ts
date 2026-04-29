@@ -18,6 +18,12 @@ import {
   createInitialEntitiesData,
   createSlimeEntityState,
 } from "../simulation/entitySpawns";
+import {
+  buildInitialWaterTiles,
+  hasWaterUpdateChanges,
+  placeWaterAt,
+  stepWaterFlow,
+} from "../simulation/waterFlow";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
@@ -31,6 +37,10 @@ import type {
   TerrainBlockBreakUpdate,
   TerrainBlockUpdate,
   TerrainTileKind,
+  WaterFlowDirection,
+  WaterPlacePayload,
+  WaterTiles,
+  WaterTilesUpdatePayload,
   WorldTerrainPayload,
 } from "./GameProtocol";
 
@@ -44,6 +54,7 @@ const playerStateMessageTypes: string[] = [
 const entityDamageKnockbackHorizontalSpeed = 1.5;
 const entityDamageKnockbackVerticalSpeed = -1.6;
 const entityDamageKnockbackDurationMs = 240;
+const waterFlowIntervalMs = 120;
 
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
@@ -103,6 +114,23 @@ const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | n
   };
 };
 
+const waterPlaceUpdateFromPayload = (payload: Data): WaterPlacePayload | null => {
+  const column = Number(payload.column);
+  const row = Number(payload.row);
+  const level = Number(payload.level ?? 16);
+  if (!Number.isInteger(column) || !Number.isInteger(row)) {
+    return null;
+  }
+  if (!Number.isInteger(level) || level <= 0 || level > 16) {
+    return null;
+  }
+  return {
+    column,
+    row,
+    level,
+  };
+};
+
 export class GameServer {
   private nextPlayerIndex = 0;
   private nextEntityIndex = 1;
@@ -112,8 +140,11 @@ export class GameServer {
   private entitiesData: Record<string, EntityState>;
   private worldSurfaceStarts: number[];
   private worldTerrainTiles: Record<string, TerrainTileKind>;
+  private worldWaterTiles: WaterTiles;
+  private worldWaterFlowDirections: Record<string, WaterFlowDirection>;
   private protectedTerrainTiles: Set<string>;
   private playerSpawn: { x: number; y: number };
+  private waterFlowIntervalId: ReturnType<typeof setInterval>;
 
   constructor(server: Server) {
     const worldSurfaceStarts = buildSurfaceStartByColumn({
@@ -136,8 +167,19 @@ export class GameServer {
     this.entitiesData = createInitialEntitiesData();
     this.worldSurfaceStarts = worldSurfaceStarts;
     this.worldTerrainTiles = spawnStructure.applyTo(worldTerrainTiles);
+    this.worldWaterTiles = buildInitialWaterTiles(
+      WORLD_TILE_COLUMNS,
+      WORLD_TILE_ROWS,
+      worldSurfaceStarts,
+      this.worldTerrainTiles,
+    );
+    this.worldWaterFlowDirections = {};
     this.protectedTerrainTiles = new Set(spawnStructure.tileKeys());
     this.playerSpawn = spawnStructure.spawnPosition(TILE_PX);
+    this.waterFlowIntervalId = setInterval(
+      () => this.stepWaterFlow(),
+      waterFlowIntervalMs,
+    );
   }
 
   public listen(messages: MessageRouting) {
@@ -314,6 +356,8 @@ export class GameServer {
       solidTiles: solidTerrainTileKeys(this.worldTerrainTiles),
       protectedTiles: Array.from(this.protectedTerrainTiles),
       terrainTiles: this.worldTerrainTiles,
+      waterTiles: this.worldWaterTiles,
+      waterFlowDirections: this.worldWaterFlowDirections,
     };
   }
 
@@ -529,7 +573,66 @@ export class GameServer {
     if (type === messageTypes.updateBlockBreak) {
       return this.blockBreakPayload(payload, playerId);
     }
+    if (type === messageTypes.updateWater) {
+      return this.applyWaterPlaceUpdate(payload, playerId);
+    }
     return { ...payload, id: playerId };
+  }
+
+  private stepWaterFlow() {
+    const result = stepWaterFlow({
+      columns: WORLD_TILE_COLUMNS,
+      rows: WORLD_TILE_ROWS,
+      terrainTiles: this.worldTerrainTiles,
+      waterTiles: this.worldWaterTiles,
+      flowDirections: this.worldWaterFlowDirections,
+    });
+    this.worldWaterTiles = result.waterTiles;
+    this.worldWaterFlowDirections = result.flowDirections;
+    if (!hasWaterUpdateChanges(result.update)) {
+      return;
+    }
+    this.sendToAll(messageTypes.updateWater, result.update);
+  }
+
+  private waterUpdatePayload(
+    waterTiles: WaterTiles,
+    flowDirections: Record<string, WaterFlowDirection> = {},
+    removedWaterTiles: string[] = [],
+  ): WaterTilesUpdatePayload {
+    return {
+      waterTiles,
+      removedWaterTiles,
+      flowDirections,
+    };
+  }
+
+  private applyWaterPlaceUpdate(payload: Data, playerId: string) {
+    const update = waterPlaceUpdateFromPayload(payload);
+    if (!update) {
+      return null;
+    }
+    if (!isInsideWorld(update.column, update.row)) {
+      return null;
+    }
+    const key = terrainTileKey(update.column, update.row);
+    if (this.worldTerrainTiles[key]) {
+      return null;
+    }
+    this.worldWaterTiles = placeWaterAt(
+      this.worldWaterTiles,
+      update.column,
+      update.row,
+      update.level,
+    );
+    this.worldWaterFlowDirections = {
+      ...this.worldWaterFlowDirections,
+      [key]: "still",
+    };
+    return this.waterUpdatePayload(
+      { [key]: this.worldWaterTiles[key] },
+      { [key]: "still" },
+    );
   }
 
   private blockBreakPayload(payload: Data, playerId: string) {
@@ -570,6 +673,14 @@ export class GameServer {
     if (!isBreakableTerrainTileKind(kind)) {
       return null;
     }
+    if (this.worldWaterTiles[key]) {
+      this.sendToAll(
+        messageTypes.updateWater,
+        this.waterUpdatePayload({}, {}, [key]),
+      );
+    }
+    delete this.worldWaterTiles[key];
+    delete this.worldWaterFlowDirections[key];
     this.worldTerrainTiles[key] = kind;
     return { ...update, id: playerId, kind };
   }

@@ -97,6 +97,25 @@ export type WorldTerrainPayload = {
   solidTiles?: string[];
   protectedTiles?: string[];
   terrainTiles?: Record<string, TerrainTileKind>;
+  waterTiles?: WaterTiles;
+  waterFlowDirections?: Record<string, WaterFlowDirection>;
+};
+
+export type WaterFlowDirection = "down" | "left" | "right" | "still";
+
+export type WaterTiles = Record<string, number>;
+
+export type WaterTilesUpdatePayload = {
+  waterTiles: WaterTiles;
+  removedWaterTiles?: string[];
+  flowDirections?: Record<string, WaterFlowDirection>;
+};
+
+export type WaterPlacePayload = {
+  id?: string;
+  column: number;
+  row: number;
+  level?: number;
 };
 
 export type TerrainBlockUpdate = {
@@ -156,6 +175,7 @@ export const messageTypes = {
   updatePing: "update_ping",
   updateBlock: "update_block",
   updateBlockBreak: "update_block_break",
+  updateWater: "update_water",
   knockbackPlayer: "knockback_player",
   damagePlayer: "damage_player",
   damageEntity: "damage_entity",

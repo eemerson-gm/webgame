@@ -3,6 +3,7 @@ import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { TerrainBlockBreakUpdate } from "../classes/GameProtocol";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
+import type { WaterTileMap } from "../classes/WaterTileMap";
 import { isPlaceableBlockKind, toolbarSelection } from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
@@ -64,6 +65,7 @@ const blockHighlightColorAt = (elapsedMs: number) => {
 
 export class BlockTargetingHighlight extends ex.Actor {
   private readonly terrain: TerrainTileMap;
+  private readonly water: WaterTileMap;
   private readonly client: GameClient;
   private readonly getLocalPlayer: LocalPlayerProvider;
   private readonly getRemotePlayer: RemotePlayerProvider;
@@ -96,6 +98,7 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   constructor(
     terrain: TerrainTileMap,
+    water: WaterTileMap,
     client: GameClient,
     getLocalPlayer: LocalPlayerProvider,
     getRemotePlayer: RemotePlayerProvider,
@@ -110,6 +113,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       z: blockHighlightZ,
     });
     this.terrain = terrain;
+    this.water = water;
     this.client = client;
     this.getLocalPlayer = getLocalPlayer;
     this.getRemotePlayer = getRemotePlayer;
@@ -192,6 +196,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.moveToTarget(highlightTarget);
     this.syncHighlightVisibility(highlightTarget);
     this.updateHighlightColor(delta);
+    this.updateWaterPlacement(engine, placeTarget);
     this.updatePlacingTarget(placeTarget);
     this.updateBreakingTarget(target, delta);
     this.updateRemoteBreakParticles(delta);
@@ -285,6 +290,27 @@ export class BlockTargetingHighlight extends ex.Actor {
       return null;
     }
     if (this.isBlockedByPlayer(target, localPlayer)) {
+      return null;
+    }
+    return target;
+  }
+
+  private waterTargetAt(mouseWorldPos: ex.Vector | null) {
+    const localPlayer = this.getLocalPlayer();
+    if (!mouseWorldPos || !localPlayer) {
+      return null;
+    }
+    if (localPlayer.isPaused) {
+      return null;
+    }
+    const target = this.tilePositionAt(mouseWorldPos);
+    if (!this.terrain.isInside(target.column, target.row)) {
+      return null;
+    }
+    if (this.terrain.tileKindAt(target.column, target.row)) {
+      return null;
+    }
+    if (!localPlayer.isFlying && !this.isWithinPlayerRange(localPlayer, target)) {
       return null;
     }
     return target;
@@ -401,6 +427,28 @@ export class BlockTargetingHighlight extends ex.Actor {
       return;
     }
     this.placeBlockAt(target);
+  }
+
+  private updateWaterPlacement(
+    engine: ex.Engine,
+    fallbackTarget: TargetBlockPosition | null,
+  ) {
+    if (!engine.input.keyboard.wasPressed(ex.Keys.R)) {
+      return;
+    }
+    const mouseWorldPos = this.currentMouseWorldPosition(engine);
+    const target = fallbackTarget ?? this.waterTargetAt(mouseWorldPos);
+    if (!target) {
+      return;
+    }
+    if (this.water.isWaterAt(target.column, target.row)) {
+      return;
+    }
+    this.client.send(messageTypes.updateWater, {
+      column: target.column,
+      row: target.row,
+      level: 16,
+    });
   }
 
   private placeBlockAt(target: TargetBlockPosition | null) {

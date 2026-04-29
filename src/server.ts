@@ -17,6 +17,7 @@ gameServer.listen({
   [messageTypes.updatePing]: "others",
   [messageTypes.updateBlock]: "all",
   [messageTypes.updateBlockBreak]: "others",
+  [messageTypes.updateWater]: "all",
   [messageTypes.knockbackPlayer]: "all",
   [messageTypes.damagePlayer]: "all",
   [messageTypes.damageEntity]: "all",

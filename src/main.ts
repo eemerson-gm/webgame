@@ -4,6 +4,7 @@ import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
+import { WaterSurface } from "./actors/WaterSurface";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -17,11 +18,13 @@ import type {
   TerrainBlockBreakUpdate,
   PlayerState,
   TerrainBlockUpdate,
+  WaterTilesUpdatePayload,
   WorldTerrainPayload,
 } from "./classes/GameProtocol";
 import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TileLightingOverlay } from "./classes/TileLightingOverlay";
 import { DynamicLightSource } from "./classes/DynamicLightSource";
+import { WaterTileMap } from "./classes/WaterTileMap";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
@@ -32,6 +35,7 @@ const pingLoopSlot = { intervalId: null as number | null };
 const slimeById: Record<string, Slime> = {};
 const worldSession = {
   terrain: null as TerrainTileMap | null,
+  water: null as WaterTileMap | null,
   dynamicLighting: null as TileLightingOverlay | null,
 };
 const blockTargetingSlot = {
@@ -196,6 +200,7 @@ const addPlayerLight = (playerId: string, player: Player) => {
 const spawnPlayerAt = (
   game: ex.Engine,
   terrain: TerrainTileMap,
+  water: WaterTileMap,
   playerId: string,
   x: number,
   y: number,
@@ -205,6 +210,7 @@ const spawnPlayerAt = (
     terrain.map,
     undefined,
     terrain.tileCollisionWorld(),
+    water,
   );
   game.add(playerById[playerId]);
   addPlayerLight(playerId, playerById[playerId]);
@@ -303,6 +309,7 @@ const applyRemotePlayerUpdate = (payload: Data) => {
 const joinExistingRemotePlayers = (
   game: ex.Engine,
   terrain: TerrainTileMap,
+  water: WaterTileMap,
   myPlayerId: string,
   playersData: Record<string, PlayerState>,
 ) => {
@@ -312,7 +319,7 @@ const joinExistingRemotePlayers = (
     }
     const x = Number(row.x);
     const y = Number(row.y);
-    const player = spawnPlayerAt(game, terrain, peerId, x, y);
+    const player = spawnPlayerAt(game, terrain, water, peerId, x, y);
     syncMovementFieldsFromPayload(player, row);
   });
 };
@@ -383,6 +390,10 @@ const applyTerrainBlockUpdate = (payload: Data) => {
     return;
   }
   terrain.applyBlockUpdate(payload as TerrainBlockUpdate);
+};
+
+const applyWaterUpdate = (payload: Data) => {
+  worldSession.water?.applyWaterUpdate(payload as WaterTilesUpdatePayload);
 };
 
 const applyTerrainBlockBreakUpdate = (payload: Data) => {
@@ -500,11 +511,22 @@ game.start(loader).then(() => {
         terrainTiles: world.terrainTiles,
       });
       const tilemap = terrain.map;
+      const water = new WaterTileMap({
+        pos: ex.vec(0, 0),
+        tileWidth: TILE_PX,
+        tileHeight: TILE_PX,
+        columns: world.columns,
+        rows: world.rows,
+        waterTiles: world.waterTiles,
+        waterFlowDirections: world.waterFlowDirections,
+      });
       const lighting = new TileLightingOverlay(terrain, ex.vec(viewWidth, viewHeight));
       worldSession.terrain = terrain;
+      worldSession.water = water;
       worldSession.dynamicLighting = lighting;
       game.add(tilemap);
       terrain.borders.forEach((border) => game.add(border));
+      game.add(new WaterSurface(water));
       game.add(lighting);
 
       const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
@@ -513,6 +535,7 @@ game.start(loader).then(() => {
         tilemap,
         client,
         terrain.tileCollisionWorld(),
+        water,
       );
       game.add(localPlayerSlot.player);
       addPlayerLight(myPlayerId, localPlayerSlot.player);
@@ -531,6 +554,7 @@ game.start(loader).then(() => {
       );
       blockTargetingSlot.highlight = new BlockTargetingHighlight(
         terrain,
+        water,
         client,
         () => localPlayerSlot.player,
         (playerId) => playerById[playerId] ?? null,
@@ -549,7 +573,7 @@ game.start(loader).then(() => {
       addLocalPauseListeners();
       syncLocalPauseState();
       console.log("Players:", playersData);
-      joinExistingRemotePlayers(game, terrain, myPlayerId, playersData);
+      joinExistingRemotePlayers(game, terrain, water, myPlayerId, playersData);
       renderPlayerList();
       applyEntitiesSnapshot({ entitiesData });
     },
@@ -571,7 +595,11 @@ game.start(loader).then(() => {
         if (!id) {
           return;
         }
-        spawnPlayerAt(game, terrain, id, Number(x), Number(y));
+        const water = worldSession.water;
+        if (!water) {
+          return;
+        }
+        spawnPlayerAt(game, terrain, water, id, Number(x), Number(y));
         playerPingById[id] = (payload as PlayerState).pingMs;
         renderPlayerList();
       },
@@ -579,6 +607,7 @@ game.start(loader).then(() => {
       [messageTypes.updatePing]: applyPlayerPingUpdate,
       [messageTypes.updateBlock]: applyTerrainBlockUpdate,
       [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
+      [messageTypes.updateWater]: applyWaterUpdate,
       [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
       [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
       [messageTypes.updateEntities]: applyEntitiesSnapshot,
