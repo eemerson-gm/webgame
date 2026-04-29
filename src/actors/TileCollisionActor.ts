@@ -23,6 +23,7 @@ export class TileCollisionActor extends ex.Actor {
     tilemap: ex.TileMap,
     size: ex.Vector,
     collisionBounds: CollisionBounds,
+    private readonly collisionWorld?: TileCollisionWorld,
   ) {
     super({
       pos,
@@ -69,6 +70,9 @@ export class TileCollisionActor extends ex.Actor {
   }
 
   private tileCollisionWorld(): TileCollisionWorld {
+    if (this.collisionWorld) {
+      return this.collisionWorld;
+    }
     return {
       tileWidth: this.tilemap.tileWidth,
       tileHeight: this.tilemap.tileHeight,

@@ -272,7 +272,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!this.terrain.isInside(target.column, target.row)) {
       return null;
     }
-    if (this.isSolidTile(target)) {
+    if (this.terrain.tileKindAt(target.column, target.row)) {
       return null;
     }
     if (!localPlayer.isFlying && !this.isWithinPlayerRange(localPlayer, target)) {
@@ -299,7 +299,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private isSolidTile(target: TargetBlockPosition) {
-    return !!this.terrain.blockAt(target.column, target.row);
+    return this.terrain.isSolidAt(target.column, target.row);
   }
 
   private isNextToSolidTile(target: TargetBlockPosition) {
@@ -517,6 +517,9 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private collectBlockAt(target: TargetBlockPosition) {
+    if (this.getLocalPlayer()?.isFlying) {
+      return;
+    }
     const kind = this.terrain.tileKindAt(target.column, target.row);
     if (!isPlaceableBlockKind(kind)) {
       return;

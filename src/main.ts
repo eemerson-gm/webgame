@@ -29,7 +29,9 @@ const playerPingById: Record<string, number | undefined> = {};
 const pingLoopSlot = { intervalId: null as number | null };
 const slimeById: Record<string, Slime> = {};
 const worldSession = { terrain: null as TerrainTileMap | null };
-const blockTargetingSlot = { highlight: null as BlockTargetingHighlight | null };
+const blockTargetingSlot = {
+  highlight: null as BlockTargetingHighlight | null,
+};
 const remotePlayerPositionTolerance = 0.5;
 const pingIntervalMs = 2000;
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
@@ -106,7 +108,9 @@ const playerListIds = () =>
     ...Object.keys(playerPingById),
   ]
     .filter((playerId): playerId is string => !!playerId)
-    .filter((playerId, index, playerIds) => playerIds.indexOf(playerId) === index)
+    .filter(
+      (playerId, index, playerIds) => playerIds.indexOf(playerId) === index,
+    )
     .sort((a, b) => Number(a) - Number(b));
 
 const createPlayerListRow = (playerId: string) => {
@@ -148,17 +152,28 @@ const isWorldTerrainPayload = (w: Data): w is WorldTerrainPayload => {
   if (w.surfaceStartByColumn.length !== w.columns) {
     return false;
   }
-  return true;
+  if (!w.playerSpawn) {
+    return false;
+  }
+  if (typeof w.playerSpawn.x !== "number") {
+    return false;
+  }
+  return typeof w.playerSpawn.y === "number";
 };
 
 const spawnPlayerAt = (
   game: ex.Engine,
-  tilemap: ex.TileMap,
+  terrain: TerrainTileMap,
   playerId: string,
   x: number,
   y: number,
 ) => {
-  playerById[playerId] = new Player(ex.vec(x, y), tilemap);
+  playerById[playerId] = new Player(
+    ex.vec(x, y),
+    terrain.map,
+    undefined,
+    terrain.tileCollisionWorld(),
+  );
   game.add(playerById[playerId]);
   return playerById[playerId];
 };
@@ -254,7 +269,7 @@ const applyRemotePlayerUpdate = (payload: Data) => {
 
 const joinExistingRemotePlayers = (
   game: ex.Engine,
-  tilemap: ex.TileMap,
+  terrain: TerrainTileMap,
   myPlayerId: string,
   playersData: Record<string, PlayerState>,
 ) => {
@@ -264,7 +279,7 @@ const joinExistingRemotePlayers = (
     }
     const x = Number(row.x);
     const y = Number(row.y);
-    const player = spawnPlayerAt(game, tilemap, peerId, x, y);
+    const player = spawnPlayerAt(game, terrain, peerId, x, y);
     syncMovementFieldsFromPayload(player, row);
   });
 };
@@ -457,7 +472,13 @@ game.start(loader).then(() => {
       terrain.borders.forEach((border) => game.add(border));
       game.add(lighting);
 
-      localPlayerSlot.player = new Player(ex.vec(0, 0), tilemap, client);
+      const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
+      localPlayerSlot.player = new Player(
+        playerSpawn,
+        tilemap,
+        client,
+        terrain.tileCollisionWorld(),
+      );
       game.add(localPlayerSlot.player);
       game.add(
         new PlayerHealthDisplay(() => {
@@ -485,11 +506,14 @@ game.start(loader).then(() => {
         () => Object.values(slimeById),
       );
       game.add(blockTargetingSlot.highlight);
-      client.send(messageTypes.createPlayer, { x: 0, y: 0 });
+      client.send(messageTypes.createPlayer, {
+        x: playerSpawn.x,
+        y: playerSpawn.y,
+      });
       addLocalPauseListeners();
       syncLocalPauseState();
       console.log("Players:", playersData);
-      joinExistingRemotePlayers(game, tilemap, myPlayerId, playersData);
+      joinExistingRemotePlayers(game, terrain, myPlayerId, playersData);
       renderPlayerList();
       applyEntitiesSnapshot({ entitiesData });
     },
@@ -510,7 +534,7 @@ game.start(loader).then(() => {
         if (!id) {
           return;
         }
-        spawnPlayerAt(game, terrain.map, id, Number(x), Number(y));
+        spawnPlayerAt(game, terrain, id, Number(x), Number(y));
         playerPingById[id] = (payload as PlayerState).pingMs;
         renderPlayerList();
       },

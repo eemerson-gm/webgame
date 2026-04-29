@@ -2,13 +2,13 @@ import * as ex from "excalibur";
 import type {
   TerrainBlockUpdate,
   TerrainTileKind,
-  WorldTerrainPayload,
 } from "./GameProtocol";
 import { terrainBlockForKind } from "./TerrainBlock";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
+import { solidTerrainTileKeys } from "./TerrainTileKinds";
 import { TerrainBorderRaster } from "./TerrainBorderRaster";
 import type { TerrainBorderSegment } from "./TerrainBorderRaster";
 import type { TileCollisionWorld } from "../simulation/entityPhysics";
@@ -18,7 +18,12 @@ type TerrainTileMapOptions = {
   tileWidth: number;
   tileHeight: number;
   renderFromTopOfGraphic?: boolean;
-} & WorldTerrainPayload;
+  columns: number;
+  rows: number;
+  surfaceStartByColumn: number[];
+  solidTiles?: string[];
+  terrainTiles?: Record<string, TerrainTileKind>;
+};
 
 type TerrainBorderOptions = {
   tileWidth: number;
@@ -59,7 +64,7 @@ const initialTerrainTiles = (options: TerrainTileMapOptions) =>
 const initialSolidTiles = (
   options: TerrainTileMapOptions,
   terrainTiles: Record<string, TerrainTileKind>,
-) => new Set(options.solidTiles ?? Object.keys(terrainTiles));
+) => new Set(options.solidTiles ?? solidTerrainTileKeys(terrainTiles));
 
 const isInsideTerrain = (column: number, row: number, columns: number, rows: number) => {
   if (column < 0 || column >= columns) {
@@ -90,7 +95,7 @@ const terrainGraphicFor = (
   terrainTiles: Record<string, TerrainTileKind>,
 ) => {
   const kind = terrainTiles[terrainTileKey(column, row)] ?? "dirt";
-  return terrainBlockForKind(kind).toSprite();
+  return terrainBlockForKind(kind).toGraphic();
 };
 
 const borderSegmentsForTile = (
@@ -304,10 +309,10 @@ export class TerrainTileMap {
   }
 
   public tileKindAt(column: number, row: number) {
-    if (!isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles)) {
+    if (!isInsideTerrain(column, row, this.columns, this.rows)) {
       return null;
     }
-    return this.terrainTiles[terrainTileKey(column, row)] ?? "dirt";
+    return this.terrainTiles[terrainTileKey(column, row)] ?? null;
   }
 
   public blockAt(column: number, row: number) {
@@ -380,7 +385,7 @@ export class TerrainTileMap {
       return;
     }
     tile.clearGraphics();
-    if (!isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles)) {
+    if (!this.terrainTiles[terrainTileKey(column, row)]) {
       return;
     }
     tile.addGraphic(

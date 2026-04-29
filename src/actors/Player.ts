@@ -7,6 +7,7 @@ import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
 import type { WorldBounds } from "./MovingActor";
+import type { TileCollisionWorld } from "../simulation/entityPhysics";
 import { SwordHitboxOutlineRaster } from "./SwordHitboxOutlineRaster";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
@@ -210,16 +211,27 @@ export class Player extends MovingActor {
   private serverMovementSyncElapsedMs: number = 0;
   private lastServerMovementState?: Data;
 
-  constructor(pos: ex.Vector, tilemap: ex.TileMap, client?: GameClient) {
+  constructor(
+    pos: ex.Vector,
+    tilemap: ex.TileMap,
+    client?: GameClient,
+    collisionWorld?: TileCollisionWorld,
+  ) {
     const width = TILE_PX;
     const height = TILE_PX;
-    super(pos, tilemap, ex.vec(width, height), {
-      offsetX: collisionOffsetX,
-      offsetY: collisionOffsetY,
-      width: collisionWidth,
-      height: collisionHeight,
-      edgeInset: collisionEdgeInset,
-    });
+    super(
+      pos,
+      tilemap,
+      ex.vec(width, height),
+      {
+        offsetX: collisionOffsetX,
+        offsetY: collisionOffsetY,
+        width: collisionWidth,
+        height: collisionHeight,
+        edgeInset: collisionEdgeInset,
+      },
+      collisionWorld,
+    );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
     this.idleSprite = Resources.Player.toSprite();

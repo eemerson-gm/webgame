@@ -66,11 +66,25 @@ export type EntityCreatePayload = {
   y: number;
 };
 
-export type TerrainTileKind = "bedrock" | "dirt" | "grass" | "lamp" | "stone";
+export type TerrainTileKind =
+  | "bedrock"
+  | "dirt"
+  | "grass"
+  | "lamp"
+  | "pillarBottom"
+  | "pillarMiddle"
+  | "pillarTop"
+  | "spawn"
+  | "spawnOrb"
+  | "stone";
 
 export type WorldTerrainPayload = {
   columns: number;
   rows: number;
+  playerSpawn: {
+    x: number;
+    y: number;
+  };
   surfaceStartByColumn: number[];
   solidTiles?: string[];
   terrainTiles?: Record<string, TerrainTileKind>;

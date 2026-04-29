@@ -8,6 +8,12 @@ import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
 } from "../world/terrainTiles";
+import { SpawnStructure } from "../world/SpawnStructure";
+import {
+  isBreakableTerrainTileKind,
+  isTerrainTileKind,
+  solidTerrainTileKeys,
+} from "./TerrainTileKinds";
 import {
   createInitialEntitiesData,
   createSlimeEntityState,
@@ -41,22 +47,6 @@ const entityDamageKnockbackDurationMs = 240;
 
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
-};
-
-const isTerrainTileKind = (kind: unknown): kind is TerrainTileKind => {
-  if (kind === "bedrock") {
-    return true;
-  }
-  if (kind === "grass") {
-    return true;
-  }
-  if (kind === "lamp") {
-    return true;
-  }
-  if (kind === "stone") {
-    return true;
-  }
-  return kind === "dirt";
 };
 
 const isInsideWorld = (column: number, row: number) => {
@@ -122,22 +112,30 @@ export class GameServer {
   private entitiesData: Record<string, EntityState>;
   private worldSurfaceStarts: number[];
   private worldTerrainTiles: Record<string, TerrainTileKind>;
+  private playerSpawn: { x: number; y: number };
 
   constructor(server: Server) {
     const worldSurfaceStarts = buildSurfaceStartByColumn({
       columns: WORLD_TILE_COLUMNS,
       rows: WORLD_TILE_ROWS,
     });
+    const worldTerrainTiles = buildTerrainTilesFromSurface(
+      WORLD_TILE_COLUMNS,
+      WORLD_TILE_ROWS,
+      worldSurfaceStarts,
+    );
+    const spawnStructure = new SpawnStructure(
+      WORLD_TILE_COLUMNS,
+      WORLD_TILE_ROWS,
+      worldSurfaceStarts,
+    );
     this.wss = new WebSocketServer({ server, perMessageDeflate: true });
     this.playerSockets = {};
     this.playersData = {};
     this.entitiesData = createInitialEntitiesData(worldSurfaceStarts);
     this.worldSurfaceStarts = worldSurfaceStarts;
-    this.worldTerrainTiles = buildTerrainTilesFromSurface(
-      WORLD_TILE_COLUMNS,
-      WORLD_TILE_ROWS,
-      worldSurfaceStarts,
-    );
+    this.worldTerrainTiles = spawnStructure.applyTo(worldTerrainTiles);
+    this.playerSpawn = spawnStructure.spawnPosition(TILE_PX);
   }
 
   public listen(messages: MessageRouting) {
@@ -173,7 +171,12 @@ export class GameServer {
   private attachPlayer(socket: WebSocket, messages: MessageRouting) {
     const playerId = (this.nextPlayerIndex++).toString();
     this.playerSockets[playerId] = socket;
-    this.playersData[playerId] = { isPaused: false, health: 6 };
+    this.playersData[playerId] = {
+      isPaused: false,
+      health: 6,
+      x: this.playerSpawn.x,
+      y: this.playerSpawn.y,
+    };
     const didReassignEntities = this.assignBalancedEntityOwners();
     console.log(
       `[${playerId}]: Connected (${Object.keys(this.playerSockets).length} players)`,
@@ -304,8 +307,9 @@ export class GameServer {
     return {
       columns: WORLD_TILE_COLUMNS,
       rows: WORLD_TILE_ROWS,
+      playerSpawn: this.playerSpawn,
       surfaceStartByColumn: this.worldSurfaceStarts,
-      solidTiles: Object.keys(this.worldTerrainTiles),
+      solidTiles: solidTerrainTileKeys(this.worldTerrainTiles),
       terrainTiles: this.worldTerrainTiles,
     };
   }
@@ -545,7 +549,8 @@ export class GameServer {
       return null;
     }
     const key = terrainTileKey(update.column, update.row);
-    if (this.worldTerrainTiles[key] === "bedrock") {
+    const existingKind = this.worldTerrainTiles[key];
+    if (existingKind && !isBreakableTerrainTileKind(existingKind)) {
       return null;
     }
     if (!update.solid) {
@@ -556,6 +561,9 @@ export class GameServer {
       return { ...update, id: playerId };
     }
     const kind = update.kind ?? "dirt";
+    if (!isBreakableTerrainTileKind(kind)) {
+      return null;
+    }
     this.worldTerrainTiles[key] = kind;
     return { ...update, id: playerId, kind };
   }

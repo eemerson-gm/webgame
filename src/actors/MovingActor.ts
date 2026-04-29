@@ -7,7 +7,11 @@ import {
   stepEntityFreely,
   stepEntityWithVelocity,
 } from "../simulation/entityPhysics";
-import type { EntityPhysicsState, WorldBounds } from "../simulation/entityPhysics";
+import type {
+  EntityPhysicsState,
+  TileCollisionWorld,
+  WorldBounds,
+} from "../simulation/entityPhysics";
 
 export type { WorldBounds } from "../simulation/entityPhysics";
 
@@ -22,8 +26,9 @@ export class MovingActor extends TileCollisionActor {
     tilemap: ex.TileMap,
     size: ex.Vector,
     collisionBounds: CollisionBounds,
+    collisionWorld?: TileCollisionWorld,
   ) {
-    super(pos, tilemap, size, collisionBounds);
+    super(pos, tilemap, size, collisionBounds, collisionWorld);
   }
 
   public containsWorldPoint(point: ex.Vector) {
