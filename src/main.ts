@@ -21,14 +21,19 @@ import type {
 } from "./classes/GameProtocol";
 import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TileLightingOverlay } from "./classes/TileLightingOverlay";
+import { DynamicLightSource } from "./classes/DynamicLightSource";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
+const playerLightById: Record<string, DynamicLightSource> = {};
 const playerPingById: Record<string, number | undefined> = {};
 const pingLoopSlot = { intervalId: null as number | null };
 const slimeById: Record<string, Slime> = {};
-const worldSession = { terrain: null as TerrainTileMap | null };
+const worldSession = {
+  terrain: null as TerrainTileMap | null,
+  dynamicLighting: null as TileLightingOverlay | null,
+};
 const blockTargetingSlot = {
   highlight: null as BlockTargetingHighlight | null,
 };
@@ -164,6 +169,30 @@ const isWorldTerrainPayload = (w: Data): w is WorldTerrainPayload => {
   return typeof w.playerSpawn.y === "number";
 };
 
+const removePlayerLight = (playerId: string) => {
+  const source = playerLightById[playerId];
+  if (!source) {
+    return;
+  }
+  worldSession.dynamicLighting?.removeDynamicLight(source);
+  delete playerLightById[playerId];
+};
+
+const addPlayerLight = (playerId: string, player: Player) => {
+  const lighting = worldSession.dynamicLighting;
+  if (!lighting) {
+    return;
+  }
+  removePlayerLight(playerId);
+  const source = DynamicLightSource.forActor(player, {
+    radius: TILE_PX * 7,
+    intensity: 0.9,
+    isEnabled: () => player.isAlive(),
+  });
+  playerLightById[playerId] = source;
+  lighting.addDynamicLight(source);
+};
+
 const spawnPlayerAt = (
   game: ex.Engine,
   terrain: TerrainTileMap,
@@ -178,6 +207,7 @@ const spawnPlayerAt = (
     terrain.tileCollisionWorld(),
   );
   game.add(playerById[playerId]);
+  addPlayerLight(playerId, playerById[playerId]);
   return playerById[playerId];
 };
 
@@ -470,8 +500,9 @@ game.start(loader).then(() => {
         terrainTiles: world.terrainTiles,
       });
       const tilemap = terrain.map;
-      const lighting = new TileLightingOverlay(terrain);
+      const lighting = new TileLightingOverlay(terrain, ex.vec(viewWidth, viewHeight));
       worldSession.terrain = terrain;
+      worldSession.dynamicLighting = lighting;
       game.add(tilemap);
       terrain.borders.forEach((border) => game.add(border));
       game.add(lighting);
@@ -484,6 +515,7 @@ game.start(loader).then(() => {
         terrain.tileCollisionWorld(),
       );
       game.add(localPlayerSlot.player);
+      addPlayerLight(myPlayerId, localPlayerSlot.player);
       game.add(
         new PlayerHealthDisplay(() => {
           const player = localPlayerSlot.player;
@@ -523,6 +555,7 @@ game.start(loader).then(() => {
     },
     onDisconnect: (gonePlayerId) => {
       blockTargetingSlot.highlight?.removeRemoteBreakAnimation(gonePlayerId);
+      removePlayerLight(gonePlayerId);
       playerById[gonePlayerId].kill();
       delete playerById[gonePlayerId];
       delete playerPingById[gonePlayerId];
