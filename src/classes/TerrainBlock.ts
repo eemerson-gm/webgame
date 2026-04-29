@@ -22,6 +22,26 @@ export class TerrainBlock {
   public toSprite() {
     return this.sprite.toSprite();
   }
+
+  public spriteSize() {
+    const sprite = this.toSprite();
+    return {
+      width: sprite.width,
+      height: sprite.height,
+    };
+  }
+
+  public toSpriteFragment(x: number, y: number, width: number, height: number) {
+    return new ex.Sprite({
+      image: this.sprite,
+      sourceView: {
+        x,
+        y,
+        width,
+        height,
+      },
+    });
+  }
 }
 
 const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {

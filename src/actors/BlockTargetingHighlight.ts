@@ -1,15 +1,19 @@
 import * as ex from "excalibur";
 import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
-import type {
-  TerrainBlockBreakUpdate,
-} from "../classes/GameProtocol";
+import type { TerrainBlockBreakUpdate } from "../classes/GameProtocol";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
 import { toolbarSelection } from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
+import { BlockBreakParticleEmitter } from "./BlockBreakParticleEmitter";
+import type {
+  BlockBreakParticleState,
+  TargetBlockPosition,
+} from "./BlockBreakParticleEmitter";
 import { BlockHighlightRaster } from "./BlockHighlightRaster";
 import type { EntityActor } from "./EntityActor";
+import { LocalMeleeCombatHandler } from "./LocalMeleeCombatHandler";
 import type { Player } from "./Player";
 
 const blockTargetRange = 3;
@@ -18,8 +22,6 @@ const blockBreakFrameCount = 4;
 const blockHighlightGradientDurationMs = 2200;
 const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
-const swordDamage = 1;
-const slimeSpawnKey = ex.Keys.R;
 const blockHighlightGradient = [
   [255, 214, 36],
   [255, 255, 255],
@@ -27,11 +29,6 @@ const blockHighlightGradient = [
   [255, 255, 255],
 ];
 const hiddenActorPosition = () => ex.vec(-100000, -100000);
-
-type TargetBlockPosition = {
-  column: number;
-  row: number;
-};
 
 type RemotePlayerEntry = {
   id: string;
@@ -71,7 +68,6 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly getLocalPlayer: LocalPlayerProvider;
   private readonly getRemotePlayer: RemotePlayerProvider;
   private readonly getRemotePlayers: RemotePlayersProvider;
-  private readonly getEntities: EntityProvider;
   private readonly highlightGraphic: BlockHighlightRaster;
   private breakAnimation: ex.Animation;
   private readonly breakAnimationActor: ex.Actor;
@@ -83,14 +79,19 @@ export class BlockTargetingHighlight extends ex.Actor {
     string,
     ex.Actor
   >;
-  private readonly entitiesHitByCurrentSwordSwing = new Set<EntityActor>();
-  private readonly playersHitByCurrentSwordSwing = new Set<Player>();
+  private readonly remoteBreakParticleStatesByPlayerId: Record<
+    string,
+    BlockBreakParticleState
+  >;
+  private readonly breakParticleEmitter: BlockBreakParticleEmitter;
+  private readonly meleeCombat: LocalMeleeCombatHandler;
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
   private isPlacePointerHeld: boolean = false;
   private lastPlacedTargetKey: string | null = null;
   private breakingTarget: TargetBlockPosition | null = null;
+  private breakParticleState: BlockBreakParticleState | null = null;
   private breakProgressMs: number = 0;
 
   constructor(
@@ -113,7 +114,13 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.getLocalPlayer = getLocalPlayer;
     this.getRemotePlayer = getRemotePlayer;
     this.getRemotePlayers = getRemotePlayers;
-    this.getEntities = getEntities;
+    this.breakParticleEmitter = new BlockBreakParticleEmitter(terrain);
+    this.meleeCombat = new LocalMeleeCombatHandler(
+      client,
+      getLocalPlayer,
+      getRemotePlayers,
+      getEntities,
+    );
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
@@ -131,10 +138,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.remoteBreakAnimationsByPlayerId = {};
     this.remoteBreakAnimationActorsByPlayerId = {};
+    this.remoteBreakParticleStatesByPlayerId = {};
   }
 
   override onInitialize(engine: ex.Engine) {
     this.engine = engine;
+    this.breakParticleEmitter.initialize(engine);
     engine.add(this.breakAnimationActor);
     engine.canvas.addEventListener("contextmenu", (event) => {
       event.preventDefault();
@@ -185,10 +194,8 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.updateHighlightColor(delta);
     this.updatePlacingTarget(placeTarget);
     this.updateBreakingTarget(target, delta);
-    this.hitEntitiesTouchingSword();
-    this.hitPlayersTouchingSword();
-    this.damageLocalPlayerTouchingEntities();
-    this.spawnSlimeFromKeyboard(engine);
+    this.updateRemoteBreakParticles(delta);
+    this.meleeCombat.update();
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
@@ -247,7 +254,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!this.isSolidTile(target)) {
       return null;
     }
-    if (!this.isWithinPlayerRange(localPlayer, target)) {
+    if (!localPlayer.isFlying && !this.isWithinPlayerRange(localPlayer, target)) {
       return null;
     }
     return target;
@@ -262,13 +269,16 @@ export class BlockTargetingHighlight extends ex.Actor {
       return null;
     }
     const target = this.tilePositionAt(mouseWorldPos);
+    if (!this.terrain.isInside(target.column, target.row)) {
+      return null;
+    }
     if (this.isSolidTile(target)) {
       return null;
     }
-    if (!this.isWithinPlayerRange(localPlayer, target)) {
+    if (!localPlayer.isFlying && !this.isWithinPlayerRange(localPlayer, target)) {
       return null;
     }
-    if (!this.isNextToSolidTile(target)) {
+    if (!localPlayer.isFlying && !this.isNextToSolidTile(target)) {
       return null;
     }
     if (this.isBlockedByPlayer(target, localPlayer)) {
@@ -325,7 +335,7 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   private isBlockedByPlayer(target: TargetBlockPosition, localPlayer: Player) {
     const tileBounds = this.tileBounds(target);
-    if (localPlayer.overlapsWorldBounds(tileBounds)) {
+    if (!localPlayer.isFlying && localPlayer.overlapsWorldBounds(tileBounds)) {
       return true;
     }
     return this.getRemotePlayers().some(({ player }) =>
@@ -412,25 +422,6 @@ export class BlockTargetingHighlight extends ex.Actor {
     });
   }
 
-  private spawnSlimeFromKeyboard(engine: ex.Engine) {
-    if (!engine.input.keyboard.wasPressed(slimeSpawnKey)) {
-      return;
-    }
-    const spawnPosition = this.currentMouseWorldPosition(engine);
-    if (!spawnPosition) {
-      return;
-    }
-    const localPlayer = this.getLocalPlayer();
-    if (!localPlayer || localPlayer.isPaused) {
-      return;
-    }
-    this.client.send(messageTypes.createEntity, {
-      type: "slime",
-      x: spawnPosition.x - TILE_PX / 2,
-      y: spawnPosition.y - TILE_PX / 2,
-    });
-  }
-
   private startToolUseAt(target: TargetBlockPosition | null) {
     if (toolbarSelection.isBuildMode() && target) {
       this.startBreakingTarget(target);
@@ -439,102 +430,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!toolbarSelection.isCombatMode()) {
       return;
     }
-    const localPlayer = this.getLocalPlayer();
-    if (!localPlayer) {
-      return;
-    }
-    if (!localPlayer.useSword()) {
-      return;
-    }
-    this.hitEntitiesTouchingSword();
-    this.hitPlayersTouchingSword();
-  }
-
-  private hitEntitiesTouchingSword() {
-    const localPlayer = this.getLocalPlayer();
-    const swordBounds = localPlayer?.swordHitBounds();
-    if (!localPlayer || localPlayer.isPaused || !swordBounds) {
-      this.entitiesHitByCurrentSwordSwing.clear();
-      return;
-    }
-    this.getEntities()
-      .filter((entity) => !this.entitiesHitByCurrentSwordSwing.has(entity))
-      .filter((entity) => entity.overlapsWorldBounds(swordBounds))
-      .slice(0, 1)
-      .forEach((entity) => {
-        this.entitiesHitByCurrentSwordSwing.add(entity);
-        if (!entity.takeDamageFrom(localPlayer, swordDamage)) {
-          return;
-        }
-        this.client.send(messageTypes.damageEntity, {
-          entityId: entity.entityId(),
-          damage: swordDamage,
-        });
-        this.sendSmashParticleAt(this.actorCenter(entity));
-      });
-  }
-
-  private hitPlayersTouchingSword() {
-    const localPlayer = this.getLocalPlayer();
-    const swordBounds = localPlayer?.swordHitBounds();
-    if (!localPlayer || localPlayer.isPaused || !swordBounds) {
-      this.playersHitByCurrentSwordSwing.clear();
-      return;
-    }
-    this.getRemotePlayers()
-      .filter(({ player }) => !this.playersHitByCurrentSwordSwing.has(player))
-      .filter(({ player }) => !player.isPaused)
-      .filter(({ player }) => player.overlapsWorldBounds(swordBounds))
-      .slice(0, 1)
-      .forEach(({ id, player }) => {
-        this.playersHitByCurrentSwordSwing.add(player);
-        if (!player.takeDamageFrom(localPlayer, swordDamage)) {
-          return;
-        }
-        this.client.send(messageTypes.damagePlayer, {
-          targetId: id,
-          damage: swordDamage,
-        });
-        this.sendSmashParticleAt(this.actorCenter(player));
-      });
-  }
-
-  private damageLocalPlayerTouchingEntities() {
-    const localPlayer = this.getLocalPlayer();
-    if (!localPlayer || localPlayer.isPaused) {
-      return;
-    }
-    this.getEntities()
-      .filter((entity) => entity.isAlive())
-      .filter((entity) => localPlayer.overlapsWorldBounds(this.actorBounds(entity)))
-      .slice(0, 1)
-      .forEach((entity) => {
-        if (!localPlayer.takeDamageFrom(entity, entity.contactDamage())) {
-          return;
-        }
-        this.sendSmashParticleAt(this.actorCenter(localPlayer));
-      });
-  }
-
-  private sendSmashParticleAt(position: ex.Vector) {
-    this.client.send(messageTypes.createParticle, {
-      kind: "smash",
-      x: position.x,
-      y: position.y,
-    });
-  }
-
-  private actorCenter(actor: ex.Actor) {
-    return ex.vec(actor.pos.x + actor.width / 2, actor.pos.y + actor.height / 2);
-  }
-
-  private actorBounds(actor: ex.Actor) {
-    return {
-      left: actor.pos.x,
-      right: actor.pos.x + actor.width,
-      top: actor.pos.y,
-      bottom: actor.pos.y + actor.height,
-    };
+    this.meleeCombat.startSwordUse();
   }
 
   private startBreakingTarget(target: TargetBlockPosition | null) {
@@ -552,17 +448,33 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!Number.isFinite(breakDurationMs)) {
       return;
     }
+    if (localPlayer.isFlying) {
+      this.breakTargetInstantly(target);
+      return;
+    }
     if (!localPlayer.keepUsingTool(Number.POSITIVE_INFINITY, "pickaxe")) {
       return;
     }
     this.sendBlockBreakUpdate(target, true, breakDurationMs);
     this.breakingTarget = target;
     this.breakProgressMs = 0;
+    this.breakParticleState = this.breakParticleEmitter.createState(
+      target,
+      breakDurationMs,
+    );
     this.moveBreakAnimationToTarget(target);
     this.breakAnimation = this.createBlockBreakAnimation(breakDurationMs);
     this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.breakAnimation.reset();
     this.breakAnimation.play();
+  }
+
+  private breakTargetInstantly(target: TargetBlockPosition) {
+    this.client.send(messageTypes.updateBlock, {
+      column: target.column,
+      row: target.row,
+      solid: false,
+    });
   }
 
   private updateBreakingTarget(
@@ -587,6 +499,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       return;
     }
     this.breakProgressMs += delta;
+    this.breakParticleEmitter.updateState(this.breakParticleState, delta);
     this.moveBreakAnimationToTarget(this.breakingTarget);
     if (this.breakProgressMs < this.breakDurationFor(this.breakingTarget)) {
       return;
@@ -607,6 +520,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     this.breakingTarget = null;
     this.breakProgressMs = 0;
+    this.breakParticleState = null;
     this.breakAnimationActor.pos = hiddenActorPosition();
     if (wasBreakingTarget) {
       this.getLocalPlayer()?.stopUsingToolAction();
@@ -639,6 +553,8 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
     actor.pos.y =
       this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+    this.remoteBreakParticleStatesByPlayerId[playerId] =
+      this.breakParticleEmitter.createState(target, breakDurationMs);
     animation.reset();
     animation.play();
   }
@@ -649,6 +565,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       return;
     }
     actor.pos = hiddenActorPosition();
+    delete this.remoteBreakParticleStatesByPlayerId[playerId];
   }
 
   private remoteBreakAnimationActorFor(playerId: string) {
@@ -680,6 +597,18 @@ export class BlockTargetingHighlight extends ex.Actor {
     return animation;
   }
 
+  private updateRemoteBreakParticles(delta: number) {
+    Object.entries(this.remoteBreakParticleStatesByPlayerId).forEach(
+      ([playerId, state]) => {
+        this.breakParticleEmitter.updateState(state, delta);
+        if (state.elapsedMs < state.durationMs) {
+          return;
+        }
+        delete this.remoteBreakParticleStatesByPlayerId[playerId];
+      },
+    );
+  }
+
   private createBlockBreakAnimation(
     breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
   ) {
@@ -696,15 +625,23 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private moveBreakAnimationToTarget(target: TargetBlockPosition) {
-    this.breakAnimationActor.pos.x =
-      this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
-    this.breakAnimationActor.pos.y =
-      this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
+    const topLeft = this.tileTopLeft(target);
+    this.breakAnimationActor.pos.x = topLeft.x;
+    this.breakAnimationActor.pos.y = topLeft.y;
+  }
+
+  private tileTopLeft(target: TargetBlockPosition) {
+    return ex.vec(
+      this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth,
+      this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight,
+    );
   }
 
   private breakDurationFor(target: TargetBlockPosition) {
-    return this.terrain.blockAt(target.column, target.row)?.breakDurationMs ??
-      Number.POSITIVE_INFINITY;
+    return (
+      this.terrain.blockAt(target.column, target.row)?.breakDurationMs ??
+      Number.POSITIVE_INFINITY
+    );
   }
 
   private isSameTarget(a: TargetBlockPosition, b: TargetBlockPosition) {
