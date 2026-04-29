@@ -112,6 +112,7 @@ export class GameServer {
   private entitiesData: Record<string, EntityState>;
   private worldSurfaceStarts: number[];
   private worldTerrainTiles: Record<string, TerrainTileKind>;
+  private protectedTerrainTiles: Set<string>;
   private playerSpawn: { x: number; y: number };
 
   constructor(server: Server) {
@@ -132,9 +133,10 @@ export class GameServer {
     this.wss = new WebSocketServer({ server, perMessageDeflate: true });
     this.playerSockets = {};
     this.playersData = {};
-    this.entitiesData = createInitialEntitiesData(worldSurfaceStarts);
+    this.entitiesData = createInitialEntitiesData();
     this.worldSurfaceStarts = worldSurfaceStarts;
     this.worldTerrainTiles = spawnStructure.applyTo(worldTerrainTiles);
+    this.protectedTerrainTiles = new Set(spawnStructure.tileKeys());
     this.playerSpawn = spawnStructure.spawnPosition(TILE_PX);
   }
 
@@ -310,6 +312,7 @@ export class GameServer {
       playerSpawn: this.playerSpawn,
       surfaceStartByColumn: this.worldSurfaceStarts,
       solidTiles: solidTerrainTileKeys(this.worldTerrainTiles),
+      protectedTiles: Array.from(this.protectedTerrainTiles),
       terrainTiles: this.worldTerrainTiles,
     };
   }
@@ -561,6 +564,9 @@ export class GameServer {
       return { ...update, id: playerId };
     }
     const kind = update.kind ?? "dirt";
+    if (this.protectedTerrainTiles.has(key)) {
+      return null;
+    }
     if (!isBreakableTerrainTileKind(kind)) {
       return null;
     }

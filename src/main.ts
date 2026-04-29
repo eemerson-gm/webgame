@@ -158,6 +158,9 @@ const isWorldTerrainPayload = (w: Data): w is WorldTerrainPayload => {
   if (typeof w.playerSpawn.x !== "number") {
     return false;
   }
+  if (w.protectedTiles !== undefined && !Array.isArray(w.protectedTiles)) {
+    return false;
+  }
   return typeof w.playerSpawn.y === "number";
 };
 
@@ -463,6 +466,7 @@ game.start(loader).then(() => {
         rows: world.rows,
         surfaceStartByColumn: world.surfaceStartByColumn,
         solidTiles: world.solidTiles,
+        protectedTiles: world.protectedTiles,
         terrainTiles: world.terrainTiles,
       });
       const tilemap = terrain.map;

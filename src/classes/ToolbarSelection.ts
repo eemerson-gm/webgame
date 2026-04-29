@@ -1,7 +1,20 @@
 import type { TerrainTileKind } from "./GameProtocol";
 
 export const toolbarModes = ["build", "combat"] as const;
-export const placeableBlockKinds = ["dirt", "grass", "lamp", "stone"] as const;
+export const placeableBlockKinds = [
+  "dirt",
+  "grass",
+  "lamp",
+  "stone",
+  "redWool",
+  "orangeWool",
+  "yellowWool",
+  "greenWool",
+  "blueWool",
+  "purpleWool",
+  "whiteWool",
+  "blackWool",
+] as const;
 
 export type ToolbarMode = (typeof toolbarModes)[number];
 export type PlaceableBlockKind = (typeof placeableBlockKinds)[number];
@@ -13,6 +26,14 @@ const startingBlockInventoryCounts = {
   grass: 20,
   lamp: 10,
   stone: 20,
+  redWool: 20,
+  orangeWool: 20,
+  yellowWool: 20,
+  greenWool: 20,
+  blueWool: 20,
+  purpleWool: 20,
+  whiteWool: 20,
+  blackWool: 20,
 } satisfies BlockInventoryCounts;
 
 export const isPlaceableBlockKind = (

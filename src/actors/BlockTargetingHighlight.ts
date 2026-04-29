@@ -275,6 +275,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (this.terrain.tileKindAt(target.column, target.row)) {
       return null;
     }
+    if (this.terrain.isProtectedAt(target.column, target.row)) {
+      return null;
+    }
     if (!localPlayer.isFlying && !this.isWithinPlayerRange(localPlayer, target)) {
       return null;
     }

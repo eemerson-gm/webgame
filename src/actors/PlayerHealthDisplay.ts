@@ -210,6 +210,14 @@ const blockItemResourceByKind = {
   grass: Resources.Grass,
   lamp: Resources.Lamp,
   stone: Resources.Stone,
+  whiteWool: Resources.WhiteWool,
+  blackWool: Resources.BlackWool,
+  blueWool: Resources.BlueWool,
+  greenWool: Resources.GreenWool,
+  orangeWool: Resources.OrangeWool,
+  purpleWool: Resources.PurpleWool,
+  redWool: Resources.RedWool,
+  yellowWool: Resources.YellowWool,
 } satisfies Record<PlaceableBlockKind, ex.ImageSource>;
 
 const heartSize = () => {

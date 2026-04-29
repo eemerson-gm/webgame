@@ -22,6 +22,7 @@ type TerrainTileMapOptions = {
   rows: number;
   surfaceStartByColumn: number[];
   solidTiles?: string[];
+  protectedTiles?: string[];
   terrainTiles?: Record<string, TerrainTileKind>;
 };
 
@@ -215,6 +216,7 @@ export class TerrainTileMap {
   private readonly columns: number;
   private readonly rows: number;
   private readonly solidTiles: Set<string>;
+  private readonly protectedTiles: Set<string>;
   private readonly terrainTiles: Record<string, TerrainTileKind>;
   private readonly borderActorsByChunkKey: Record<string, ex.Actor>;
   private readonly blockChangeHandlers: TerrainChangeHandler[];
@@ -238,6 +240,7 @@ export class TerrainTileMap {
     const terrainTiles = initialTerrainTiles(options);
     this.terrainTiles = terrainTiles;
     this.solidTiles = initialSolidTiles(options, terrainTiles);
+    this.protectedTiles = new Set(options.protectedTiles ?? []);
     this.borderActorsByChunkKey = {};
     this.blockChangeHandlers = [];
 
@@ -298,6 +301,13 @@ export class TerrainTileMap {
     return isSolidTerrainTile(column, row, this.columns, this.rows, this.solidTiles);
   }
 
+  public isProtectedAt(column: number, row: number) {
+    if (!isInsideTerrain(column, row, this.columns, this.rows)) {
+      return false;
+    }
+    return this.protectedTiles.has(terrainTileKey(column, row));
+  }
+
   public tileCollisionWorld(): TileCollisionWorld {
     return {
       tileWidth: this.tileWidth,
@@ -334,6 +344,9 @@ export class TerrainTileMap {
     kind: TerrainTileKind = "dirt",
   ) {
     if (!isInsideTerrain(column, row, this.columns, this.rows)) {
+      return;
+    }
+    if (solid && this.isProtectedAt(column, row)) {
       return;
     }
     const key = terrainTileKey(column, row);

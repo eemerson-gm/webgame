@@ -51,6 +51,10 @@ export class Structure {
     };
   }
 
+  public tileKeys() {
+    return this.tiles().map((tile) => terrainTileKey(tile.column, tile.row));
+  }
+
   private tiles(): StructureTile[] {
     return this.rows.flatMap((rowTiles, rowOffset) =>
       rowTiles.split("").flatMap((symbol, columnOffset) => {

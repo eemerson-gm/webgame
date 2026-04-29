@@ -68,15 +68,23 @@ export type EntityCreatePayload = {
 
 export type TerrainTileKind =
   | "bedrock"
+  | "blackWool"
+  | "blueWool"
   | "dirt"
+  | "greenWool"
   | "grass"
   | "lamp"
+  | "orangeWool"
   | "pillarBottom"
   | "pillarMiddle"
   | "pillarTop"
+  | "purpleWool"
+  | "redWool"
   | "spawn"
   | "spawnOrb"
-  | "stone";
+  | "stone"
+  | "whiteWool"
+  | "yellowWool";
 
 export type WorldTerrainPayload = {
   columns: number;
@@ -87,6 +95,7 @@ export type WorldTerrainPayload = {
   };
   surfaceStartByColumn: number[];
   solidTiles?: string[];
+  protectedTiles?: string[];
   terrainTiles?: Record<string, TerrainTileKind>;
 };
 
