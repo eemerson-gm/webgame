@@ -61,36 +61,6 @@ const useToolMirroredAnchor = ex.vec(1, 1);
 const useToolHiddenOffset = () => ex.vec(-100000, -100000);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 const sleepBubbleAnchor = ex.vec(0.5, 1);
-const testPlayerLabelText = "ABCD";
-const testPlayerLabelOffset = ex.vec(TILE_PX / 2, -3);
-const testPlayerLabelPixelSize = 1;
-const testPlayerLabelGap = 1;
-const testPlayerLabelOutlineSize = 1;
-const testPlayerLabelGlyphs = {
-  A: ["0110", "1001", "1111", "1001", "1001"],
-  B: ["1110", "1001", "1110", "1001", "1110"],
-  C: ["0111", "1000", "1000", "1000", "0111"],
-  D: ["1110", "1001", "1001", "1001", "1110"],
-} satisfies Record<string, string[]>;
-const testPlayerLabelOutlineOffsets = [
-  ex.vec(-1, -1),
-  ex.vec(0, -1),
-  ex.vec(1, -1),
-  ex.vec(-1, 0),
-  ex.vec(1, 0),
-  ex.vec(-1, 1),
-  ex.vec(0, 1),
-  ex.vec(1, 1),
-];
-const testPlayerLabelGlyphWidth = testPlayerLabelGlyphs.A[0].length;
-const testPlayerLabelGlyphHeight = testPlayerLabelGlyphs.A.length;
-const testPlayerLabelWidth =
-  testPlayerLabelText.length * testPlayerLabelGlyphWidth * testPlayerLabelPixelSize +
-  (testPlayerLabelText.length - 1) * testPlayerLabelGap * testPlayerLabelPixelSize +
-  testPlayerLabelOutlineSize * 2;
-const testPlayerLabelHeight =
-  testPlayerLabelGlyphHeight * testPlayerLabelPixelSize +
-  testPlayerLabelOutlineSize * 2;
 const swordHitboxWidth = TILE_PX * 0.75;
 const swordHitboxHeight = TILE_PX * 0.875;
 const swordHitboxInsetX = (TILE_PX - swordHitboxWidth) / 2;
@@ -124,61 +94,6 @@ const useToolFrameIndexAt = (elapsedMs: number) =>
 const playerToolFrom = (value: unknown): PlayerTool =>
   playerToolByName[String(value)] ?? "pickaxe";
 
-class TestPlayerLabelRaster extends ex.Raster {
-  constructor() {
-    super({
-      width: testPlayerLabelWidth,
-      height: testPlayerLabelHeight,
-      origin: ex.vec(Math.floor(testPlayerLabelWidth / 2), testPlayerLabelHeight),
-      smoothing: false,
-      filtering: ex.ImageFiltering.Pixel,
-    });
-  }
-
-  override clone() {
-    return new TestPlayerLabelRaster();
-  }
-
-  override execute(ctx: CanvasRenderingContext2D) {
-    const textOffset = ex.vec(
-      testPlayerLabelOutlineSize,
-      testPlayerLabelOutlineSize,
-    );
-    testPlayerLabelOutlineOffsets.forEach((offset) => {
-      this.drawText(ctx, textOffset.add(offset), "#000000");
-    });
-    this.drawText(ctx, textOffset, "#ffffff");
-  }
-
-  private drawText(
-    ctx: CanvasRenderingContext2D,
-    offset: ex.Vector,
-    color: string,
-  ) {
-    ctx.fillStyle = color;
-    testPlayerLabelText.split("").forEach((character, characterIndex) => {
-      const glyph = testPlayerLabelGlyphs[character];
-      const characterX =
-        characterIndex *
-        (testPlayerLabelGlyphWidth + testPlayerLabelGap) *
-        testPlayerLabelPixelSize;
-      glyph.forEach((row, rowIndex) => {
-        row.split("").forEach((pixel, columnIndex) => {
-          if (pixel !== "1") {
-            return;
-          }
-          ctx.fillRect(
-            characterX + columnIndex * testPlayerLabelPixelSize + offset.x,
-            rowIndex * testPlayerLabelPixelSize + offset.y,
-            testPlayerLabelPixelSize,
-            testPlayerLabelPixelSize,
-          );
-        });
-      });
-    });
-  }
-}
-
 export class Player extends MovingActor {
   private client?: GameClient;
   isLocal: boolean;
@@ -196,7 +111,6 @@ export class Player extends MovingActor {
   private toolActor: ex.Actor;
   private swordHitboxActor: ex.Actor;
   private sleepBubbleActor: ex.Actor;
-  private testLabelActor?: ex.Actor;
   private damageFlash: DamageFlash;
   private walkAnimation: ex.Animation;
   private useToolAnimation: ex.Animation;
@@ -273,16 +187,6 @@ export class Player extends MovingActor {
     this.sleepBubbleActor.graphics.use(Resources.ThoughtBubbleSleep.toSprite());
     this.sleepBubbleActor.graphics.visible = false;
     this.sleepBubbleActor.graphics.opacity = 0;
-    this.testLabelActor = client
-      ? new ex.Actor({
-          pos: testPlayerLabelOffset,
-          anchor: ex.vec(0, 0),
-          width: testPlayerLabelWidth,
-          height: testPlayerLabelHeight,
-          z: 12,
-        })
-      : undefined;
-    this.testLabelActor?.graphics.use(new TestPlayerLabelRaster());
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
       blinkFrameMs: playerDamageBlinkFrameMs,
@@ -346,9 +250,6 @@ export class Player extends MovingActor {
     this.addChild(this.toolActor);
     this.addChild(this.swordHitboxActor);
     this.addChild(this.sleepBubbleActor);
-    if (this.testLabelActor) {
-      this.addChild(this.testLabelActor);
-    }
     this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
