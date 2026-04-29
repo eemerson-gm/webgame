@@ -1,0 +1,27 @@
+---
+name: excalibur-shaders
+description: Apply Excalibur shader and material guidance. Use when making sprite flash, silhouette, tint, outline, shader, or material effects in Excalibur.
+---
+
+# Excalibur Shaders
+
+When making sprite flash or silhouette effects, prefer applying an Excalibur `Material` to the actor's existing `graphics.material` instead of drawing an overlay actor. Overlay actors draw rectangular bounds and do not respect transparent pixels in the source sprite.
+
+Use `engine.graphicsContext.createMaterial()` with GLSL ES 300. Excalibur materials sample the current graphic through `u_graphic`, and a full-white sprite flash should preserve source alpha:
+
+```glsl
+#version 300 es
+precision mediump float;
+
+uniform sampler2D u_graphic;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+void main() {
+  vec4 sourceColor = texture(u_graphic, v_uv);
+  fragColor = vec4(sourceColor.a, sourceColor.a, sourceColor.a, sourceColor.a);
+}
+```
+
+Remember to restore the actor's previous `graphics.material` when the effect ends.

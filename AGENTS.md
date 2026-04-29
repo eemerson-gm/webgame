@@ -8,6 +8,7 @@ Excalibird is a small **multiplayer pixel platformer**. The browser runs an **Ex
 
 - This project runs on **Windows**.
 - **Do not run `npm run build`** or any Vite production build unless the user explicitly asks.
+- **Do not run `tsc`** or TypeScript no-emit checks unless the user explicitly asks.
 - **Do not start the game** unless the user explicitly asks. This includes `npm run dev`, `npm run start`, `npm run serve`, preview servers, and opening the game in a browser.
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
 - If a command is expected to fail because of the workflow above, do not run it just to confirm the failure. Avoid repeating commands that already failed for an environmental reason unless something changed that should fix that reason.
