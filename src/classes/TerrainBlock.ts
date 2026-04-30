@@ -67,25 +67,10 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     breakDurationMs: Number.POSITIVE_INFINITY,
     sprite: Resources.Bedrock,
   }),
-  blackWool: new TerrainBlock({
-    kind: "blackWool",
-    breakDurationMs: 270,
-    sprite: Resources.BlackWool,
-  }),
-  blueWool: new TerrainBlock({
-    kind: "blueWool",
-    breakDurationMs: 270,
-    sprite: Resources.BlueWool,
-  }),
   dirt: new TerrainBlock({
     kind: "dirt",
     breakDurationMs: 270,
     sprite: Resources.Dirt,
-  }),
-  greenWool: new TerrainBlock({
-    kind: "greenWool",
-    breakDurationMs: 270,
-    sprite: Resources.GreenWool,
   }),
   grass: new TerrainBlock({
     kind: "grass",
@@ -96,11 +81,6 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     kind: "lamp",
     breakDurationMs: 360,
     sprite: Resources.Lamp,
-  }),
-  orangeWool: new TerrainBlock({
-    kind: "orangeWool",
-    breakDurationMs: 270,
-    sprite: Resources.OrangeWool,
   }),
   pillarBottom: new TerrainBlock({
     kind: "pillarBottom",
@@ -116,16 +96,6 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     kind: "pillarTop",
     breakDurationMs: Number.POSITIVE_INFINITY,
     sprite: Resources.PillarTop,
-  }),
-  purpleWool: new TerrainBlock({
-    kind: "purpleWool",
-    breakDurationMs: 270,
-    sprite: Resources.PurpleWool,
-  }),
-  redWool: new TerrainBlock({
-    kind: "redWool",
-    breakDurationMs: 270,
-    sprite: Resources.RedWool,
   }),
   spawn: new TerrainBlock({
     kind: "spawn",
@@ -157,11 +127,6 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     kind: "whiteWool",
     breakDurationMs: 270,
     sprite: Resources.WhiteWool,
-  }),
-  yellowWool: new TerrainBlock({
-    kind: "yellowWool",
-    breakDurationMs: 270,
-    sprite: Resources.YellowWool,
   }),
 };
 
