@@ -4,6 +4,7 @@ import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
+import { UIBackground } from "./actors/UIBackground";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -500,7 +501,10 @@ game.start(loader).then(() => {
         terrainTiles: world.terrainTiles,
       });
       const tilemap = terrain.map;
-      const lighting = new TileLightingOverlay(terrain, ex.vec(viewWidth, viewHeight));
+      const lighting = new TileLightingOverlay(
+        terrain,
+        ex.vec(viewWidth, viewHeight),
+      );
       worldSession.terrain = terrain;
       worldSession.dynamicLighting = lighting;
       game.add(tilemap);
@@ -527,6 +531,15 @@ game.start(loader).then(() => {
             maxHealth: player.maxHealth,
             isFlying: player.isFlying,
           };
+        }),
+      );
+      game.add(
+        new UIBackground({
+          pos: ex.vec(40, 40),
+          width: 140,
+          height: 70,
+          borderThickness: 1,
+          fillOpacity: 1,
         }),
       );
       blockTargetingSlot.highlight = new BlockTargetingHighlight(

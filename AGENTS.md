@@ -11,6 +11,7 @@ Excalibird is a small **multiplayer pixel platformer**: an **Excalibur** client 
 - **Do not run `tsc`** or TypeScript no-emit checks unless the user explicitly asks.
 - **Do not start the game** unless the user explicitly asks.
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
+- Avoid running `git diff` or `git status` after edits unless you explicitly ask.
 
 ## MCPs
 
