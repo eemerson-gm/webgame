@@ -2,21 +2,19 @@
 
 ## What it is
 
-Excalibird is a small **multiplayer pixel platformer**. The browser runs an **Excalibur** game with Vite + TypeScript, and a **Node** server provides HTTP plus **WebSockets** for player sync.
+Excalibird is a small **multiplayer pixel platformer**: an **Excalibur** client with a **Node** server for sync.
 
 ## Environment and workflow
 
-- This project runs on **Windows**.
+- This repo is developed on a **Windows operating system**.
 - **Do not run `npm run build`** or any Vite production build unless the user explicitly asks.
 - **Do not run `tsc`** or TypeScript no-emit checks unless the user explicitly asks.
-- **Do not start the game** unless the user explicitly asks. This includes `npm run dev`, `npm run start`, `npm run serve`, preview servers, and opening the game in a browser.
+- **Do not start the game** unless the user explicitly asks.
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
-- If a command is expected to fail because of the workflow above, do not run it just to confirm the failure. Avoid repeating commands that already failed for an environmental reason unless something changed that should fix that reason.
 
 ## MCPs
 
 - Use the Excalibur MCP when unsure about Excalibur APIs, engine behavior, or recommended patterns.
-- Read an MCP tool's schema or descriptor before calling it.
 - Excalibur MCP commands: `excaliburjs_list_doc_pages`, `excaliburjs_search_doc_pages`, `excaliburjs_get_doc_source`.
 - For a quick list of possible Excalibur objects to use, read `.cursor/skills/excalibur-objects/SKILL.md`.
 
@@ -33,15 +31,10 @@ Excalibird is a small **multiplayer pixel platformer**. The browser runs an **Ex
 
 - The goal of writing code is readability: someone should understand what happens and why with minimal effort.
 - Prefer clear names, small focused functions, and straightforward top-to-bottom control flow.
+- Prefer consulting `.cursor/skills/*/SKILL.md` when picking helpers or patterns (for example, lodash and Excalibur guidance).
+- When transforming collections, lodash helpers like `map`, `filter`, `reduce`, `groupBy`, `sortBy`, `pick`, `omit`, and `uniq` are acceptable for readability.
 - Shape code so it reads like a sentence, with verb-like function names and names that describe product meaning instead of mechanics.
 - Shared behavior belongs in the parent class. Do not duplicate code in a new child class when the parent can own it.
-
-## Networking
-
-- Treat visible gameplay as a client, server, and remote-client design problem.
-- Keep client `send` / `listen` payloads and server `listen(messages)` keys in sync.
-- Send the minimum packets needed for other clients to see the correct state.
-- Use the existing wire shape: `_t` for message type, `_p` for payload, and `_d` for client-to-server state merged into stored player data.
 
 ## Game feel
 
