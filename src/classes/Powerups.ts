@@ -12,7 +12,6 @@ const minerPowerupDurationMs = 30000;
 type ResourceKey = Exclude<keyof typeof Resources, "GameFont">;
 type PowerupFrame = {
   sprite: ResourceKey;
-  origin: ex.Vector;
 };
 export type PowerupBehavior = "mine";
 
@@ -49,10 +48,8 @@ export type PowerupVisuals = {
   usePowerupAnimation: AttachedVisualAnimation;
 };
 
-const playerFrameOrigin = ex.vec(8, 8);
 const playerFrame = (sprite: ResourceKey): PowerupFrame => ({
   sprite,
-  origin: playerFrameOrigin,
 });
 
 const defaultWalkFrames = [
@@ -66,6 +63,15 @@ const defaultUsePowerupFrames = [
   playerFrame("PlayerUseTool3"),
   playerFrame("PlayerUseTool4"),
   playerFrame("PlayerUseTool5"),
+] as const;
+
+const defaultPunchFrames = [
+  playerFrame("PlayerPunch1"),
+  playerFrame("PlayerPunch2"),
+  playerFrame("PlayerPunch3"),
+  playerFrame("PlayerPunch4"),
+  playerFrame("PlayerPunch5"),
+  playerFrame("PlayerPunch6"),
 ] as const;
 
 const toolAttachmentPoses = [
@@ -107,7 +113,7 @@ const powerupDefinitionsConfig = {
       },
     },
     use: {
-      frames: defaultUsePowerupFrames,
+      frames: defaultPunchFrames,
       frameDurationMs: usePowerupFrameDurationMs,
     },
   },
@@ -149,7 +155,7 @@ const spriteFor = (spriteKey: ResourceKey) => Resources[spriteKey].toSprite();
 
 const spriteForFrame = (frame: PowerupFrame) => {
   const sprite = spriteFor(frame.sprite);
-  sprite.origin = frame.origin;
+  sprite.origin = ex.vec(sprite.width / 2, sprite.height / 2);
   return sprite;
 };
 

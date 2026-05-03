@@ -210,13 +210,13 @@ export class BlockTargetingHighlight extends ex.Actor {
       target,
       update.breakDurationMs ?? this.breakDurationFor(target),
     );
-    if (remotePlayer?.currentPowerupCan("mine")) {
-      remotePlayer.syncPowerupUseState(
-        true,
-        Number.POSITIVE_INFINITY,
-        remotePlayer.currentPowerup(),
-      );
+    if (!remotePlayer) {
+      return;
     }
+    const powerup = remotePlayer.currentPowerupCan("mine")
+      ? remotePlayer.currentPowerup()
+      : "none";
+    remotePlayer.syncPowerupUseState(true, Number.POSITIVE_INFINITY, powerup);
   }
 
   public removeRemoteBreakAnimation(playerId: string) {
@@ -446,6 +446,11 @@ export class BlockTargetingHighlight extends ex.Actor {
           toolbarSelection.powerup(),
         )
       ) {
+        return;
+      }
+    }
+    if (!toolbarSelection.selectedPowerupCan("mine")) {
+      if (!localPlayer.keepUsingPowerup(Number.POSITIVE_INFINITY, "none")) {
         return;
       }
     }

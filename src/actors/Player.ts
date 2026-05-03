@@ -116,6 +116,8 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
+    this.graphics.anchor = ex.vec(0.5, 0.5);
+    this.graphics.offset = ex.vec(width / 2, height / 2);
     this.powerupAttachmentActor = new ex.Actor({
       pos: attachedVisualHiddenPosition(),
       anchor: ex.vec(0, 0),
