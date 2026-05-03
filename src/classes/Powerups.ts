@@ -69,9 +69,6 @@ const defaultPunchFrames = [
   playerFrame("PlayerPunch1"),
   playerFrame("PlayerPunch2"),
   playerFrame("PlayerPunch3"),
-  playerFrame("PlayerPunch4"),
-  playerFrame("PlayerPunch5"),
-  playerFrame("PlayerPunch6"),
 ] as const;
 
 const toolAttachmentPoses = [
