@@ -43,6 +43,10 @@ const pingIntervalMs = 2000;
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
+const expireLocalPowerup = () => {
+  localPlayerSlot.player?.stopUsingPowerupAction();
+  localPlayerSlot.player?.syncPowerupState("none");
+};
 const addLocalPauseListeners = () => {
   document.addEventListener("visibilitychange", () => syncLocalPauseState());
   window.addEventListener("pagehide", () => syncLocalPauseState(true));
@@ -546,7 +550,7 @@ game.start(loader).then(() => {
             maxHealth: player.maxHealth,
             isFlying: player.isFlying,
           };
-        }),
+        }, expireLocalPowerup),
       );
       blockTargetingSlot.highlight = new BlockTargetingHighlight(
         terrain,

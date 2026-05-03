@@ -1,5 +1,6 @@
 import type { TerrainTileKind } from "./GameProtocol";
 import {
+  powerupDurationMsFor,
   powerupHasBehavior,
   powerupIds,
   type PlayerPowerup,
@@ -35,6 +36,7 @@ export const isPlaceableBlockKind = (
 
 class ToolbarSelection {
   private selectedPowerup: PowerupMode = "none";
+  private selectedPowerupTimeRemainingMs: number = 0;
   private selectedPlaceableKind: PlaceableBlockKind = "dirt";
   private blockInventoryCounts: BlockInventoryCounts = {
     ...startingBlockInventoryCounts,
@@ -46,7 +48,31 @@ class ToolbarSelection {
 
   public setPowerup(powerup: PowerupMode) {
     this.selectedPowerup = powerup;
+    this.selectedPowerupTimeRemainingMs = powerupDurationMsFor(powerup);
     return this.selectedPowerup;
+  }
+
+  public updatePowerupTimer(deltaMs: number) {
+    if (this.selectedPowerup === "none") {
+      return false;
+    }
+    this.selectedPowerupTimeRemainingMs = Math.max(
+      this.selectedPowerupTimeRemainingMs - deltaMs,
+      0,
+    );
+    if (this.selectedPowerupTimeRemainingMs > 0) {
+      return false;
+    }
+    this.setPowerup("none");
+    return true;
+  }
+
+  public powerupTimeProgress() {
+    const durationMs = powerupDurationMsFor(this.selectedPowerup);
+    if (durationMs <= 0) {
+      return 0;
+    }
+    return this.selectedPowerupTimeRemainingMs / durationMs;
   }
 
   public selectedPowerupCan(behavior: PowerupBehavior) {

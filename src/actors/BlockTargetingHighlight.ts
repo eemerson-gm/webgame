@@ -439,7 +439,6 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.breakTargetInstantly(target);
       return;
     }
-    const isSwitchingTarget = this.breakingTarget !== null;
     if (toolbarSelection.selectedPowerupCan("mine")) {
       if (
         !localPlayer.keepUsingPowerup(
@@ -458,9 +457,6 @@ export class BlockTargetingHighlight extends ex.Actor {
       breakDurationMs,
     );
     this.moveBreakAnimationToTarget(target);
-    if (isSwitchingTarget) {
-      return;
-    }
     this.breakAnimation = this.createBlockBreakAnimation(breakDurationMs);
     this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.breakAnimation.reset();

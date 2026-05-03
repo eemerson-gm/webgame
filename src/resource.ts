@@ -31,6 +31,7 @@ export const Resources = {
   BuildIcon: new ex.ImageSource("./assets/ui/build_icon.png"),
   CombatIcon: new ex.ImageSource("./assets/ui/combat_icon.png"),
   NonePowerupIcon: new ex.ImageSource("./assets/powerups/none_powerup_icon.png"),
+  MinerPowerupIcon: new ex.ImageSource("./assets/powerups/miner_powerup_icon.png"),
   PowerupSlot: new ex.ImageSource("./assets/ui/powerup_slot.png"),
   InventoryBlockSlot: new ex.ImageSource("./assets/ui/inventory_block_slot.png"),
   InventoryWeaponSlot: new ex.ImageSource("./assets/ui/inventory_weapon_slot.png"),

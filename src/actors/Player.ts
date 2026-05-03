@@ -321,6 +321,12 @@ export class Player extends MovingActor {
     }
     this.activePowerup = powerup;
     this.applyPowerupVisuals(powerup);
+    const position = this.currentPosition();
+    this.sendClient(messageTypes.updatePlayer, {
+      activePowerup: powerup,
+      isUsingPowerup: this.isUsingPowerup,
+      ...position,
+    });
   }
 
   public syncHealth(health: unknown) {

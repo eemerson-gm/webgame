@@ -16,6 +16,7 @@ type HealthProvider = () => {
   maxHealth: number;
   isFlying: boolean;
 } | null;
+type PowerupExpiredHandler = () => void;
 
 const heartCount = 3;
 const heartOverlap = 1;
@@ -28,6 +29,11 @@ const toolbarIconZOffset = 2;
 const toolbarCountZOffset = 3;
 const toolbarIconSlotGap = 2;
 const powerupSlotGap = 3;
+const powerupTimerBarHeight = 1;
+const powerupTimerBarBorderSize = 1;
+const powerupTimerBarOverlap = 1;
+const powerupTimerBarBorderColor = ex.Color.fromHex("#1b1b1b");
+const powerupTimerBarFillColor = ex.Color.fromHex("#f4d35e");
 const buildBlockVisibleItemCount = Math.min(10, placeableBlockKinds.length);
 const buildBlockPreviewCount = buildBlockVisibleItemCount - 1;
 const buildBlockPreviewGap = 2;
@@ -225,10 +231,13 @@ const heartSize = () => {
 
 export class PlayerHealthDisplay extends ex.ScreenElement {
   private readonly getHealth: HealthProvider;
+  private readonly onPowerupExpired: PowerupExpiredHandler;
   private readonly heartActors: ex.Actor[];
   private readonly buildSlotView: ToolbarSlotView;
   private readonly buildSlotActors: ex.Actor[];
   private readonly powerupSlotActor: ex.Actor;
+  private readonly powerupTimerBarBackgroundActor: ex.Actor;
+  private readonly powerupTimerBarFillActor: ex.Actor;
   private selectedBuildBlockKind: PlaceableBlockKind =
     toolbarSelection.selectedPlaceableBlockKind();
   private readonly selectBlockFromWheel = (event: WheelEvent) => {
@@ -241,13 +250,17 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.syncBuildBlockItem();
   };
 
-  constructor(getHealth: HealthProvider) {
+  constructor(
+    getHealth: HealthProvider,
+    onPowerupExpired: PowerupExpiredHandler = () => {},
+  ) {
     super({
       pos: displayPosition,
       anchor: ex.vec(0, 0),
       z: 1000,
     });
     this.getHealth = getHealth;
+    this.onPowerupExpired = onPowerupExpired;
     const size = heartSize();
     const heartSpacing = size.width - heartOverlap;
     this.heartActors = Array.from({ length: heartCount }, (_value, index) => {
@@ -269,6 +282,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     );
     this.buildSlotView = this.createToolbarSlotView(buildSlotPosition);
     this.powerupSlotActor = this.createPowerupSlotActor();
+    this.powerupTimerBarBackgroundActor =
+      this.createPowerupTimerBarBackgroundActor();
+    this.powerupTimerBarFillActor = this.createPowerupTimerBarFillActor();
     this.buildSlotActors = [
       this.buildSlotView.slot,
       this.buildSlotView.item,
@@ -285,15 +301,25 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.heartActors.forEach((actor) => this.addChild(actor));
     this.buildSlotActors.forEach((actor) => this.addChild(actor));
     this.addChild(this.powerupSlotActor);
+    this.addChild(this.powerupTimerBarBackgroundActor);
+    this.addChild(this.powerupTimerBarFillActor);
     this.syncBuildBlockItem();
     this.syncPowerupIcon();
+    this.syncPowerupTimerBar();
     this.syncBuildBlockCount();
     this.syncHearts();
   }
 
-  override onPostUpdate() {
+  override onPostUpdate(engine: ex.Engine, delta: number) {
+    if (!engine) {
+      return;
+    }
+    if (toolbarSelection.updatePowerupTimer(delta)) {
+      this.onPowerupExpired();
+    }
     this.syncBuildBlockItem();
     this.syncPowerupIcon();
+    this.syncPowerupTimerBar();
     this.syncBuildBlockCount();
     this.syncHearts();
   }
@@ -451,6 +477,51 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     return slot;
   }
 
+  private createPowerupTimerBarBackgroundActor() {
+    const slotSprite = this.powerupSlotSprite();
+    const size = this.powerupTimerBarBorderSize(slotSprite);
+    const bar = new ex.Actor({
+      pos: this.powerupTimerBarBorderPosition(slotSprite),
+      anchor: ex.vec(0, 0),
+      width: size.x,
+      height: size.y,
+      z: toolbarSlotZ - 1,
+    });
+    bar.graphics.anchor = ex.vec(0, 0);
+    bar.graphics.use(
+      new ex.Rectangle({
+        width: size.x,
+        height: size.y,
+        color: powerupTimerBarBorderColor,
+      }),
+    );
+    bar.graphics.visible = false;
+    bar.graphics.opacity = 0;
+    return bar;
+  }
+
+  private createPowerupTimerBarFillActor() {
+    const slotSprite = this.powerupSlotSprite();
+    const bar = new ex.Actor({
+      pos: this.powerupTimerBarPosition(slotSprite),
+      anchor: ex.vec(0, 0),
+      width: slotSprite.width,
+      height: powerupTimerBarHeight,
+      z: toolbarSlotZ,
+    });
+    bar.graphics.anchor = ex.vec(0, 0);
+    bar.graphics.use(
+      new ex.Rectangle({
+        width: slotSprite.width,
+        height: powerupTimerBarHeight,
+        color: powerupTimerBarFillColor,
+      }),
+    );
+    bar.graphics.visible = false;
+    bar.graphics.opacity = 0;
+    return bar;
+  }
+
   private powerupSlotSprite() {
     const slotSprite = Resources.PowerupSlot.toSprite();
     slotSprite.tint = powerupSlotColorFor(toolbarSelection.powerup());
@@ -510,6 +581,30 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     );
   }
 
+  private powerupTimerBarPosition(slotSprite: ex.Sprite) {
+    return this.powerupTimerBarBorderPosition(slotSprite).add(
+      ex.vec(powerupTimerBarBorderSize, powerupTimerBarBorderSize),
+    );
+  }
+
+  private powerupTimerBarBorderPosition(slotSprite: ex.Sprite) {
+    return this.powerupSlotPosition(slotSprite).add(
+      ex.vec(
+        -powerupTimerBarBorderSize,
+        slotSprite.height -
+          powerupTimerBarOverlap -
+          powerupTimerBarBorderSize,
+      ),
+    );
+  }
+
+  private powerupTimerBarBorderSize(slotSprite: ex.Sprite) {
+    return ex.vec(
+      slotSprite.width + powerupTimerBarBorderSize * 2,
+      powerupTimerBarHeight + powerupTimerBarBorderSize * 2,
+    );
+  }
+
   private powerupIconSprite() {
     return powerupToolbarIconFor(toolbarSelection.powerup());
   }
@@ -523,5 +618,34 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.buildSlotView.icon.graphics.use(iconSprite);
     this.powerupSlotActor.pos = this.powerupSlotPosition(slotSprite);
     this.powerupSlotActor.graphics.use(slotSprite);
+  }
+
+  private syncPowerupTimerBar() {
+    const slotSprite = this.powerupSlotSprite();
+    const progress = toolbarSelection.powerupTimeProgress();
+    const isVisible = progress > 0;
+    const width = Math.max(0, Math.ceil(slotSprite.width * progress));
+    const borderSize = this.powerupTimerBarBorderSize(slotSprite);
+    this.powerupTimerBarBackgroundActor.pos =
+      this.powerupTimerBarBorderPosition(slotSprite);
+    this.powerupTimerBarFillActor.pos = this.powerupTimerBarPosition(slotSprite);
+    this.powerupTimerBarBackgroundActor.graphics.visible = isVisible;
+    this.powerupTimerBarBackgroundActor.graphics.opacity = isVisible ? 1 : 0;
+    this.powerupTimerBarFillActor.graphics.visible = isVisible;
+    this.powerupTimerBarFillActor.graphics.opacity = isVisible ? 1 : 0;
+    this.powerupTimerBarBackgroundActor.graphics.use(
+      new ex.Rectangle({
+        width: borderSize.x,
+        height: borderSize.y,
+        color: powerupTimerBarBorderColor,
+      }),
+    );
+    this.powerupTimerBarFillActor.graphics.use(
+      new ex.Rectangle({
+        width,
+        height: powerupTimerBarHeight,
+        color: powerupTimerBarFillColor,
+      }),
+    );
   }
 }

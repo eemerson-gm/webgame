@@ -7,25 +7,31 @@ import {
 
 const walkFrameDurationMs = 120;
 const usePowerupFrameDurationMs = 75;
+const minerPowerupDurationMs = 30000;
 
 type ResourceKey = Exclude<keyof typeof Resources, "GameFont">;
+type PowerupFrame = {
+  sprite: ResourceKey;
+  origin: ex.Vector;
+};
 export type PowerupBehavior = "mine";
 
 type PowerupDefinition = {
   behaviors: readonly PowerupBehavior[];
   toolbarIcon: ResourceKey;
   slotColor: ex.Color;
+  durationMs: number;
   body: {
-    idle: ResourceKey;
-    jump: ResourceKey;
-    crouch: ResourceKey;
+    idle: PowerupFrame;
+    jump: PowerupFrame;
+    crouch: PowerupFrame;
     walk: {
-      frames: readonly ResourceKey[];
+      frames: readonly PowerupFrame[];
       frameDurationMs: number;
     };
   };
   use: {
-    frames: readonly ResourceKey[];
+    frames: readonly PowerupFrame[];
     frameDurationMs: number;
     attachment?: {
       sprite: ResourceKey;
@@ -43,14 +49,23 @@ export type PowerupVisuals = {
   usePowerupAnimation: AttachedVisualAnimation;
 };
 
-const defaultWalkFrames = ["PlayerWalk1", "PlayerWalk2"] as const;
+const playerFrameOrigin = ex.vec(8, 8);
+const playerFrame = (sprite: ResourceKey): PowerupFrame => ({
+  sprite,
+  origin: playerFrameOrigin,
+});
+
+const defaultWalkFrames = [
+  playerFrame("PlayerWalk1"),
+  playerFrame("PlayerWalk2"),
+] as const;
 
 const defaultUsePowerupFrames = [
-  "PlayerUseTool1",
-  "PlayerUseTool2",
-  "PlayerUseTool3",
-  "PlayerUseTool4",
-  "PlayerUseTool5",
+  playerFrame("PlayerUseTool1"),
+  playerFrame("PlayerUseTool2"),
+  playerFrame("PlayerUseTool3"),
+  playerFrame("PlayerUseTool4"),
+  playerFrame("PlayerUseTool5"),
 ] as const;
 
 const toolAttachmentPoses = [
@@ -81,10 +96,11 @@ const powerupDefinitionsConfig = {
     behaviors: [],
     toolbarIcon: "NonePowerupIcon",
     slotColor: ex.Color.fromHex("#9c8bdb"),
+    durationMs: 0,
     body: {
-      idle: "Player",
-      jump: "PlayerJump",
-      crouch: "PlayerCrouch",
+      idle: playerFrame("Player"),
+      jump: playerFrame("PlayerJump"),
+      crouch: playerFrame("PlayerCrouch"),
       walk: {
         frames: defaultWalkFrames,
         frameDurationMs: walkFrameDurationMs,
@@ -97,12 +113,13 @@ const powerupDefinitionsConfig = {
   },
   miner: {
     behaviors: ["mine"],
-    toolbarIcon: "BronzePickaxeItem",
-    slotColor: ex.Color.fromHex("#b66a2c"),
+    toolbarIcon: "MinerPowerupIcon",
+    slotColor: ex.Color.fromHex("#d9a441"),
+    durationMs: minerPowerupDurationMs,
     body: {
-      idle: "Player",
-      jump: "PlayerJump",
-      crouch: "PlayerCrouch",
+      idle: playerFrame("Player"),
+      jump: playerFrame("PlayerJump"),
+      crouch: playerFrame("PlayerCrouch"),
       walk: {
         frames: defaultWalkFrames,
         frameDurationMs: walkFrameDurationMs,
@@ -130,13 +147,19 @@ export const powerupIds = Object.keys(
 
 const spriteFor = (spriteKey: ResourceKey) => Resources[spriteKey].toSprite();
 
+const spriteForFrame = (frame: PowerupFrame) => {
+  const sprite = spriteFor(frame.sprite);
+  sprite.origin = frame.origin;
+  return sprite;
+};
+
 const animationFor = (
-  frameKeys: readonly ResourceKey[],
+  frameKeys: readonly PowerupFrame[],
   frameDurationMs: number,
 ) =>
   new ex.Animation({
-    frames: frameKeys.map((spriteKey) => ({
-      graphic: spriteFor(spriteKey),
+    frames: frameKeys.map((frame) => ({
+      graphic: spriteForFrame(frame),
     })),
     frameDuration: frameDurationMs,
     strategy: ex.AnimationStrategy.Loop,
@@ -159,6 +182,9 @@ export const powerupToolbarIconFor = (powerup: PlayerPowerup) =>
 export const powerupSlotColorFor = (powerup: PlayerPowerup) =>
   powerupDefinitionFor(powerup).slotColor;
 
+export const powerupDurationMsFor = (powerup: PlayerPowerup) =>
+  powerupDefinitionFor(powerup).durationMs;
+
 export const powerupVisualsFor = (
   powerup: PlayerPowerup,
   attachmentActor: ex.Actor,
@@ -168,16 +194,16 @@ export const powerupVisualsFor = (
   const attachment = definition.use.attachment;
   return {
     toolbarIcon: spriteFor(definition.toolbarIcon),
-    idleSprite: spriteFor(definition.body.idle),
-    jumpSprite: spriteFor(definition.body.jump),
-    crouchSprite: spriteFor(definition.body.crouch),
+    idleSprite: spriteForFrame(definition.body.idle),
+    jumpSprite: spriteForFrame(definition.body.jump),
+    crouchSprite: spriteForFrame(definition.body.crouch),
     walkAnimation: animationFor(
       definition.body.walk.frames,
       definition.body.walk.frameDurationMs,
     ),
     usePowerupAnimation: new AttachedVisualAnimation({
-      frames: definition.use.frames.map((spriteKey, index) => ({
-        graphic: spriteFor(spriteKey),
+      frames: definition.use.frames.map((frame, index) => ({
+        graphic: spriteForFrame(frame),
         attachment: attachment?.poses[index] ?? attachment?.poses[0],
       })),
       frameDurationMs: definition.use.frameDurationMs,
