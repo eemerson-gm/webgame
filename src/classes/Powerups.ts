@@ -20,6 +20,7 @@ type PowerupDefinition = {
   toolbarIcon: ResourceKey;
   slotColor: ex.Color;
   durationMs: number;
+  breakDurationMultiplier: number;
   body: {
     idle: PowerupFrame;
     jump: PowerupFrame;
@@ -100,6 +101,7 @@ const powerupDefinitionsConfig = {
     toolbarIcon: "NonePowerupIcon",
     slotColor: ex.Color.fromHex("#9c8bdb"),
     durationMs: 0,
+    breakDurationMultiplier: 3,
     body: {
       idle: playerFrame("Player"),
       jump: playerFrame("PlayerJump"),
@@ -119,6 +121,7 @@ const powerupDefinitionsConfig = {
     toolbarIcon: "MinerPowerupIcon",
     slotColor: ex.Color.fromHex("#d9a441"),
     durationMs: minerPowerupDurationMs,
+    breakDurationMultiplier: 1,
     body: {
       idle: playerFrame("Player"),
       jump: playerFrame("PlayerJump"),
@@ -187,6 +190,9 @@ export const powerupSlotColorFor = (powerup: PlayerPowerup) =>
 
 export const powerupDurationMsFor = (powerup: PlayerPowerup) =>
   powerupDefinitionFor(powerup).durationMs;
+
+export const powerupBreakDurationMultiplierFor = (powerup: PlayerPowerup) =>
+  powerupDefinitionFor(powerup).breakDurationMultiplier;
 
 export const powerupVisualsFor = (
   powerup: PlayerPowerup,

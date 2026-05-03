@@ -1,6 +1,13 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
 import type { TerrainTileKind } from "./GameProtocol";
+import type { PlayerPowerup } from "./Powerups";
+
+export type TerrainBlockDrop = {
+  kind: TerrainTileKind;
+  count?: number;
+  brokenWith?: PlayerPowerup;
+};
 
 type TerrainBlockOptions = {
   kind: TerrainTileKind;
@@ -8,6 +15,7 @@ type TerrainBlockOptions = {
   sprite: ex.ImageSource;
   animationFrames?: ex.ImageSource[];
   animationFrameDurationMs?: number;
+  drops?: readonly TerrainBlockDrop[];
 };
 
 export class TerrainBlock {
@@ -16,6 +24,7 @@ export class TerrainBlock {
   private readonly sprite: ex.ImageSource;
   private readonly animationFrames: ex.ImageSource[];
   private readonly animationFrameDurationMs: number;
+  private readonly drops: readonly TerrainBlockDrop[];
 
   constructor(options: TerrainBlockOptions) {
     this.kind = options.kind;
@@ -23,6 +32,7 @@ export class TerrainBlock {
     this.sprite = options.sprite;
     this.animationFrames = options.animationFrames ?? [];
     this.animationFrameDurationMs = options.animationFrameDurationMs ?? 120;
+    this.drops = options.drops ?? [];
   }
 
   public toSprite() {
@@ -59,6 +69,15 @@ export class TerrainBlock {
       },
     });
   }
+
+  public dropsFor(brokenWith: PlayerPowerup) {
+    return this.drops
+      .filter((drop) => !drop.brokenWith || drop.brokenWith === brokenWith)
+      .map((drop) => ({
+        kind: drop.kind,
+        count: drop.count ?? 1,
+      }));
+  }
 }
 
 const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
@@ -71,16 +90,19 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     kind: "dirt",
     breakDurationMs: 270,
     sprite: Resources.Dirt,
+    drops: [{ kind: "dirt" }],
   }),
   grass: new TerrainBlock({
     kind: "grass",
     breakDurationMs: 270,
     sprite: Resources.Grass,
+    drops: [{ kind: "dirt" }],
   }),
   lamp: new TerrainBlock({
     kind: "lamp",
     breakDurationMs: 360,
     sprite: Resources.Lamp,
+    drops: [{ kind: "lamp" }],
   }),
   pillarBottom: new TerrainBlock({
     kind: "pillarBottom",
@@ -122,11 +144,13 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     kind: "stone",
     breakDurationMs: 720,
     sprite: Resources.Stone,
+    drops: [{ kind: "stone", brokenWith: "miner" }],
   }),
   whiteWool: new TerrainBlock({
     kind: "whiteWool",
     breakDurationMs: 270,
     sprite: Resources.WhiteWool,
+    drops: [{ kind: "whiteWool" }],
   }),
 };
 

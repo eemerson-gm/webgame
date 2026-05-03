@@ -1,6 +1,6 @@
 import * as ex from "excalibur";
 import {
-  placeableBlockKinds,
+  type InventorySlot,
   type PlaceableBlockKind,
   toolbarSelection,
 } from "../classes/ToolbarSelection";
@@ -34,9 +34,7 @@ const powerupTimerBarBorderSize = 1;
 const powerupTimerBarOverlap = 1;
 const powerupTimerBarBorderColor = ex.Color.fromHex("#1b1b1b");
 const powerupTimerBarFillColor = ex.Color.fromHex("#f4d35e");
-const buildBlockVisibleItemCount = Math.min(10, placeableBlockKinds.length);
-const buildBlockPreviewCount = buildBlockVisibleItemCount - 1;
-const buildBlockPreviewGap = 2;
+const hotbarPreviewGap = 2;
 const blockCountMarginX = 4;
 const blockCountMarginY = 3;
 const blockCountPixelSize = 1;
@@ -100,13 +98,9 @@ const blockCountTextSize = (text: string) => ({
 type ToolbarSlotView = {
   slot: ex.Actor;
   item: ex.Actor;
-  icon: ex.Actor;
-  count: BlockCountDisplay | null;
+  count: BlockCountDisplay;
   previewItems: BlockDisplay[];
-  itemOffset: ex.Vector;
-  iconOffset: ex.Vector;
-  countOffset: ex.Vector | null;
-  previewOffsets: ex.Vector[];
+  previewCounts: BlockCountDisplay[];
 };
 
 const blockPlacementModeFor = (
@@ -114,11 +108,17 @@ const blockPlacementModeFor = (
 ): "creative" | "survival" =>
   playerStatus?.isFlying ? "creative" : "survival";
 
-const blockCountTextFor = (playerStatus: ReturnType<HealthProvider>) => {
+const blockCountTextFor = (
+  slot: InventorySlot,
+  playerStatus: ReturnType<HealthProvider>,
+) => {
+  if (!slot) {
+    return "";
+  }
   if (blockPlacementModeFor(playerStatus) === "creative") {
     return "∞";
   }
-  return String(toolbarSelection.blockCount());
+  return String(slot.count);
 };
 
 class BlockCountRaster extends ex.Raster {
@@ -235,18 +235,17 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   private readonly heartActors: ex.Actor[];
   private readonly buildSlotView: ToolbarSlotView;
   private readonly buildSlotActors: ex.Actor[];
+  private readonly powerupIconActor: ex.Actor;
   private readonly powerupSlotActor: ex.Actor;
   private readonly powerupTimerBarBackgroundActor: ex.Actor;
   private readonly powerupTimerBarFillActor: ex.Actor;
-  private selectedBuildBlockKind: PlaceableBlockKind =
-    toolbarSelection.selectedPlaceableBlockKind();
   private readonly selectBlockFromWheel = (event: WheelEvent) => {
     const direction = Math.sign(event.deltaY);
     if (direction === 0) {
       return;
     }
     event.preventDefault();
-    toolbarSelection.selectNextBlock(direction);
+    toolbarSelection.selectNextSlot(direction);
     this.syncBuildBlockItem();
   };
 
@@ -281,6 +280,10 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
         Resources.InventoryBlockSlot.toSprite().height,
     );
     this.buildSlotView = this.createToolbarSlotView(buildSlotPosition);
+    this.powerupIconActor = this.createPowerupIconActor(
+      Resources.InventoryBlockSlot.toSprite(),
+      buildSlotPosition,
+    );
     this.powerupSlotActor = this.createPowerupSlotActor();
     this.powerupTimerBarBackgroundActor =
       this.createPowerupTimerBarBackgroundActor();
@@ -288,9 +291,9 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.buildSlotActors = [
       this.buildSlotView.slot,
       this.buildSlotView.item,
-      this.buildSlotView.icon,
-      ...(this.buildSlotView.count ? [this.buildSlotView.count] : []),
+      this.buildSlotView.count,
       ...this.buildSlotView.previewItems,
+      ...this.buildSlotView.previewCounts,
     ];
   }
 
@@ -300,13 +303,13 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     });
     this.heartActors.forEach((actor) => this.addChild(actor));
     this.buildSlotActors.forEach((actor) => this.addChild(actor));
+    this.addChild(this.powerupIconActor);
     this.addChild(this.powerupSlotActor);
     this.addChild(this.powerupTimerBarBackgroundActor);
     this.addChild(this.powerupTimerBarFillActor);
     this.syncBuildBlockItem();
     this.syncPowerupIcon();
     this.syncPowerupTimerBar();
-    this.syncBuildBlockCount();
     this.syncHearts();
   }
 
@@ -320,7 +323,6 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.syncBuildBlockItem();
     this.syncPowerupIcon();
     this.syncPowerupTimerBar();
-    this.syncBuildBlockCount();
     this.syncHearts();
   }
 
@@ -345,18 +347,12 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   private createToolbarSlotView(slotPosition: ex.Vector) {
     const slotSprite = this.slotSpriteForBuildSlot();
     const item = this.itemActorForBuildSlot(slotSprite, slotPosition);
-    const icon = this.powerupIconActor(slotSprite, slotPosition);
     const count = this.countActorForBuildSlot(slotSprite, slotPosition);
     const previewItems = this.previewItemActorsForBuildSlot(
       slotSprite,
       slotPosition,
     );
-    const itemOffset = item.pos.sub(slotPosition);
-    const iconOffset = icon.pos.sub(slotPosition);
-    const countOffset = count ? count.pos.sub(slotPosition) : null;
-    const previewOffsets = previewItems.map((preview) =>
-      preview.pos.sub(slotPosition),
-    );
+    const previewCounts = this.previewCountActorsForBuildSlot(previewItems);
     const slot = new ex.Actor({
       pos: slotPosition,
       anchor: ex.vec(0, 0),
@@ -365,25 +361,21 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       z: toolbarSlotZ,
     });
     item.z = toolbarSlotZ + toolbarItemZOffset;
-    icon.z = toolbarSlotZ + toolbarIconZOffset;
-    if (count) {
-      count.z = toolbarSlotZ + toolbarCountZOffset;
-    }
+    count.z = toolbarSlotZ + toolbarCountZOffset;
     previewItems.forEach((preview) => {
       preview.z = toolbarSlotZ + toolbarItemZOffset;
+    });
+    previewCounts.forEach((previewCount) => {
+      previewCount.z = toolbarSlotZ + toolbarCountZOffset;
     });
     slot.graphics.anchor = ex.vec(0, 0);
     slot.graphics.use(slotSprite);
     return {
       slot,
       item,
-      icon,
       count,
       previewItems,
-      itemOffset,
-      iconOffset,
-      countOffset,
-      previewOffsets,
+      previewCounts,
     };
   }
 
@@ -395,33 +387,77 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       Math.floor((slotSprite.width - blockDisplaySize) / 2),
       Math.floor((slotSprite.height - blockDisplaySize) / 2),
     );
-    return new BlockDisplay(
-      blockItemResourceByKind[this.selectedBuildBlockKind],
+    const item = new BlockDisplay(
+      blockItemResourceByKind.dirt,
       slotPosition.add(itemOffset),
     );
+    item.setDisplayVisible(false);
+    return item;
   }
 
   private syncBuildBlockItem() {
-    const blockKind = toolbarSelection.selectedPlaceableBlockKind();
-    if (blockKind === this.selectedBuildBlockKind) {
-      return;
-    }
-    this.selectedBuildBlockKind = blockKind;
-    const item = this.buildSlotView.item;
-    if (item instanceof BlockDisplay) {
-      item.setImage(blockItemResourceByKind[blockKind]);
-    }
-    const previewKinds = toolbarSelection.nextPlaceableBlockKinds(
-      buildBlockPreviewCount,
+    const slots = toolbarSelection.hotbarSlots();
+    const selectedIndex = toolbarSelection.selectedSlotIndex();
+    const playerStatus = this.getHealth();
+    const selectedSlot = slots[selectedIndex] ?? null;
+    const previewSlots = this.previewSlotsFor(slots, selectedIndex);
+    this.syncBuildSlotView(this.buildSlotView, selectedSlot, playerStatus);
+    this.buildSlotView.previewItems.forEach((preview, index) =>
+      this.syncPreviewSlotView(
+        preview,
+        this.buildSlotView.previewCounts[index],
+        previewSlots[index] ?? null,
+        playerStatus,
+      ),
     );
-    this.buildSlotView.previewItems.forEach((preview, index) => {
-      const previewKind = previewKinds[index];
-      preview.setImage(blockItemResourceByKind[previewKind]);
-    });
   }
 
-  private syncBuildBlockCount() {
-    this.buildSlotView.count?.setText(blockCountTextFor(this.getHealth()));
+  private syncBuildSlotView(
+    view: ToolbarSlotView,
+    slot: InventorySlot,
+    playerStatus: ReturnType<HealthProvider>,
+  ) {
+    const isBlockSlot = slot?.item.type === "block";
+    const isItemVisible = !!isBlockSlot;
+    const shouldShowCount = isItemVisible;
+    view.slot.graphics.opacity = 1;
+    if (view.item instanceof BlockDisplay) {
+      view.item.setDisplayVisible(isItemVisible);
+      view.item.setDisplayOpacity(1);
+      if (isBlockSlot) {
+        view.item.setImage(blockItemResourceByKind[slot.item.kind]);
+      }
+    }
+    view.count.graphics.visible = shouldShowCount;
+    view.count.graphics.opacity = 1;
+    if (shouldShowCount) {
+      view.count.setText(blockCountTextFor(slot, playerStatus));
+    }
+  }
+
+  private syncPreviewSlotView(
+    preview: BlockDisplay,
+    count: BlockCountDisplay,
+    slot: InventorySlot,
+    playerStatus: ReturnType<HealthProvider>,
+  ) {
+    const isBlockSlot = slot?.item.type === "block";
+    const isItemVisible = !!isBlockSlot;
+    preview.setDisplayVisible(isItemVisible);
+    preview.setDisplayOpacity(1);
+    count.graphics.visible = isItemVisible;
+    count.graphics.opacity = 1;
+    if (isBlockSlot) {
+      preview.setImage(blockItemResourceByKind[slot.item.kind]);
+      count.setText(blockCountTextFor(slot, playerStatus));
+    }
+  }
+
+  private previewSlotsFor(slots: InventorySlot[], selectedIndex: number) {
+    return Array.from({ length: Math.max(slots.length - 1, 0) }, (_value, index) => {
+      const slotIndex = (selectedIndex + index + 1) % slots.length;
+      return slots[slotIndex] ?? null;
+    }).filter((slot) => !!slot);
   }
 
   private countActorForBuildSlot(
@@ -432,8 +468,8 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       Math.floor((slotSprite.width - blockDisplaySize) / 2),
       Math.floor((slotSprite.height - blockDisplaySize) / 2),
     );
-    return new BlockCountDisplay(
-      blockCountTextFor(this.getHealth()),
+    const count = new BlockCountDisplay(
+      "",
       slotPosition.add(
         itemOffset.add(
           ex.vec(
@@ -443,9 +479,47 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
         ),
       ),
     );
+    count.graphics.visible = false;
+    return count;
   }
 
-  private powerupIconActor(slotSprite: ex.Sprite, slotPosition: ex.Vector) {
+  private previewItemActorsForBuildSlot(
+    slotSprite: ex.Sprite,
+    slotPosition: ex.Vector,
+  ) {
+    return toolbarSelection.hotbarSlots().slice(1).map((_slot, index) => {
+      const previewOffset = ex.vec(
+        slotSprite.width +
+          hotbarPreviewGap +
+          index * (blockDisplaySize + hotbarPreviewGap),
+        Math.floor((slotSprite.height - blockDisplaySize) / 2),
+      );
+      const preview = new BlockDisplay(
+        blockItemResourceByKind.dirt,
+        slotPosition.add(previewOffset),
+      );
+      preview.setDisplayVisible(false);
+      return preview;
+    });
+  }
+
+  private previewCountActorsForBuildSlot(previewItems: BlockDisplay[]) {
+    return previewItems.map((preview) => {
+      const count = new BlockCountDisplay(
+        "",
+        preview.pos.add(
+          ex.vec(
+            blockDisplaySize - blockCountMarginX,
+            blockDisplaySize - blockCountMarginY,
+          ),
+        ),
+      );
+      count.graphics.visible = false;
+      return count;
+    });
+  }
+
+  private createPowerupIconActor(slotSprite: ex.Sprite, slotPosition: ex.Vector) {
     const iconSprite = this.powerupIconSprite();
     const iconOffset = ex.vec(
       Math.floor((slotSprite.width - iconSprite.width) / 2),
@@ -457,6 +531,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
       width: iconSprite.width,
       height: iconSprite.height,
     });
+    icon.z = toolbarSlotZ + toolbarIconZOffset;
     icon.graphics.anchor = ex.vec(0, 0);
     icon.graphics.use(iconSprite);
     return icon;
@@ -528,27 +603,6 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     return slotSprite;
   }
 
-  private previewItemActorsForBuildSlot(
-    slotSprite: ex.Sprite,
-    slotPosition: ex.Vector,
-  ) {
-    return toolbarSelection
-      .nextPlaceableBlockKinds(buildBlockPreviewCount)
-      .map((kind, index) => {
-        const previewOffset = ex.vec(
-          slotSprite.width +
-            buildBlockPreviewGap +
-            index * (blockDisplaySize + buildBlockPreviewGap),
-          Math.floor((slotSprite.height - blockDisplaySize) / 2),
-        );
-        const preview = new BlockDisplay(
-          blockItemResourceByKind[kind],
-          slotPosition.add(previewOffset),
-        );
-        return preview;
-      });
-  }
-
   private slotSpriteForBuildSlot() {
     return Resources.InventoryBlockSlot.toSprite();
   }
@@ -612,10 +666,10 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   private syncPowerupIcon() {
     const iconSprite = this.powerupIconSprite();
     const slotSprite = this.powerupSlotSprite();
-    this.buildSlotView.icon.pos = this.powerupIconPosition(
+    this.powerupIconActor.pos = this.powerupIconPosition(
       slotSprite,
     );
-    this.buildSlotView.icon.graphics.use(iconSprite);
+    this.powerupIconActor.graphics.use(iconSprite);
     this.powerupSlotActor.pos = this.powerupSlotPosition(slotSprite);
     this.powerupSlotActor.graphics.use(slotSprite);
   }

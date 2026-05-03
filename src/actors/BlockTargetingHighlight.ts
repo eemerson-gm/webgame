@@ -2,8 +2,9 @@ import * as ex from "excalibur";
 import type { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { TerrainBlockBreakUpdate } from "../classes/GameProtocol";
+import type { PlayerPowerup } from "../classes/Powerups";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
-import { isPlaceableBlockKind, toolbarSelection } from "../classes/ToolbarSelection";
+import { toolbarSelection } from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
 import { TILE_PX } from "../world/worldConfig";
 import { BlockBreakParticleEmitter } from "./BlockBreakParticleEmitter";
@@ -87,6 +88,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private isPlacePointerHeld: boolean = false;
   private lastPlacedTargetKey: string | null = null;
   private breakingTarget: TargetBlockPosition | null = null;
+  private breakingPowerup: PlayerPowerup | null = null;
   private breakParticleState: BlockBreakParticleState | null = null;
   private breakProgressMs: number = 0;
 
@@ -255,6 +257,9 @@ export class BlockTargetingHighlight extends ex.Actor {
       return null;
     }
     if (localPlayer.isPaused) {
+      return null;
+    }
+    if (!toolbarSelection.selectedBlockKind()) {
       return null;
     }
     const target = this.tilePositionAt(mouseWorldPos);
@@ -431,12 +436,13 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (localPlayer.isPaused) {
       return;
     }
-    const breakDurationMs = this.breakDurationFor(target);
+    const breakingPowerup = toolbarSelection.powerup();
+    const breakDurationMs = this.breakDurationFor(target, breakingPowerup);
     if (!Number.isFinite(breakDurationMs)) {
       return;
     }
     if (localPlayer.isFlying) {
-      this.breakTargetInstantly(target);
+      this.breakTargetInstantly(target, breakingPowerup);
       return;
     }
     if (toolbarSelection.selectedPowerupCan("mine")) {
@@ -456,6 +462,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     this.sendBlockBreakUpdate(target, true, breakDurationMs);
     this.breakingTarget = target;
+    this.breakingPowerup = breakingPowerup;
     this.breakProgressMs = 0;
     this.breakParticleState = this.breakParticleEmitter.createState(
       target,
@@ -468,8 +475,11 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.breakAnimation.play();
   }
 
-  private breakTargetInstantly(target: TargetBlockPosition) {
-    this.collectBlockAt(target);
+  private breakTargetInstantly(
+    target: TargetBlockPosition,
+    brokenWith: PlayerPowerup,
+  ) {
+    this.collectBlockAt(target, brokenWith);
     this.client.send(messageTypes.updateBlock, {
       column: target.column,
       row: target.row,
@@ -501,10 +511,13 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.breakProgressMs += delta;
     this.breakParticleEmitter.updateState(this.breakParticleState, delta);
     this.moveBreakAnimationToTarget(this.breakingTarget);
-    if (this.breakProgressMs < this.breakDurationFor(this.breakingTarget)) {
+    const brokenWith = this.breakingPowerup ?? toolbarSelection.powerup();
+    if (
+      this.breakProgressMs < this.breakDurationFor(this.breakingTarget, brokenWith)
+    ) {
       return;
     }
-    this.collectBlockAt(this.breakingTarget);
+    this.collectBlockAt(this.breakingTarget, brokenWith);
     this.client.send(messageTypes.updateBlock, {
       column: this.breakingTarget.column,
       row: this.breakingTarget.row,
@@ -513,15 +526,17 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.cancelBreakingTarget();
   }
 
-  private collectBlockAt(target: TargetBlockPosition) {
+  private collectBlockAt(target: TargetBlockPosition, brokenWith: PlayerPowerup) {
     if (this.getLocalPlayer()?.isFlying) {
       return;
     }
-    const kind = this.terrain.tileKindAt(target.column, target.row);
-    if (!isPlaceableBlockKind(kind)) {
+    const block = this.terrain.blockAt(target.column, target.row);
+    if (!block) {
       return;
     }
-    toolbarSelection.addBlock(kind);
+    block
+      .dropsFor(brokenWith)
+      .forEach((drop) => toolbarSelection.addBlock(drop.kind, drop.count));
   }
 
   private cancelBreakingTarget() {
@@ -531,6 +546,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.sendBlockBreakUpdate(target, false);
     }
     this.breakingTarget = null;
+    this.breakingPowerup = null;
     this.breakProgressMs = 0;
     this.breakParticleState = null;
     this.breakAnimationActor.pos = hiddenActorPosition();
@@ -658,16 +674,17 @@ export class BlockTargetingHighlight extends ex.Actor {
     );
   }
 
-  private breakDurationFor(target: TargetBlockPosition) {
+  private breakDurationFor(
+    target: TargetBlockPosition,
+    brokenWith: PlayerPowerup = toolbarSelection.powerup(),
+  ) {
     const baseDuration =
       this.terrain.blockAt(target.column, target.row)?.breakDurationMs ??
       Number.POSITIVE_INFINITY;
     if (!Number.isFinite(baseDuration)) {
       return baseDuration;
     }
-    return toolbarSelection.selectedPowerupCan("mine")
-      ? baseDuration
-      : baseDuration * 3;
+    return baseDuration * toolbarSelection.breakDurationMultiplier(brokenWith);
   }
 
   private isSameTarget(a: TargetBlockPosition, b: TargetBlockPosition) {
