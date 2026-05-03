@@ -12,8 +12,6 @@ import type {
   TargetBlockPosition,
 } from "./BlockBreakParticleEmitter";
 import { BlockHighlightRaster } from "./BlockHighlightRaster";
-import type { EntityActor } from "./EntityActor";
-import { LocalMeleeCombatHandler } from "./LocalMeleeCombatHandler";
 import type { Player } from "./Player";
 
 const blockTargetRange = 3;
@@ -38,8 +36,6 @@ type RemotePlayerEntry = {
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
 type RemotePlayersProvider = () => RemotePlayerEntry[];
-type EntityProvider = () => EntityActor[];
-
 const colorChannelBetween = (start: number, end: number, progress: number) =>
   Math.round(start + (end - start) * progress);
 
@@ -84,7 +80,6 @@ export class BlockTargetingHighlight extends ex.Actor {
     BlockBreakParticleState
   >;
   private readonly breakParticleEmitter: BlockBreakParticleEmitter;
-  private readonly meleeCombat: LocalMeleeCombatHandler;
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
@@ -100,7 +95,6 @@ export class BlockTargetingHighlight extends ex.Actor {
     getLocalPlayer: LocalPlayerProvider,
     getRemotePlayer: RemotePlayerProvider,
     getRemotePlayers: RemotePlayersProvider,
-    getEntities: EntityProvider,
   ) {
     super({
       pos: ex.vec(-TILE_PX, -TILE_PX),
@@ -115,12 +109,6 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.getRemotePlayer = getRemotePlayer;
     this.getRemotePlayers = getRemotePlayers;
     this.breakParticleEmitter = new BlockBreakParticleEmitter(terrain);
-    this.meleeCombat = new LocalMeleeCombatHandler(
-      client,
-      getLocalPlayer,
-      getRemotePlayers,
-      getEntities,
-    );
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.highlightGraphic);
@@ -195,20 +183,20 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.updatePlacingTarget(placeTarget);
     this.updateBreakingTarget(target, delta);
     this.updateRemoteBreakParticles(delta);
-    this.meleeCombat.update();
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
     if (!update.id) {
       return;
     }
-    if (this.getRemotePlayer(update.id)?.isPaused) {
+    const remotePlayer = this.getRemotePlayer(update.id);
+    if (remotePlayer?.isPaused) {
       this.hideRemoteBreakAnimation(update.id);
       return;
     }
     if (!update.isBreaking) {
       this.hideRemoteBreakAnimation(update.id);
-      this.getRemotePlayer(update.id)?.syncToolUseState(false);
+      remotePlayer?.syncPowerupUseState(false);
       return;
     }
     const target = {
@@ -220,11 +208,13 @@ export class BlockTargetingHighlight extends ex.Actor {
       target,
       update.breakDurationMs ?? this.breakDurationFor(target),
     );
-    this.getRemotePlayer(update.id)?.syncToolUseState(
-      true,
-      Number.POSITIVE_INFINITY,
-      "pickaxe",
-    );
+    if (remotePlayer?.currentPowerup() === "miner") {
+      remotePlayer.syncPowerupUseState(
+        true,
+        Number.POSITIVE_INFINITY,
+        "miner",
+      );
+    }
   }
 
   public removeRemoteBreakAnimation(playerId: string) {
@@ -242,9 +232,6 @@ export class BlockTargetingHighlight extends ex.Actor {
   private targetAt(mouseWorldPos: ex.Vector | null) {
     const localPlayer = this.getLocalPlayer();
     if (!mouseWorldPos || !localPlayer) {
-      return null;
-    }
-    if (!toolbarSelection.isBuildMode()) {
       return null;
     }
     if (localPlayer.isPaused) {
@@ -380,9 +367,6 @@ export class BlockTargetingHighlight extends ex.Actor {
     breakTarget: TargetBlockPosition | null,
     placeTarget: TargetBlockPosition | null,
   ) {
-    if (!toolbarSelection.isBuildMode()) {
-      return null;
-    }
     if (breakTarget) {
       return breakTarget;
     }
@@ -428,14 +412,10 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private startToolUseAt(target: TargetBlockPosition | null) {
-    if (toolbarSelection.isBuildMode() && target) {
-      this.startBreakingTarget(target);
+    if (!target) {
       return;
     }
-    if (!toolbarSelection.isCombatMode()) {
-      return;
-    }
-    this.meleeCombat.startSwordUse();
+    this.startBreakingTarget(target);
   }
 
   private startBreakingTarget(target: TargetBlockPosition | null) {
@@ -457,8 +437,10 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.breakTargetInstantly(target);
       return;
     }
-    if (!localPlayer.keepUsingTool(Number.POSITIVE_INFINITY, "pickaxe")) {
-      return;
+    if (toolbarSelection.isMinerPowerup()) {
+      if (!localPlayer.keepUsingPowerup(Number.POSITIVE_INFINITY, "miner")) {
+        return;
+      }
     }
     this.sendBlockBreakUpdate(target, true, breakDurationMs);
     this.breakingTarget = target;
@@ -541,7 +523,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.breakParticleState = null;
     this.breakAnimationActor.pos = hiddenActorPosition();
     if (wasBreakingTarget) {
-      this.getLocalPlayer()?.stopUsingToolAction();
+      this.getLocalPlayer()?.stopUsingPowerupAction();
     }
   }
 
@@ -656,10 +638,15 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private breakDurationFor(target: TargetBlockPosition) {
-    return (
+    const baseDuration =
       this.terrain.blockAt(target.column, target.row)?.breakDurationMs ??
-      Number.POSITIVE_INFINITY
-    );
+      Number.POSITIVE_INFINITY;
+    if (!Number.isFinite(baseDuration)) {
+      return baseDuration;
+    }
+    return toolbarSelection.isMinerPowerup()
+      ? baseDuration
+      : baseDuration * 3;
   }
 
   private isSameTarget(a: TargetBlockPosition, b: TargetBlockPosition) {

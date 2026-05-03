@@ -12,6 +12,7 @@ Excalibird is a small **multiplayer pixel platformer**: an **Excalibur** client 
 - **Do not start the game** unless the user explicitly asks.
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
 - Avoid running `git diff` or `git status` after edits unless you explicitly ask.
+- When you need sprite dimensions, always run `npm run sprite:dimensions -- <sprite-path>` instead of guessing.
 
 ## MCPs
 

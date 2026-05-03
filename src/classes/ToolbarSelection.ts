@@ -1,6 +1,6 @@
 import type { TerrainTileKind } from "./GameProtocol";
 
-export const toolbarModes = ["build", "combat"] as const;
+export const powerupModes = ["none", "miner"] as const;
 export const placeableBlockKinds = [
   "dirt",
   "grass",
@@ -9,7 +9,7 @@ export const placeableBlockKinds = [
   "whiteWool",
 ] as const;
 
-export type ToolbarMode = (typeof toolbarModes)[number];
+export type PowerupMode = (typeof powerupModes)[number];
 export type PlaceableBlockKind = (typeof placeableBlockKinds)[number];
 export type BlockInventoryCounts = Record<PlaceableBlockKind, number>;
 export type BlockPlacementMode = "creative" | "survival";
@@ -28,27 +28,23 @@ export const isPlaceableBlockKind = (
   !!kind && placeableBlockKinds.includes(kind as PlaceableBlockKind);
 
 class ToolbarSelection {
-  private selectedMode: ToolbarMode = "build";
+  private selectedPowerup: PowerupMode = "none";
   private selectedPlaceableKind: PlaceableBlockKind = "dirt";
   private blockInventoryCounts: BlockInventoryCounts = {
     ...startingBlockInventoryCounts,
   };
 
-  public mode() {
-    return this.selectedMode;
+  public powerup() {
+    return this.selectedPowerup;
   }
 
-  public toggleMode() {
-    this.selectedMode = this.selectedMode === "build" ? "combat" : "build";
-    return this.selectedMode;
+  public setPowerup(powerup: PowerupMode) {
+    this.selectedPowerup = powerup;
+    return this.selectedPowerup;
   }
 
-  public isBuildMode() {
-    return this.selectedMode === "build";
-  }
-
-  public isCombatMode() {
-    return this.selectedMode === "combat";
+  public isMinerPowerup() {
+    return this.selectedPowerup === "miner";
   }
 
   public selectedPlaceableBlockKind() {
@@ -67,18 +63,14 @@ class ToolbarSelection {
   }
 
   public selectedBlockForMode(mode: BlockPlacementMode) {
-    const kind = this.selectedBlockKind();
-    if (!kind) {
-      return null;
-    }
     if (mode === "creative") {
-      return kind;
+      return this.selectedPlaceableKind;
     }
-    if (this.blockInventoryCounts[kind] <= 0) {
+    if (this.blockInventoryCounts[this.selectedPlaceableKind] <= 0) {
       return null;
     }
-    this.blockInventoryCounts[kind] -= 1;
-    return kind;
+    this.blockInventoryCounts[this.selectedPlaceableKind] -= 1;
+    return this.selectedPlaceableKind;
   }
 
   public nextPlaceableBlockKinds(count: number) {
@@ -103,10 +95,7 @@ class ToolbarSelection {
   }
 
   public selectedBlockKind(): TerrainTileKind | null {
-    if (this.isBuildMode()) {
-      return this.selectedPlaceableKind;
-    }
-    return null;
+    return this.selectedPlaceableKind;
   }
 }
 

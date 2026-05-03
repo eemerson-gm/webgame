@@ -20,17 +20,17 @@ export type PlayerState = {
   keyRight?: boolean;
   keyJump?: boolean;
   keyDown?: boolean;
-  isUsingTool?: boolean;
+  isUsingPowerup?: boolean;
   isPaused?: boolean;
   isFlying?: boolean;
   horizontalSpeed?: number;
   verticalSpeed?: number;
   health?: number;
   pingMs?: number;
-  activeTool?: PlayerTool;
+  activePowerup?: PlayerPowerup;
 };
 
-export type PlayerTool = "pickaxe" | "sword";
+export type PlayerPowerup = "none" | "miner";
 
 export type EntityType = "slime";
 

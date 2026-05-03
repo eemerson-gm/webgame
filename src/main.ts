@@ -4,10 +4,10 @@ import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
-import { UIBackground } from "./actors/UIBackground";
 import { Resources } from "./resource";
 import { GameClient } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
+import { toolbarSelection } from "./classes/ToolbarSelection";
 import type {
   Data,
   EntitiesSnapshotPayload,
@@ -60,6 +60,7 @@ const viewHeight = 180;
 const browserActionGameKeyCodes = [
   "Tab",
   "Space",
+  "KeyR",
   "ArrowUp",
   "ArrowDown",
   "ArrowLeft",
@@ -87,6 +88,11 @@ const focusGameCanvas = (engine: ex.Engine) => {
       return;
     }
     event.preventDefault();
+    if (event.code !== "KeyR") {
+      return;
+    }
+    toolbarSelection.setPowerup("miner");
+    localPlayerSlot.player?.syncPowerupState("miner");
   });
 };
 
@@ -241,8 +247,15 @@ const syncMovementFieldsFromPayload = (
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
   player.keyDown = payload.keyDown ?? player.keyDown;
-  if (payload.isUsingTool !== undefined) {
-    player.syncToolUseState(payload.isUsingTool, undefined, payload.activeTool);
+  if (payload.activePowerup !== undefined) {
+    player.syncPowerupState(payload.activePowerup);
+  }
+  if (payload.isUsingPowerup !== undefined) {
+    player.syncPowerupUseState(
+      payload.isUsingPowerup,
+      undefined,
+      payload.activePowerup,
+    );
   }
   if (payload.health !== undefined) {
     player.syncHealth(payload.health);
@@ -263,10 +276,12 @@ const playerStateFromActor = (
     y: player.pos.y,
     isPaused: player.isPaused,
     isFlying: player.isFlying,
+    isUsingPowerup: player.isUsingPowerup,
     horizontalSpeed: player.hspeed,
     verticalSpeed: player.vspeed,
     health: player.health,
     pingMs: playerPingById[playerId],
+    activePowerup: player.currentPowerup(),
   },
 ];
 
@@ -533,15 +548,6 @@ game.start(loader).then(() => {
           };
         }),
       );
-      game.add(
-        new UIBackground({
-          pos: ex.vec(40, 40),
-          width: 140,
-          height: 70,
-          borderThickness: 1,
-          fillOpacity: 1,
-        }),
-      );
       blockTargetingSlot.highlight = new BlockTargetingHighlight(
         terrain,
         client,
@@ -552,7 +558,6 @@ game.start(loader).then(() => {
             id,
             player,
           })),
-        () => Object.values(slimeById),
       );
       game.add(blockTargetingSlot.highlight);
       client.send(messageTypes.createPlayer, {

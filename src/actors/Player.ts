@@ -2,7 +2,7 @@ import * as ex from "excalibur";
 import { Resources } from "../resource";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
-import type { Data, PlayerTool } from "../classes/GameProtocol";
+import type { Data, PlayerPowerup } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
@@ -78,6 +78,7 @@ const useToolFrames = [
   { offset: ex.vec(14, 12), rotation: 0.75 },
   { offset: ex.vec(13, 12), rotation: 0.75 },
 ];
+type PlayerTool = "pickaxe" | "sword";
 const playerToolByName: Record<string, PlayerTool> = {
   pickaxe: "pickaxe",
   sword: "sword",
@@ -116,6 +117,7 @@ export class Player extends MovingActor {
   private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
   private activeTool: PlayerTool = "pickaxe";
+  private activePowerup: PlayerPowerup = "none";
   private isSwordHitboxOutlineEnabled: boolean = false;
   private useToolTimeRemainingMs: number = 0;
   private useToolElapsedMs: number = 0;
@@ -244,6 +246,10 @@ export class Player extends MovingActor {
     this.inputState.keyDown = value;
   }
 
+  get isUsingPowerup() {
+    return this.isUsingTool;
+  }
+
   override onInitialize(engine: ex.Engine) {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
@@ -288,12 +294,16 @@ export class Player extends MovingActor {
 
   private setActiveTool(tool: PlayerTool) {
     this.activeTool = tool;
+    this.activePowerup = tool === "pickaxe" ? "miner" : "none";
     this.toolActor.graphics.use(this.toolSprites[tool]);
   }
 
   private sendToolUseState(isUsingTool: boolean, activeTool = this.activeTool) {
     const position = this.currentPosition();
+    const activePowerup = this.activePowerup;
     this.sendClient(messageTypes.updatePlayer, {
+      isUsingPowerup: isUsingTool,
+      activePowerup,
       isUsingTool,
       activeTool,
       ...position,
@@ -317,6 +327,16 @@ export class Player extends MovingActor {
 
   public useSword(durationMs: number = useToolDurationMs) {
     return this.useTool(durationMs, "sword");
+  }
+
+  public usePowerup(
+    durationMs: number = useToolDurationMs,
+    powerup: PlayerPowerup = "miner",
+  ) {
+    if (powerup !== "miner") {
+      return false;
+    }
+    return this.useTool(durationMs, "pickaxe");
   }
 
   public knockBackFrom(actor: ex.Actor) {
@@ -362,6 +382,14 @@ export class Player extends MovingActor {
 
   public isAlive() {
     return this.health > 0;
+  }
+
+  public currentPowerup() {
+    return this.activePowerup;
+  }
+
+  public syncPowerupState(powerup: PlayerPowerup) {
+    this.activePowerup = powerup;
   }
 
   public syncHealth(health: unknown) {
@@ -456,12 +484,26 @@ export class Player extends MovingActor {
     return true;
   }
 
+  public keepUsingPowerup(
+    durationMs: number,
+    powerup: PlayerPowerup = "miner",
+  ) {
+    if (powerup !== "miner") {
+      return false;
+    }
+    return this.keepUsingTool(durationMs, "pickaxe");
+  }
+
   public stopUsingToolAction() {
     if (!this.isUsingTool) {
       return;
     }
     this.stopUsingTool();
     this.sendToolUseState(false);
+  }
+
+  public stopUsingPowerupAction() {
+    this.stopUsingToolAction();
   }
 
   public syncPauseState(isPaused: boolean) {
@@ -473,7 +515,8 @@ export class Player extends MovingActor {
       keyRight: false,
       keyJump: false,
       keyDown: false,
-      isUsingTool: false,
+      isUsingPowerup: false,
+      activePowerup: this.activePowerup,
       horizontalSpeed: 0,
       verticalSpeed: 0,
       ...position,
@@ -524,6 +567,14 @@ export class Player extends MovingActor {
     }
   }
 
+  public syncPowerupUseState(
+    isUsingPowerup: boolean,
+    durationMs: number = useToolDurationMs,
+    powerup: unknown = "miner",
+  ) {
+    this.syncToolUseState(isUsingPowerup, durationMs, powerup);
+  }
+
   private beginUsingTool(durationMs: number, tool: PlayerTool) {
     this.isUsingTool = true;
     this.setActiveTool(tool);
@@ -541,6 +592,7 @@ export class Player extends MovingActor {
   private stopUsingTool() {
     this.isUsingTool = false;
     this.useToolTimeRemainingMs = 0;
+    this.activePowerup = "none";
     this.toolActor.pos = useToolHiddenOffset();
     this.toolActor.graphics.visible = false;
     this.toolActor.graphics.opacity = 0;
