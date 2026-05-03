@@ -79,6 +79,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     string,
     BlockBreakParticleState
   >;
+  private readonly remoteBreakTargetKeysByPlayerId: Record<string, string>;
   private readonly breakParticleEmitter: BlockBreakParticleEmitter;
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
@@ -127,6 +128,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.remoteBreakAnimationsByPlayerId = {};
     this.remoteBreakAnimationActorsByPlayerId = {};
     this.remoteBreakParticleStatesByPlayerId = {};
+    this.remoteBreakTargetKeysByPlayerId = {};
   }
 
   override onInitialize(engine: ex.Engine) {
@@ -208,11 +210,11 @@ export class BlockTargetingHighlight extends ex.Actor {
       target,
       update.breakDurationMs ?? this.breakDurationFor(target),
     );
-    if (remotePlayer?.currentPowerup() === "miner") {
+    if (remotePlayer?.currentPowerupCan("mine")) {
       remotePlayer.syncPowerupUseState(
         true,
         Number.POSITIVE_INFINITY,
-        "miner",
+        remotePlayer.currentPowerup(),
       );
     }
   }
@@ -437,8 +439,14 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.breakTargetInstantly(target);
       return;
     }
-    if (toolbarSelection.isMinerPowerup()) {
-      if (!localPlayer.keepUsingPowerup(Number.POSITIVE_INFINITY, "miner")) {
+    const isSwitchingTarget = this.breakingTarget !== null;
+    if (toolbarSelection.selectedPowerupCan("mine")) {
+      if (
+        !localPlayer.keepUsingPowerup(
+          Number.POSITIVE_INFINITY,
+          toolbarSelection.powerup(),
+        )
+      ) {
         return;
       }
     }
@@ -450,6 +458,9 @@ export class BlockTargetingHighlight extends ex.Actor {
       breakDurationMs,
     );
     this.moveBreakAnimationToTarget(target);
+    if (isSwitchingTarget) {
+      return;
+    }
     this.breakAnimation = this.createBlockBreakAnimation(breakDurationMs);
     this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.breakAnimation.reset();
@@ -546,17 +557,20 @@ export class BlockTargetingHighlight extends ex.Actor {
     breakDurationMs: number,
   ) {
     const actor = this.remoteBreakAnimationActorFor(playerId);
-    const animation = this.createBlockBreakAnimation(breakDurationMs);
-    this.remoteBreakAnimationsByPlayerId[playerId] = animation;
-    actor.graphics.use(animation);
+    const animation = this.remoteBreakAnimationFor(playerId, breakDurationMs);
     actor.pos.x =
       this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
     actor.pos.y =
       this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
     this.remoteBreakParticleStatesByPlayerId[playerId] =
       this.breakParticleEmitter.createState(target, breakDurationMs);
-    animation.reset();
-    animation.play();
+    this.remoteBreakTargetKeysByPlayerId[playerId] = this.targetKey(target);
+    if (!actor.graphics.visible) {
+      actor.graphics.use(animation);
+      animation.reset();
+      animation.play();
+      actor.graphics.visible = true;
+    }
   }
 
   private hideRemoteBreakAnimation(playerId: string) {
@@ -565,7 +579,10 @@ export class BlockTargetingHighlight extends ex.Actor {
       return;
     }
     actor.pos = hiddenActorPosition();
+    actor.graphics.visible = false;
+    this.remoteBreakAnimationsByPlayerId[playerId]?.pause();
     delete this.remoteBreakParticleStatesByPlayerId[playerId];
+    delete this.remoteBreakTargetKeysByPlayerId[playerId];
   }
 
   private remoteBreakAnimationActorFor(playerId: string) {
@@ -587,12 +604,15 @@ export class BlockTargetingHighlight extends ex.Actor {
     return actor;
   }
 
-  private remoteBreakAnimationFor(playerId: string) {
+  private remoteBreakAnimationFor(
+    playerId: string,
+    breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
+  ) {
     const existingAnimation = this.remoteBreakAnimationsByPlayerId[playerId];
     if (existingAnimation) {
       return existingAnimation;
     }
-    const animation = this.createBlockBreakAnimation();
+    const animation = this.createBlockBreakAnimation(breakDurationMs);
     this.remoteBreakAnimationsByPlayerId[playerId] = animation;
     return animation;
   }
@@ -644,7 +664,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (!Number.isFinite(baseDuration)) {
       return baseDuration;
     }
-    return toolbarSelection.isMinerPowerup()
+    return toolbarSelection.selectedPowerupCan("mine")
       ? baseDuration
       : baseDuration * 3;
   }

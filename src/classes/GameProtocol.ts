@@ -1,3 +1,7 @@
+import type { PlayerPowerup } from "./Powerups";
+
+export type { PlayerPowerup };
+
 export type Data = Record<string, any>;
 
 export type GameMessage = {
@@ -29,8 +33,6 @@ export type PlayerState = {
   pingMs?: number;
   activePowerup?: PlayerPowerup;
 };
-
-export type PlayerPowerup = "none" | "miner";
 
 export type EntityType = "slime";
 

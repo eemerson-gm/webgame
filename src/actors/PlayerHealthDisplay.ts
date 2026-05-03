@@ -6,6 +6,10 @@ import {
 } from "../classes/ToolbarSelection";
 import { Resources } from "../resource";
 import { BlockDisplay, blockDisplaySize } from "./BlockDisplay";
+import {
+  powerupSlotColorFor,
+  powerupToolbarIconFor,
+} from "../classes/Powerups";
 
 type HealthProvider = () => {
   health: number;
@@ -46,6 +50,7 @@ const blockCountDigitGlyphs = {
   "9": ["111", "101", "111", "001", "111"],
   "∞": ["00000", "01010", "10101", "01010", "00000"],
 } satisfies Record<string, string[]>;
+type BlockCountDigit = keyof typeof blockCountDigitGlyphs;
 const blockCountOutlineOffsets = [
   ex.vec(-1, -1),
   ex.vec(0, -1),
@@ -59,8 +64,10 @@ const blockCountOutlineOffsets = [
 const blockCountDigitHeight = blockCountDigitGlyphs["0"].length;
 const blockCountDigitSlots = (text: string) =>
   Math.max(blockCountMinimumDigits, text.length);
+const blockCountGlyphFor = (digit: string) =>
+  blockCountDigitGlyphs[digit as BlockCountDigit] ?? blockCountDigitGlyphs["0"];
 const blockCountDigitWidth = (digit: string) =>
-  blockCountDigitGlyphs[digit][0].length;
+  blockCountGlyphFor(digit)[0].length;
 const blockCountTextContentWidth = (text: string) =>
   text
     .split("")
@@ -146,7 +153,7 @@ class BlockCountRaster extends ex.Raster {
       blockCountOutlineSize * 2 -
       blockCountTextContentWidth(this.text);
     this.text.split("").forEach((digit, digitIndex) => {
-      const glyph = blockCountDigitGlyphs[digit];
+      const glyph = blockCountGlyphFor(digit);
       const digitX =
         startX +
         this.text
@@ -284,9 +291,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     this.syncHearts();
   }
 
-  override onPostUpdate(engine: ex.Engine, delta: number) {
-    engine;
-    delta;
+  override onPostUpdate() {
     this.syncBuildBlockItem();
     this.syncPowerupIcon();
     this.syncBuildBlockCount();
@@ -432,7 +437,7 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   }
 
   private createPowerupSlotActor() {
-    const slotSprite = Resources.PowerupSlot.toSprite();
+    const slotSprite = this.powerupSlotSprite();
     const slotPosition = this.powerupSlotPosition(slotSprite);
     const slot = new ex.Actor({
       pos: slotPosition,
@@ -444,6 +449,12 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
     slot.graphics.anchor = ex.vec(0, 0);
     slot.graphics.use(slotSprite);
     return slot;
+  }
+
+  private powerupSlotSprite() {
+    const slotSprite = Resources.PowerupSlot.toSprite();
+    slotSprite.tint = powerupSlotColorFor(toolbarSelection.powerup());
+    return slotSprite;
   }
 
   private previewItemActorsForBuildSlot(
@@ -500,20 +511,17 @@ export class PlayerHealthDisplay extends ex.ScreenElement {
   }
 
   private powerupIconSprite() {
-    if (toolbarSelection.isMinerPowerup()) {
-      return Resources.BronzePickaxeItem.toSprite();
-    }
-    return Resources.NonePowerupIcon.toSprite();
+    return powerupToolbarIconFor(toolbarSelection.powerup());
   }
 
   private syncPowerupIcon() {
     const iconSprite = this.powerupIconSprite();
+    const slotSprite = this.powerupSlotSprite();
     this.buildSlotView.icon.pos = this.powerupIconPosition(
-      Resources.PowerupSlot.toSprite(),
+      slotSprite,
     );
     this.buildSlotView.icon.graphics.use(iconSprite);
-    this.powerupSlotActor.pos = this.powerupSlotPosition(
-      Resources.PowerupSlot.toSprite(),
-    );
+    this.powerupSlotActor.pos = this.powerupSlotPosition(slotSprite);
+    this.powerupSlotActor.graphics.use(slotSprite);
   }
 }

@@ -1,6 +1,12 @@
 import type { TerrainTileKind } from "./GameProtocol";
+import {
+  powerupHasBehavior,
+  powerupIds,
+  type PlayerPowerup,
+  type PowerupBehavior,
+} from "./Powerups";
 
-export const powerupModes = ["none", "miner"] as const;
+export const powerupModes = powerupIds;
 export const placeableBlockKinds = [
   "dirt",
   "grass",
@@ -9,7 +15,7 @@ export const placeableBlockKinds = [
   "whiteWool",
 ] as const;
 
-export type PowerupMode = (typeof powerupModes)[number];
+export type PowerupMode = PlayerPowerup;
 export type PlaceableBlockKind = (typeof placeableBlockKinds)[number];
 export type BlockInventoryCounts = Record<PlaceableBlockKind, number>;
 export type BlockPlacementMode = "creative" | "survival";
@@ -43,8 +49,8 @@ class ToolbarSelection {
     return this.selectedPowerup;
   }
 
-  public isMinerPowerup() {
-    return this.selectedPowerup === "miner";
+  public selectedPowerupCan(behavior: PowerupBehavior) {
+    return powerupHasBehavior(this.selectedPowerup, behavior);
   }
 
   public selectedPlaceableBlockKind() {

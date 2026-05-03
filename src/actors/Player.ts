@@ -3,12 +3,20 @@ import { Resources } from "../resource";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { Data, PlayerPowerup } from "../classes/GameProtocol";
+import {
+  attachedVisualHiddenPosition,
+  type AttachedVisualAnimation,
+} from "../classes/AttachedVisualAnimation";
+import {
+  isPlayerPowerup,
+  powerupHasBehavior,
+  powerupVisualsFor,
+  type PowerupBehavior,
+} from "../classes/Powerups";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
-import type { WorldBounds } from "./MovingActor";
 import type { TileCollisionWorld } from "../simulation/entityPhysics";
-import { SwordHitboxOutlineRaster } from "./SwordHitboxOutlineRaster";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
 
@@ -52,75 +60,33 @@ const serverMovementSyncIntervalMs = 150;
 const serverKnockbackMovementSyncIntervalMs = 50;
 const serverMovementPositionThreshold = 0.5;
 const serverMovementSpeedThreshold = 0.05;
-const useToolFrameDurationMs = 75;
-const useToolFrameCount = 5;
-const useToolDurationMs = useToolFrameDurationMs * useToolFrameCount;
-const swordFacingLockStartMs = useToolDurationMs / 3;
-const useToolAnchor = ex.vec(0, 1);
-const useToolMirroredAnchor = ex.vec(1, 1);
-const useToolHiddenOffset = () => ex.vec(-100000, -100000);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 const sleepBubbleAnchor = ex.vec(0.5, 1);
-const swordHitboxWidth = TILE_PX * 0.75;
-const swordHitboxHeight = TILE_PX * 0.875;
-const swordHitboxInsetX = (TILE_PX - swordHitboxWidth) / 2;
-const swordHitboxInsetY = (TILE_PX - swordHitboxHeight) / 2;
-const swordHitboxOutlineScale = ex.vec(
-  swordHitboxWidth / TILE_PX,
-  swordHitboxHeight / TILE_PX,
-);
-const swordHitboxOffset = ex.vec(14, 14);
-const swordHitboxOutlineToggleKeys = ["AltLeft", "AltRight", "Alt"];
-const useToolFrames = [
-  { offset: ex.vec(12, 8), rotation: -0.9 },
-  { offset: ex.vec(14, 10), rotation: -0.45 },
-  { offset: ex.vec(14, 12), rotation: 0.35 },
-  { offset: ex.vec(14, 12), rotation: 0.75 },
-  { offset: ex.vec(13, 12), rotation: 0.75 },
-];
-type PlayerTool = "pickaxe" | "sword";
-const playerToolByName: Record<string, PlayerTool> = {
-  pickaxe: "pickaxe",
-  sword: "sword",
-};
-type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "useTool";
+type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "usePowerup";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
 
-const useToolFrameIndexAt = (elapsedMs: number) =>
-  Math.floor((elapsedMs % useToolDurationMs) / useToolFrameDurationMs) %
-  useToolFrameCount;
-
-const playerToolFrom = (value: unknown): PlayerTool =>
-  playerToolByName[String(value)] ?? "pickaxe";
-
 export class Player extends MovingActor {
   private client?: GameClient;
-  isLocal: boolean;
+  isLocal: boolean = false;
   isFlying: boolean = false;
-  isUsingTool: boolean = false;
   isPaused: boolean = false;
   public health: number = playerMaxHealth;
   public readonly maxHealth: number = playerMaxHealth;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
-  private idleSprite: ex.Sprite;
-  private jumpSprite: ex.Sprite;
-  private crouchSprite: ex.Sprite;
-  private toolSprites: Record<PlayerTool, ex.Sprite>;
-  private toolActor: ex.Actor;
-  private swordHitboxActor: ex.Actor;
+  private idleSprite: ex.Sprite = Resources.Player.toSprite();
+  private jumpSprite: ex.Sprite = Resources.PlayerJump.toSprite();
+  private crouchSprite: ex.Sprite = Resources.PlayerCrouch.toSprite();
   private sleepBubbleActor: ex.Actor;
+  private powerupAttachmentActor: ex.Actor;
   private damageFlash: DamageFlash;
-  private walkAnimation: ex.Animation;
-  private useToolAnimation: ex.Animation;
   private currentVisual: PlayerVisual = "idle";
-  private activeTool: PlayerTool = "pickaxe";
   private activePowerup: PlayerPowerup = "none";
-  private isSwordHitboxOutlineEnabled: boolean = false;
-  private useToolTimeRemainingMs: number = 0;
-  private useToolElapsedMs: number = 0;
+  private walkAnimation!: ex.Animation;
+  private usePowerupAnimation!: AttachedVisualAnimation;
+  private usePowerupTimeRemainingMs: number = 0;
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
@@ -150,34 +116,14 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
-    this.idleSprite = Resources.Player.toSprite();
-    this.jumpSprite = Resources.PlayerJump.toSprite();
-    this.crouchSprite = Resources.PlayerCrouch.toSprite();
-    this.toolSprites = {
-      pickaxe: Resources.BronzePickaxe.toSprite(),
-      sword: Resources.BronzeSword.toSprite(),
-    };
-    this.toolActor = new ex.Actor({
-      pos: useToolHiddenOffset(),
+    this.powerupAttachmentActor = new ex.Actor({
+      pos: attachedVisualHiddenPosition(),
       anchor: ex.vec(0, 0),
       width: TILE_PX,
       height: TILE_PX,
       z: -1,
     });
-    this.toolActor.graphics.anchor = useToolAnchor;
-    this.toolActor.graphics.use(this.toolSprites[this.activeTool]);
-    this.toolActor.graphics.visible = false;
-    this.toolActor.graphics.opacity = 0;
-    this.swordHitboxActor = new ex.Actor({
-      pos: useToolHiddenOffset(),
-      anchor: ex.vec(0, 0),
-      width: TILE_PX,
-      height: TILE_PX,
-      z: 10,
-    });
-    this.swordHitboxActor.graphics.use(new SwordHitboxOutlineRaster());
-    this.swordHitboxActor.graphics.visible = false;
-    this.swordHitboxActor.graphics.opacity = 0;
+    this.applyPowerupVisuals("none");
     this.sleepBubbleActor = new ex.Actor({
       pos: sleepBubbleOffset,
       anchor: sleepBubbleAnchor,
@@ -192,25 +138,6 @@ export class Player extends MovingActor {
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
       blinkFrameMs: playerDamageBlinkFrameMs,
-    });
-    this.useToolAnimation = new ex.Animation({
-      frames: [
-        { graphic: Resources.PlayerUseTool1.toSprite() },
-        { graphic: Resources.PlayerUseTool2.toSprite() },
-        { graphic: Resources.PlayerUseTool3.toSprite() },
-        { graphic: Resources.PlayerUseTool4.toSprite() },
-        { graphic: Resources.PlayerUseTool5.toSprite() },
-      ],
-      frameDuration: useToolFrameDurationMs,
-      strategy: ex.AnimationStrategy.Loop,
-    });
-    this.walkAnimation = new ex.Animation({
-      frames: [
-        { graphic: Resources.PlayerWalk1.toSprite() },
-        { graphic: Resources.PlayerWalk2.toSprite() },
-      ],
-      frameDuration: 120,
-      strategy: ex.AnimationStrategy.Loop,
     });
   }
 
@@ -247,14 +174,13 @@ export class Player extends MovingActor {
   }
 
   get isUsingPowerup() {
-    return this.isUsingTool;
+    return this.usePowerupTimeRemainingMs > 0;
   }
 
   override onInitialize(engine: ex.Engine) {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
-    this.addChild(this.toolActor);
-    this.addChild(this.swordHitboxActor);
+    this.addChild(this.powerupAttachmentActor);
     this.addChild(this.sleepBubbleActor);
     this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
@@ -292,51 +218,45 @@ export class Player extends MovingActor {
     this.syncPosition();
   }
 
-  private setActiveTool(tool: PlayerTool) {
-    this.activeTool = tool;
-    this.activePowerup = tool === "pickaxe" ? "miner" : "none";
-    this.toolActor.graphics.use(this.toolSprites[tool]);
-  }
-
-  private sendToolUseState(isUsingTool: boolean, activeTool = this.activeTool) {
+  private sendPowerupUseState(isUsingPowerup: boolean) {
     const position = this.currentPosition();
     const activePowerup = this.activePowerup;
     this.sendClient(messageTypes.updatePlayer, {
-      isUsingPowerup: isUsingTool,
+      isUsingPowerup,
       activePowerup,
-      isUsingTool,
-      activeTool,
       ...position,
     });
   }
 
-  public useTool(
-    durationMs: number = useToolDurationMs,
-    tool: PlayerTool = "pickaxe",
-  ) {
+  public usePowerup(durationMs?: number) {
     if (this.isPaused) {
       return false;
     }
-    if (this.isUsingTool) {
+    if (this.isUsingPowerup) {
       return false;
     }
-    this.beginUsingTool(durationMs, tool);
-    this.sendToolUseState(true, tool);
+    const actualDurationMs = durationMs ?? this.usePowerupAnimation.durationMs;
+    this.beginUsingPowerup(actualDurationMs);
+    this.sendPowerupUseState(true);
     return true;
   }
 
-  public useSword(durationMs: number = useToolDurationMs) {
-    return this.useTool(durationMs, "sword");
-  }
-
-  public usePowerup(
-    durationMs: number = useToolDurationMs,
-    powerup: PlayerPowerup = "miner",
+  public keepUsingPowerup(
+    durationMs: number,
+    powerup: PlayerPowerup = this.activePowerup,
   ) {
-    if (powerup !== "miner") {
-      return false;
+    if (powerup !== this.activePowerup) {
+      this.syncPowerupState(powerup);
     }
-    return this.useTool(durationMs, "pickaxe");
+    if (!this.isUsingPowerup) {
+      return this.usePowerup(durationMs);
+    }
+    this.usePowerupTimeRemainingMs = Math.max(
+      this.usePowerupTimeRemainingMs,
+      durationMs,
+    );
+    this.sendPowerupUseState(true);
+    return true;
   }
 
   public knockBackFrom(actor: ex.Actor) {
@@ -388,8 +308,19 @@ export class Player extends MovingActor {
     return this.activePowerup;
   }
 
-  public syncPowerupState(powerup: PlayerPowerup) {
+  public currentPowerupCan(behavior: PowerupBehavior) {
+    return powerupHasBehavior(this.activePowerup, behavior);
+  }
+
+  public syncPowerupState(powerup: unknown) {
+    if (!isPlayerPowerup(powerup)) {
+      return;
+    }
+    if (powerup === this.activePowerup) {
+      return;
+    }
     this.activePowerup = powerup;
+    this.applyPowerupVisuals(powerup);
   }
 
   public syncHealth(health: unknown) {
@@ -443,67 +374,12 @@ export class Player extends MovingActor {
     this.syncHealthState();
   }
 
-  public swordHitBounds(): WorldBounds | null {
-    if (this.isPaused) {
-      return null;
-    }
-    if (!this.isUsingTool || this.activeTool !== "sword") {
-      return null;
-    }
-    const offset = this.currentSwordHitboxOffset();
-    const left = this.facingLeft
-      ? this.pos.x + offset.x - TILE_PX
-      : this.pos.x + offset.x;
-    const top = this.pos.y + offset.y - TILE_PX;
-    const insetLeft = left + swordHitboxInsetX;
-    const insetTop = top + swordHitboxInsetY;
-    return {
-      left: insetLeft,
-      right: insetLeft + swordHitboxWidth,
-      top: insetTop,
-      bottom: insetTop + swordHitboxHeight,
-    };
-  }
-
-  public keepUsingTool(durationMs: number, tool: PlayerTool = "pickaxe") {
-    if (this.isPaused) {
-      return false;
-    }
-    if (!this.isUsingTool) {
-      return this.useTool(durationMs, tool);
-    }
-    const didChangeTool = this.activeTool !== tool;
-    this.setActiveTool(tool);
-    this.useToolTimeRemainingMs = Math.max(
-      this.useToolTimeRemainingMs,
-      durationMs,
-    );
-    if (didChangeTool) {
-      this.sendToolUseState(true, tool);
-    }
-    return true;
-  }
-
-  public keepUsingPowerup(
-    durationMs: number,
-    powerup: PlayerPowerup = "miner",
-  ) {
-    if (powerup !== "miner") {
-      return false;
-    }
-    return this.keepUsingTool(durationMs, "pickaxe");
-  }
-
-  public stopUsingToolAction() {
-    if (!this.isUsingTool) {
+  public stopUsingPowerupAction() {
+    if (!this.isUsingPowerup) {
       return;
     }
-    this.stopUsingTool();
-    this.sendToolUseState(false);
-  }
-
-  public stopUsingPowerupAction() {
-    this.stopUsingToolAction();
+    this.stopUsingPowerup();
+    this.sendPowerupUseState(false);
   }
 
   public syncPauseState(isPaused: boolean) {
@@ -538,152 +414,109 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
-    this.stopUsingTool();
+    this.stopUsingPowerup();
     this.walkAnimation.pause();
     this.currentVisual = "idle";
     this.graphics.use(this.idleSprite);
   }
 
-  public syncToolUseState(
-    isUsingTool: boolean,
-    durationMs: number = useToolDurationMs,
-    tool: unknown = "pickaxe",
+  public syncPowerupUseState(
+    isUsingPowerup: boolean,
+    durationMs?: number,
+    powerup: unknown = this.activePowerup,
   ) {
-    const activeTool = playerToolFrom(tool);
-    if (isUsingTool && !this.isUsingTool) {
-      this.beginUsingTool(durationMs, activeTool);
+    if (isPlayerPowerup(powerup) && powerup !== this.activePowerup) {
+      this.syncPowerupState(powerup);
+    }
+    const actualDurationMs = durationMs ?? this.usePowerupAnimation.durationMs;
+    if (isUsingPowerup && !this.isUsingPowerup) {
+      this.beginUsingPowerup(actualDurationMs);
       return;
     }
-    if (isUsingTool && this.isUsingTool) {
-      this.setActiveTool(activeTool);
-      this.useToolTimeRemainingMs = Math.max(
-        this.useToolTimeRemainingMs,
-        durationMs,
+    if (isUsingPowerup && this.isUsingPowerup) {
+      this.usePowerupTimeRemainingMs = Math.max(
+        this.usePowerupTimeRemainingMs,
+        actualDurationMs,
       );
       return;
     }
-    if (!isUsingTool && this.isUsingTool) {
-      this.stopUsingTool();
+    if (!isUsingPowerup && this.isUsingPowerup) {
+      this.stopUsingPowerup();
     }
   }
 
-  public syncPowerupUseState(
-    isUsingPowerup: boolean,
-    durationMs: number = useToolDurationMs,
-    powerup: unknown = "miner",
-  ) {
-    this.syncToolUseState(isUsingPowerup, durationMs, powerup);
-  }
-
-  private beginUsingTool(durationMs: number, tool: PlayerTool) {
-    this.isUsingTool = true;
-    this.setActiveTool(tool);
-    this.useToolTimeRemainingMs = durationMs;
-    this.useToolElapsedMs = 0;
+  private beginUsingPowerup(durationMs: number) {
+    this.usePowerupTimeRemainingMs = durationMs;
     if (this.currentVisual === "walk") {
       this.walkAnimation.pause();
     }
-    this.currentVisual = "useTool";
-    this.useToolAnimation.reset();
-    this.graphics.use(this.useToolAnimation);
-    this.useToolAnimation.play();
+    this.currentVisual = "usePowerup";
+    this.usePowerupAnimation.reset();
+    this.graphics.use(this.usePowerupAnimation.graphic);
+    this.usePowerupAnimation.play();
+    this.usePowerupAnimation.update(0, this.facingLeft);
   }
 
-  private stopUsingTool() {
-    this.isUsingTool = false;
-    this.useToolTimeRemainingMs = 0;
-    this.activePowerup = "none";
-    this.toolActor.pos = useToolHiddenOffset();
-    this.toolActor.graphics.visible = false;
-    this.toolActor.graphics.opacity = 0;
-    this.swordHitboxActor.pos = useToolHiddenOffset();
-    this.swordHitboxActor.graphics.visible = false;
-    this.swordHitboxActor.graphics.opacity = 0;
-    if (this.currentVisual === "useTool") {
+  private stopUsingPowerup() {
+    this.usePowerupTimeRemainingMs = 0;
+    this.usePowerupAnimation.pause();
+    this.usePowerupAnimation.hideAttachment();
+    if (this.currentVisual === "usePowerup") {
       this.currentVisual = "idle";
       this.graphics.use(this.idleSprite);
     }
   }
 
-  private updateToolUseTimer(delta: number) {
-    if (!this.isUsingTool) {
+  private applyPowerupVisuals(powerup: PlayerPowerup) {
+    const visuals = powerupVisualsFor(powerup, this.powerupAttachmentActor, TILE_PX);
+    const isWalking = this.currentVisual === "walk";
+    const isUsingPowerup = this.isUsingPowerup;
+    if (isWalking) {
+      this.walkAnimation.pause();
+    }
+    if (isUsingPowerup) {
+      this.usePowerupAnimation.pause();
+      this.usePowerupAnimation.hideAttachment();
+    }
+    this.idleSprite = visuals.idleSprite;
+    this.jumpSprite = visuals.jumpSprite;
+    this.crouchSprite = visuals.crouchSprite;
+    this.walkAnimation = visuals.walkAnimation;
+    this.usePowerupAnimation = visuals.usePowerupAnimation;
+    if (this.currentVisual === "idle") {
+      this.graphics.use(this.idleSprite);
+    }
+    if (this.currentVisual === "walk") {
+      this.walkAnimation.reset();
+      this.graphics.use(this.walkAnimation);
+      this.walkAnimation.play();
+    }
+    if (this.currentVisual === "jump") {
+      this.graphics.use(this.jumpSprite);
+    }
+    if (this.currentVisual === "crouch") {
+      this.graphics.use(this.crouchSprite);
+    }
+    if (this.currentVisual === "usePowerup") {
+      this.usePowerupAnimation.reset();
+      this.graphics.use(this.usePowerupAnimation.graphic);
+      this.usePowerupAnimation.play();
+    }
+    this.usePowerupAnimation.update(0, this.facingLeft);
+  }
+
+  private updatePowerupUseTimer(delta: number) {
+    if (!this.isUsingPowerup) {
+      this.usePowerupAnimation.hideAttachment();
       return;
     }
-    this.useToolTimeRemainingMs -= delta;
-    if (this.useToolTimeRemainingMs > 0) {
+    this.usePowerupAnimation.update(delta, this.facingLeft);
+    this.usePowerupTimeRemainingMs -= delta;
+    if (this.usePowerupTimeRemainingMs > 0) {
       return;
     }
-    this.stopUsingTool();
-    this.sendToolUseState(false);
-  }
-
-  private currentToolFrame() {
-    return useToolFrames[useToolFrameIndexAt(this.useToolElapsedMs)];
-  }
-
-  private currentToolOffset() {
-    const frame = this.currentToolFrame();
-    if (this.facingLeft) {
-      return ex.vec(TILE_PX - frame.offset.x, frame.offset.y);
-    }
-    return ex.vec(frame.offset.x, frame.offset.y);
-  }
-
-  private currentToolRotation() {
-    const frame = this.currentToolFrame();
-    return this.facingLeft ? -frame.rotation : frame.rotation;
-  }
-
-  private currentSwordHitboxOffset() {
-    if (this.facingLeft) {
-      return ex.vec(TILE_PX - swordHitboxOffset.x, swordHitboxOffset.y);
-    }
-    return swordHitboxOffset;
-  }
-
-  private syncSwordHitboxOutline() {
-    const swordHitBounds = this.swordHitBounds();
-    if (!this.isSwordHitboxOutlineEnabled || !swordHitBounds) {
-      this.swordHitboxActor.pos = useToolHiddenOffset();
-      this.swordHitboxActor.graphics.visible = false;
-      this.swordHitboxActor.graphics.opacity = 0;
-      return;
-    }
-    this.swordHitboxActor.pos = ex.vec(
-      swordHitBounds.left - this.pos.x,
-      swordHitBounds.top - this.pos.y,
-    );
-    this.swordHitboxActor.scale = swordHitboxOutlineScale;
-    this.swordHitboxActor.graphics.opacity = 1;
-    this.swordHitboxActor.graphics.visible = true;
-  }
-
-  private syncToolOverlay() {
-    if (!this.isUsingTool) {
-      this.toolActor.pos = useToolHiddenOffset();
-      this.toolActor.graphics.visible = false;
-      this.toolActor.graphics.opacity = 0;
-      this.syncSwordHitboxOutline();
-      return;
-    }
-    this.toolActor.pos = this.currentToolOffset();
-    this.toolActor.rotation = this.currentToolRotation();
-    this.toolActor.graphics.anchor = this.facingLeft
-      ? useToolMirroredAnchor
-      : useToolAnchor;
-    this.toolActor.graphics.flipHorizontal = this.facingLeft;
-    this.toolActor.graphics.opacity = 1;
-    this.toolActor.graphics.visible = true;
-    this.syncSwordHitboxOutline();
-  }
-
-  private updateToolOverlay(delta: number) {
-    if (!this.isUsingTool) {
-      this.syncToolOverlay();
-      return;
-    }
-    this.useToolElapsedMs += delta;
-    this.syncToolOverlay();
+    this.stopUsingPowerup();
+    this.sendPowerupUseState(false);
   }
 
   private currentPosition() {
@@ -808,9 +641,6 @@ export class Player extends MovingActor {
     if (this.isPaused) {
       return;
     }
-    if (this.didToggleSwordHitboxOutline(engine)) {
-      this.isSwordHitboxOutlineEnabled = !this.isSwordHitboxOutlineEnabled;
-    }
     const controlState = this.inputState.readKeyboard(engine, this.isFlying);
     this.isFlying = controlState.isFlying;
     if (controlState.didToggleFlying) {
@@ -819,27 +649,15 @@ export class Player extends MovingActor {
     }
   }
 
-  private didToggleSwordHitboxOutline(engine: ex.Engine) {
-    return swordHitboxOutlineToggleKeys.some((key) =>
-      engine.input.keyboard.wasPressed(key as ex.Keys),
-    );
-  }
-
   private canTurnFromInput() {
-    if (!this.isUsingTool) {
-      return true;
-    }
-    if (this.activeTool !== "sword") {
-      return true;
-    }
-    return this.useToolElapsedMs < swordFacingLockStartMs;
+    return true;
   }
 
   private syncPlayerVisuals(keySign: number) {
     if (this.canTurnFromInput()) {
       this.syncFacingFromHorizontalSign(keySign);
     }
-    if (this.isUsingTool) {
+    if (this.isUsingPowerup) {
       this.graphics.flipHorizontal = this.facingLeft;
       return;
     }
@@ -972,7 +790,7 @@ export class Player extends MovingActor {
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateDamageFeedback(delta);
     if (this.isPaused) {
-      this.updateToolOverlay(delta);
+      this.updatePowerupUseTimer(delta);
       return;
     }
     this.updateControls(engine);
@@ -1003,7 +821,6 @@ export class Player extends MovingActor {
     this.syncPlayerVisuals(keySign);
     this.onMove();
     this.syncMovementPeriodically(delta, isKnockbackActive);
-    this.updateToolOverlay(delta);
-    this.updateToolUseTimer(delta);
+    this.updatePowerupUseTimer(delta);
   }
 }
