@@ -2,6 +2,7 @@ import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
+import { PowerupPickup } from "./actors/PowerupPickup";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
@@ -15,6 +16,7 @@ import type {
   ParticleCreatePayload,
   PlayerDamageUpdate,
   PlayerKnockbackUpdate,
+  PlayerPowerup,
   TerrainBlockBreakUpdate,
   PlayerState,
   TerrainBlockUpdate,
@@ -40,8 +42,13 @@ const blockTargetingSlot = {
 };
 const remotePlayerPositionTolerance = 0.5;
 const pingIntervalMs = 2000;
+const minerPowerupSpawnColumns = [18, 34, 50, 66, 82, 98, 114];
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
+};
+const activateLocalPowerup = (powerup: PlayerPowerup) => {
+  toolbarSelection.setPowerup(powerup);
+  localPlayerSlot.player?.syncPowerupState(powerup);
 };
 const expireLocalPowerup = () => {
   localPlayerSlot.player?.stopBlockBreakAction();
@@ -95,8 +102,7 @@ const focusGameCanvas = (engine: ex.Engine) => {
     if (event.code !== "KeyR") {
       return;
     }
-    toolbarSelection.setPowerup("miner");
-    localPlayerSlot.player?.syncPowerupState("miner");
+    activateLocalPowerup("miner");
   });
 };
 
@@ -196,9 +202,9 @@ const addPlayerLight = (playerId: string, player: Player) => {
   }
   removePlayerLight(playerId);
   const source = DynamicLightSource.forActor(player, {
-    radius: TILE_PX * 7,
+    radius: TILE_PX * 6,
     intensity: 0.9,
-    isEnabled: () => player.isAlive(),
+    isEnabled: () => player.isAlive() && player.currentPowerup() === "miner",
   });
   playerLightById[playerId] = source;
   lighting.addDynamicLight(source);
@@ -220,6 +226,39 @@ const spawnPlayerAt = (
   game.add(playerById[playerId]);
   addPlayerLight(playerId, playerById[playerId]);
   return playerById[playerId];
+};
+
+const powerupPickupPosition = (
+  column: number,
+  surfaceStartByColumn: number[],
+) => ex.vec(column * TILE_PX, (surfaceStartByColumn[column] - 1) * TILE_PX);
+
+const canSpawnPowerupAt = (
+  column: number,
+  surfaceStartByColumn: number[],
+) => {
+  if (column < 0 || column >= surfaceStartByColumn.length) {
+    return false;
+  }
+  return surfaceStartByColumn[column] > 0;
+};
+
+const spawnMinerPowerupPickups = (
+  game: ex.Engine,
+  surfaceStartByColumn: number[],
+) => {
+  minerPowerupSpawnColumns
+    .filter((column) => canSpawnPowerupAt(column, surfaceStartByColumn))
+    .map(
+      (column) =>
+        new PowerupPickup({
+          pos: powerupPickupPosition(column, surfaceStartByColumn),
+          powerup: "miner",
+          player: () => localPlayerSlot.player,
+          onCollect: activateLocalPowerup,
+        }),
+    )
+    .forEach((pickup) => game.add(pickup));
 };
 
 const applyPositionFromPayloadIfPresent = (
@@ -529,6 +568,7 @@ game.start(loader).then(() => {
       game.add(tilemap);
       terrain.borders.forEach((border) => game.add(border));
       game.add(lighting);
+      spawnMinerPowerupPickups(game, world.surfaceStartByColumn);
 
       const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
       localPlayerSlot.player = new Player(

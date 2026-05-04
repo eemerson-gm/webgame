@@ -60,7 +60,7 @@ type CanvasContext = {
 };
 
 const maxLightLevel = 15;
-const maxShadowAlpha = 0.78;
+const maxShadowAlpha = 1;
 const sunlightSolidDrop = 3;
 const sunlightAirDrop = 1;
 const lampLightLevel = 14;
@@ -464,7 +464,10 @@ class TileLightingRaster extends ex.Raster {
       light.radius,
     );
     gradient.addColorStop(0, `rgba(0, 0, 0, ${light.intensity})`);
-    gradient.addColorStop(0.45, `rgba(0, 0, 0, ${light.intensity * 0.45})`);
+    gradient.addColorStop(0.22, `rgba(0, 0, 0, ${light.intensity * 0.88})`);
+    gradient.addColorStop(0.42, `rgba(0, 0, 0, ${light.intensity * 0.5})`);
+    gradient.addColorStop(0.6, `rgba(0, 0, 0, ${light.intensity * 0.12})`);
+    gradient.addColorStop(0.7, "rgba(0, 0, 0, 0)");
     gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
     ctx.fillStyle = gradient;
     ctx.fillRect(
