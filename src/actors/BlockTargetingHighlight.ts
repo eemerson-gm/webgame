@@ -200,7 +200,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     if (!update.isBreaking) {
       this.hideRemoteBreakAnimation(update.id);
-      remotePlayer?.syncPowerupUseState(false);
+      remotePlayer?.syncBlockBreakActionState(false);
       return;
     }
     const target = {
@@ -218,7 +218,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     const powerup = remotePlayer.currentPowerupCan("mine")
       ? remotePlayer.currentPowerup()
       : "none";
-    remotePlayer.syncPowerupUseState(true, Number.POSITIVE_INFINITY, powerup);
+    remotePlayer.syncBlockBreakActionState(true, Number.POSITIVE_INFINITY, powerup);
   }
 
   public removeRemoteBreakAnimation(playerId: string) {
@@ -447,7 +447,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     if (toolbarSelection.selectedPowerupCan("mine")) {
       if (
-        !localPlayer.keepUsingPowerup(
+        !localPlayer.keepBreakingBlock(
           Number.POSITIVE_INFINITY,
           toolbarSelection.powerup(),
         )
@@ -456,7 +456,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       }
     }
     if (!toolbarSelection.selectedPowerupCan("mine")) {
-      if (!localPlayer.keepUsingPowerup(Number.POSITIVE_INFINITY, "none")) {
+      if (!localPlayer.keepBreakingBlock(Number.POSITIVE_INFINITY, "none")) {
         return;
       }
     }
@@ -551,7 +551,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.breakParticleState = null;
     this.breakAnimationActor.pos = hiddenActorPosition();
     if (wasBreakingTarget) {
-      this.getLocalPlayer()?.stopUsingPowerupAction();
+      this.getLocalPlayer()?.stopBlockBreakAction();
     }
   }
 

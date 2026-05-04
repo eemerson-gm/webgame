@@ -6,7 +6,7 @@ import {
 } from "./AttachedVisualAnimation";
 
 const walkFrameDurationMs = 120;
-const usePowerupFrameDurationMs = 75;
+const actionFrameDurationMs = 75;
 const minerPowerupDurationMs = 30000;
 
 type ResourceKey = Exclude<keyof typeof Resources, "GameFont">;
@@ -14,6 +14,34 @@ type PowerupFrame = {
   sprite: ResourceKey;
 };
 export type PowerupBehavior = "mine";
+export type PowerupAction = "blockBreak" | "activeUse";
+
+export type HatPose = {
+  offset: ex.Vector;
+  visible?: boolean;
+};
+
+export type PowerupHatPoses = {
+  idle?: HatPose;
+  jump?: HatPose;
+  crouch?: HatPose;
+  walk?: readonly HatPose[];
+  actions?: Partial<Record<PowerupAction, readonly HatPose[]>>;
+};
+
+export type PowerupHatVisual = {
+  sprite: ex.Sprite;
+  poses: PowerupHatPoses;
+};
+
+type PowerupActionDefinition = {
+  frames: readonly PowerupFrame[];
+  frameDurationMs: number;
+  attachment?: {
+    sprite: ResourceKey;
+    poses: readonly AttachedVisualPose[];
+  };
+};
 
 type PowerupDefinition = {
   behaviors: readonly PowerupBehavior[];
@@ -30,14 +58,20 @@ type PowerupDefinition = {
       frameDurationMs: number;
     };
   };
-  use: {
-    frames: readonly PowerupFrame[];
-    frameDurationMs: number;
-    attachment?: {
-      sprite: ResourceKey;
-      poses: readonly AttachedVisualPose[];
-    };
+  hat?: {
+    sprite: ResourceKey;
+    poses: PowerupHatPoses;
   };
+  actions: {
+    blockBreak: PowerupActionDefinition;
+    activeUse?: PowerupActionDefinition;
+  };
+};
+
+export type PowerupActionVisuals = Partial<
+  Record<PowerupAction, AttachedVisualAnimation>
+> & {
+  blockBreak: AttachedVisualAnimation;
 };
 
 export type PowerupVisuals = {
@@ -46,30 +80,42 @@ export type PowerupVisuals = {
   jumpSprite: ex.Sprite;
   crouchSprite: ex.Sprite;
   walkAnimation: ex.Animation;
-  usePowerupAnimation: AttachedVisualAnimation;
+  walkFrameDurationMs: number;
+  walkFrameCount: number;
+  hat?: PowerupHatVisual;
+  actions: PowerupActionVisuals;
 };
 
-const playerFrame = (sprite: ResourceKey): PowerupFrame => ({
-  sprite,
-});
-
 const defaultWalkFrames = [
-  playerFrame("PlayerWalk1"),
-  playerFrame("PlayerWalk2"),
+  { sprite: "PlayerWalk1" },
+  { sprite: "PlayerWalk2" },
 ] as const;
 
-const defaultUsePowerupFrames = [
-  playerFrame("PlayerUseTool1"),
-  playerFrame("PlayerUseTool2"),
-  playerFrame("PlayerUseTool3"),
-  playerFrame("PlayerUseTool4"),
-  playerFrame("PlayerUseTool5"),
+const defaultToolActionFrames = [
+  { sprite: "PlayerUseTool1" },
+  { sprite: "PlayerUseTool2" },
+  { sprite: "PlayerUseTool3" },
+  { sprite: "PlayerUseTool4" },
+  { sprite: "PlayerUseTool5" },
 ] as const;
+
+const minerHatWalkPoses = [
+  { offset: ex.vec(0, 5) },
+  { offset: ex.vec(0, 6) },
+] as const satisfies readonly HatPose[];
+
+const minerHatBlockBreakPoses = [
+  { offset: ex.vec(0, 5) },
+  { offset: ex.vec(0, 5) },
+  { offset: ex.vec(1, 5) },
+  { offset: ex.vec(1, 6) },
+  { offset: ex.vec(0, 6) },
+] as const satisfies readonly HatPose[];
 
 const defaultPunchFrames = [
-  playerFrame("PlayerPunch1"),
-  playerFrame("PlayerPunch2"),
-  playerFrame("PlayerPunch3"),
+  { sprite: "PlayerPunch1" },
+  { sprite: "PlayerPunch2" },
+  { sprite: "PlayerPunch3" },
 ] as const;
 
 const toolAttachmentPoses = [
@@ -103,17 +149,19 @@ const powerupDefinitionsConfig = {
     durationMs: 0,
     breakDurationMultiplier: 3,
     body: {
-      idle: playerFrame("Player"),
-      jump: playerFrame("PlayerJump"),
-      crouch: playerFrame("PlayerCrouch"),
+      idle: { sprite: "Player" },
+      jump: { sprite: "PlayerJump" },
+      crouch: { sprite: "PlayerCrouch" },
       walk: {
         frames: defaultWalkFrames,
         frameDurationMs: walkFrameDurationMs,
       },
     },
-    use: {
-      frames: defaultPunchFrames,
-      frameDurationMs: usePowerupFrameDurationMs,
+    actions: {
+      blockBreak: {
+        frames: defaultPunchFrames,
+        frameDurationMs: actionFrameDurationMs,
+      },
     },
   },
   miner: {
@@ -123,20 +171,34 @@ const powerupDefinitionsConfig = {
     durationMs: minerPowerupDurationMs,
     breakDurationMultiplier: 1,
     body: {
-      idle: playerFrame("Player"),
-      jump: playerFrame("PlayerJump"),
-      crouch: playerFrame("PlayerCrouch"),
+      idle: { sprite: "Player" },
+      jump: { sprite: "PlayerJump" },
+      crouch: { sprite: "PlayerCrouch" },
       walk: {
         frames: defaultWalkFrames,
         frameDurationMs: walkFrameDurationMs,
       },
     },
-    use: {
-      frames: defaultUsePowerupFrames,
-      frameDurationMs: usePowerupFrameDurationMs,
-      attachment: {
-        sprite: "BronzePickaxe",
-        poses: toolAttachmentPoses,
+    hat: {
+      sprite: "MinerHat",
+      poses: {
+        idle: { offset: ex.vec(0, 5) },
+        jump: { offset: ex.vec(0, 5) },
+        crouch: { offset: ex.vec(0, 7) },
+        walk: minerHatWalkPoses,
+        actions: {
+          blockBreak: minerHatBlockBreakPoses,
+        },
+      },
+    },
+    actions: {
+      blockBreak: {
+        frames: defaultToolActionFrames,
+        frameDurationMs: actionFrameDurationMs,
+        attachment: {
+          sprite: "BronzePickaxe",
+          poses: toolAttachmentPoses,
+        },
       },
     },
   },
@@ -171,6 +233,28 @@ const animationFor = (
     strategy: ex.AnimationStrategy.Loop,
   });
 
+const actionAnimationFor = (
+  action: PowerupActionDefinition,
+  attachmentActor: ex.Actor,
+  mirrorWidth: number,
+  onFrame: () => void,
+) =>
+  new AttachedVisualAnimation({
+    frames: action.frames.map((frame, index) => ({
+      graphic: spriteForFrame(frame),
+      attachment:
+        action.attachment?.poses[index] ?? action.attachment?.poses[0],
+    })),
+    frameDurationMs: action.frameDurationMs,
+    attachmentActor,
+    attachmentSprite: action.attachment
+      ? spriteFor(action.attachment.sprite)
+      : undefined,
+    mirrorWidth,
+    strategy: ex.AnimationStrategy.Loop,
+    onFrame,
+  });
+
 export const isPlayerPowerup = (value: unknown): value is PlayerPowerup =>
   typeof value === "string" && powerupIds.includes(value as PlayerPowerup);
 
@@ -198,9 +282,10 @@ export const powerupVisualsFor = (
   powerup: PlayerPowerup,
   attachmentActor: ex.Actor,
   mirrorWidth: number,
+  onActionFrame: () => void,
 ): PowerupVisuals => {
   const definition = powerupDefinitionFor(powerup);
-  const attachment = definition.use.attachment;
+  const activeUse = definition.actions.activeUse;
   return {
     toolbarIcon: spriteFor(definition.toolbarIcon),
     idleSprite: spriteForFrame(definition.body.idle),
@@ -210,16 +295,31 @@ export const powerupVisualsFor = (
       definition.body.walk.frames,
       definition.body.walk.frameDurationMs,
     ),
-    usePowerupAnimation: new AttachedVisualAnimation({
-      frames: definition.use.frames.map((frame, index) => ({
-        graphic: spriteForFrame(frame),
-        attachment: attachment?.poses[index] ?? attachment?.poses[0],
-      })),
-      frameDurationMs: definition.use.frameDurationMs,
-      attachmentActor,
-      attachmentSprite: attachment ? spriteFor(attachment.sprite) : undefined,
-      mirrorWidth,
-      strategy: ex.AnimationStrategy.Loop,
-    }),
+    walkFrameDurationMs: definition.body.walk.frameDurationMs,
+    walkFrameCount: definition.body.walk.frames.length,
+    hat: definition.hat
+      ? {
+          sprite: spriteFor(definition.hat.sprite),
+          poses: definition.hat.poses,
+        }
+      : undefined,
+    actions: {
+      blockBreak: actionAnimationFor(
+        definition.actions.blockBreak,
+        attachmentActor,
+        mirrorWidth,
+        onActionFrame,
+      ),
+      ...(activeUse
+        ? {
+            activeUse: actionAnimationFor(
+              activeUse,
+              attachmentActor,
+              mirrorWidth,
+              onActionFrame,
+            ),
+          }
+        : {}),
+    },
   };
 };

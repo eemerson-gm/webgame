@@ -18,6 +18,7 @@ type AttachedVisualAnimationOptions = {
   attachmentSprite?: ex.Sprite;
   mirrorWidth: number;
   strategy?: ex.AnimationStrategy;
+  onFrame?: (frameIndex: number) => void;
 };
 
 const attachmentAnchor = ex.vec(0, 1);
@@ -30,8 +31,8 @@ export class AttachedVisualAnimation {
   private readonly frameData: Array<AttachedVisualPose | undefined>;
   private readonly frameDurationMs: number;
   private readonly mirrorWidth: number;
-  private readonly strategy: ex.AnimationStrategy;
-  private elapsedMs = 0;
+  private currentAnimationFrameIndex = 0;
+  private lastFacingLeft = false;
   private isPlaying = false;
 
   constructor(options: AttachedVisualAnimationOptions) {
@@ -45,7 +46,11 @@ export class AttachedVisualAnimation {
     this.frameData = options.frames.map(({ attachment }) => attachment);
     this.frameDurationMs = options.frameDurationMs;
     this.mirrorWidth = options.mirrorWidth;
-    this.strategy = options.strategy ?? ex.AnimationStrategy.Loop;
+    this.animation.events.on("frame", (frame) => {
+      this.currentAnimationFrameIndex = frame.frameIndex;
+      this.syncAttachment(this.lastFacingLeft);
+      options.onFrame?.(frame.frameIndex);
+    });
     if (this.attachmentSprite) {
       this.attachmentActor.graphics.use(this.attachmentSprite);
     }
@@ -71,7 +76,7 @@ export class AttachedVisualAnimation {
   }
 
   reset() {
-    this.elapsedMs = 0;
+    this.currentAnimationFrameIndex = 0;
     this.animation.reset();
   }
 
@@ -79,7 +84,7 @@ export class AttachedVisualAnimation {
     if (!this.isPlaying) {
       return;
     }
-    this.elapsedMs += deltaMs;
+    this.lastFacingLeft = facingLeft;
     this.syncAttachment(facingLeft);
   }
 
@@ -89,15 +94,8 @@ export class AttachedVisualAnimation {
     this.attachmentActor.graphics.opacity = 0;
   }
 
-  private get currentFrameIndex() {
-    if (this.frameData.length === 0) {
-      return 0;
-    }
-    const nextFrameIndex = Math.floor(this.elapsedMs / this.frameDurationMs);
-    if (this.strategy === ex.AnimationStrategy.Loop) {
-      return nextFrameIndex % this.frameData.length;
-    }
-    return Math.min(nextFrameIndex, this.frameData.length - 1);
+  get currentFrameIndex() {
+    return this.currentAnimationFrameIndex;
   }
 
   private get currentFrameData() {

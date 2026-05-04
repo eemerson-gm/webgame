@@ -11,7 +11,10 @@ import {
   isPlayerPowerup,
   powerupHasBehavior,
   powerupVisualsFor,
+  type HatPose,
+  type PowerupAction,
   type PowerupBehavior,
+  type PowerupHatVisual,
 } from "../classes/Powerups";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
@@ -62,7 +65,8 @@ const serverMovementPositionThreshold = 0.5;
 const serverMovementSpeedThreshold = 0.05;
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 const sleepBubbleAnchor = ex.vec(0.5, 1);
-type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "usePowerup";
+const hatAnchor = ex.vec(0.5, 1);
+type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "blockBreakAction";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
@@ -81,12 +85,15 @@ export class Player extends MovingActor {
   private crouchSprite: ex.Sprite = Resources.PlayerCrouch.toSprite();
   private sleepBubbleActor: ex.Actor;
   private powerupAttachmentActor: ex.Actor;
+  private hatActor: ex.Actor;
   private damageFlash: DamageFlash;
   private currentVisual: PlayerVisual = "idle";
   private activePowerup: PlayerPowerup = "none";
+  private activeHat?: PowerupHatVisual;
   private walkAnimation!: ex.Animation;
-  private usePowerupAnimation!: AttachedVisualAnimation;
-  private usePowerupTimeRemainingMs: number = 0;
+  private walkAnimationFrameIndex: number = 0;
+  private blockBreakAnimation!: AttachedVisualAnimation;
+  private blockBreakActionTimeRemainingMs: number = 0;
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
@@ -125,6 +132,15 @@ export class Player extends MovingActor {
       height: TILE_PX,
       z: -1,
     });
+    this.hatActor = new ex.Actor({
+      pos: attachedVisualHiddenPosition(),
+      anchor: hatAnchor,
+      width: TILE_PX,
+      height: TILE_PX,
+      z: 12,
+    });
+    this.hatActor.graphics.anchor = hatAnchor;
+    this.hideHat();
     this.applyPowerupVisuals("none");
     this.sleepBubbleActor = new ex.Actor({
       pos: sleepBubbleOffset,
@@ -176,13 +192,18 @@ export class Player extends MovingActor {
   }
 
   get isUsingPowerup() {
-    return this.usePowerupTimeRemainingMs > 0;
+    return this.isBreakingBlock;
+  }
+
+  get isBreakingBlock() {
+    return this.blockBreakActionTimeRemainingMs > 0;
   }
 
   override onInitialize(engine: ex.Engine) {
     this.walkAnimation.pause();
     this.graphics.use(this.idleSprite);
     this.addChild(this.powerupAttachmentActor);
+    this.addChild(this.hatActor);
     this.addChild(this.sleepBubbleActor);
     this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
@@ -220,44 +241,44 @@ export class Player extends MovingActor {
     this.syncPosition();
   }
 
-  private sendPowerupUseState(isUsingPowerup: boolean) {
+  private sendBlockBreakActionState(isBreakingBlock: boolean) {
     const position = this.currentPosition();
     const activePowerup = this.activePowerup;
     this.sendClient(messageTypes.updatePlayer, {
-      isUsingPowerup,
+      isUsingPowerup: isBreakingBlock,
       activePowerup,
       ...position,
     });
   }
 
-  public usePowerup(durationMs?: number) {
+  public beginBlockBreakAction(durationMs?: number) {
     if (this.isPaused) {
       return false;
     }
-    if (this.isUsingPowerup) {
+    if (this.isBreakingBlock) {
       return false;
     }
-    const actualDurationMs = durationMs ?? this.usePowerupAnimation.durationMs;
-    this.beginUsingPowerup(actualDurationMs);
-    this.sendPowerupUseState(true);
+    const actualDurationMs = durationMs ?? this.blockBreakAnimation.durationMs;
+    this.beginBlockBreakActionVisual(actualDurationMs);
+    this.sendBlockBreakActionState(true);
     return true;
   }
 
-  public keepUsingPowerup(
+  public keepBreakingBlock(
     durationMs: number,
     powerup: PlayerPowerup = this.activePowerup,
   ) {
     if (powerup !== this.activePowerup) {
       this.syncPowerupState(powerup);
     }
-    if (!this.isUsingPowerup) {
-      return this.usePowerup(durationMs);
+    if (!this.isBreakingBlock) {
+      return this.beginBlockBreakAction(durationMs);
     }
-    this.usePowerupTimeRemainingMs = Math.max(
-      this.usePowerupTimeRemainingMs,
+    this.blockBreakActionTimeRemainingMs = Math.max(
+      this.blockBreakActionTimeRemainingMs,
       durationMs,
     );
-    this.sendPowerupUseState(true);
+    this.sendBlockBreakActionState(true);
     return true;
   }
 
@@ -382,12 +403,12 @@ export class Player extends MovingActor {
     this.syncHealthState();
   }
 
-  public stopUsingPowerupAction() {
-    if (!this.isUsingPowerup) {
+  public stopBlockBreakAction() {
+    if (!this.isBreakingBlock) {
       return;
     }
-    this.stopUsingPowerup();
-    this.sendPowerupUseState(false);
+    this.stopBlockBreakActionVisual();
+    this.sendBlockBreakActionState(false);
   }
 
   public syncPauseState(isPaused: boolean) {
@@ -422,79 +443,91 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
-    this.stopUsingPowerup();
+    this.stopBlockBreakActionVisual();
     this.walkAnimation.pause();
     this.currentVisual = "idle";
     this.graphics.use(this.idleSprite);
+    this.syncHat();
   }
 
-  public syncPowerupUseState(
-    isUsingPowerup: boolean,
+  public syncBlockBreakActionState(
+    isBreakingBlock: boolean,
     durationMs?: number,
     powerup: unknown = this.activePowerup,
   ) {
     if (isPlayerPowerup(powerup) && powerup !== this.activePowerup) {
       this.syncPowerupState(powerup);
     }
-    const actualDurationMs = durationMs ?? this.usePowerupAnimation.durationMs;
-    if (isUsingPowerup && !this.isUsingPowerup) {
-      this.beginUsingPowerup(actualDurationMs);
+    const actualDurationMs = durationMs ?? this.blockBreakAnimation.durationMs;
+    if (isBreakingBlock && !this.isBreakingBlock) {
+      this.beginBlockBreakActionVisual(actualDurationMs);
       return;
     }
-    if (isUsingPowerup && this.isUsingPowerup) {
-      this.usePowerupTimeRemainingMs = Math.max(
-        this.usePowerupTimeRemainingMs,
+    if (isBreakingBlock && this.isBreakingBlock) {
+      this.blockBreakActionTimeRemainingMs = Math.max(
+        this.blockBreakActionTimeRemainingMs,
         actualDurationMs,
       );
       return;
     }
-    if (!isUsingPowerup && this.isUsingPowerup) {
-      this.stopUsingPowerup();
+    if (!isBreakingBlock && this.isBreakingBlock) {
+      this.stopBlockBreakActionVisual();
     }
   }
 
-  private beginUsingPowerup(durationMs: number) {
-    this.usePowerupTimeRemainingMs = durationMs;
+  private beginBlockBreakActionVisual(durationMs: number) {
+    this.blockBreakActionTimeRemainingMs = durationMs;
     if (this.currentVisual === "walk") {
       this.walkAnimation.pause();
     }
-    this.currentVisual = "usePowerup";
-    this.usePowerupAnimation.reset();
-    this.graphics.use(this.usePowerupAnimation.graphic);
-    this.usePowerupAnimation.play();
-    this.usePowerupAnimation.update(0, this.facingLeft);
+    this.currentVisual = "blockBreakAction";
+    this.blockBreakAnimation.reset();
+    this.graphics.use(this.blockBreakAnimation.graphic);
+    this.blockBreakAnimation.play();
+    this.blockBreakAnimation.update(0, this.facingLeft);
+    this.syncHat();
   }
 
-  private stopUsingPowerup() {
-    this.usePowerupTimeRemainingMs = 0;
-    this.usePowerupAnimation.pause();
-    this.usePowerupAnimation.hideAttachment();
-    if (this.currentVisual === "usePowerup") {
+  private stopBlockBreakActionVisual() {
+    this.blockBreakActionTimeRemainingMs = 0;
+    this.blockBreakAnimation.pause();
+    this.blockBreakAnimation.hideAttachment();
+    if (this.currentVisual === "blockBreakAction") {
       this.currentVisual = "idle";
       this.graphics.use(this.idleSprite);
     }
+    this.syncHat();
   }
 
   private applyPowerupVisuals(powerup: PlayerPowerup) {
-    const visuals = powerupVisualsFor(powerup, this.powerupAttachmentActor, TILE_PX);
+    const visuals = powerupVisualsFor(powerup, this.powerupAttachmentActor, TILE_PX, () =>
+      this.syncHat(),
+    );
     const isWalking = this.currentVisual === "walk";
-    const isUsingPowerup = this.isUsingPowerup;
+    const isBreakingBlock = this.isBreakingBlock;
     if (isWalking) {
       this.walkAnimation.pause();
     }
-    if (isUsingPowerup) {
-      this.usePowerupAnimation.pause();
-      this.usePowerupAnimation.hideAttachment();
+    if (isBreakingBlock) {
+      this.blockBreakAnimation.pause();
+      this.blockBreakAnimation.hideAttachment();
     }
     this.idleSprite = visuals.idleSprite;
     this.jumpSprite = visuals.jumpSprite;
     this.crouchSprite = visuals.crouchSprite;
     this.walkAnimation = visuals.walkAnimation;
-    this.usePowerupAnimation = visuals.usePowerupAnimation;
+    this.walkAnimation.events.on("frame", (frame) => {
+      this.walkAnimationFrameIndex = frame.frameIndex;
+      this.syncHat();
+    });
+    this.blockBreakAnimation = visuals.actions.blockBreak;
+    this.activeHat = visuals.hat;
+    this.applyHatVisual();
     if (this.currentVisual === "idle") {
       this.graphics.use(this.idleSprite);
     }
     if (this.currentVisual === "walk") {
+      this.walkAnimationFrameIndex = 0;
       this.walkAnimation.reset();
       this.graphics.use(this.walkAnimation);
       this.walkAnimation.play();
@@ -505,26 +538,88 @@ export class Player extends MovingActor {
     if (this.currentVisual === "crouch") {
       this.graphics.use(this.crouchSprite);
     }
-    if (this.currentVisual === "usePowerup") {
-      this.usePowerupAnimation.reset();
-      this.graphics.use(this.usePowerupAnimation.graphic);
-      this.usePowerupAnimation.play();
+    if (this.currentVisual === "blockBreakAction") {
+      this.blockBreakAnimation.reset();
+      this.graphics.use(this.blockBreakAnimation.graphic);
+      this.blockBreakAnimation.play();
     }
-    this.usePowerupAnimation.update(0, this.facingLeft);
+    this.blockBreakAnimation.update(0, this.facingLeft);
+    this.syncHat();
   }
 
-  private updatePowerupUseTimer(delta: number) {
-    if (!this.isUsingPowerup) {
-      this.usePowerupAnimation.hideAttachment();
+  private updateBlockBreakActionTimer(delta: number) {
+    if (!this.isBreakingBlock) {
+      this.blockBreakAnimation.hideAttachment();
+      this.syncHat();
       return;
     }
-    this.usePowerupAnimation.update(delta, this.facingLeft);
-    this.usePowerupTimeRemainingMs -= delta;
-    if (this.usePowerupTimeRemainingMs > 0) {
+    this.blockBreakAnimation.update(delta, this.facingLeft);
+    this.blockBreakActionTimeRemainingMs -= delta;
+    this.syncHat();
+    if (this.blockBreakActionTimeRemainingMs > 0) {
       return;
     }
-    this.stopUsingPowerup();
-    this.sendPowerupUseState(false);
+    this.stopBlockBreakActionVisual();
+    this.sendBlockBreakActionState(false);
+  }
+
+  private applyHatVisual() {
+    const hat = this.activeHat;
+    if (!hat) {
+      this.hideHat();
+      return;
+    }
+    this.hatActor.graphics.use(hat.sprite);
+    this.hatActor.graphics.anchor = hatAnchor;
+  }
+
+  private hideHat() {
+    this.hatActor.pos = attachedVisualHiddenPosition();
+    this.hatActor.graphics.visible = false;
+    this.hatActor.graphics.opacity = 0;
+  }
+
+  private syncHat() {
+    const hat = this.activeHat;
+    const pose = this.currentHatPose();
+    if (!hat || !pose || pose.visible === false) {
+      this.hideHat();
+      return;
+    }
+    const offsetX = this.facingLeft ? -pose.offset.x : pose.offset.x;
+    this.hatActor.pos = ex.vec(TILE_PX / 2 + offsetX, pose.offset.y);
+    this.hatActor.graphics.anchor = hatAnchor;
+    this.hatActor.graphics.flipHorizontal = this.facingLeft;
+    this.hatActor.graphics.visible = true;
+    this.hatActor.graphics.opacity = 1;
+  }
+
+  private currentHatPose() {
+    const poses = this.activeHat?.poses;
+    if (!poses) {
+      return undefined;
+    }
+    if (this.currentVisual === "idle") {
+      return poses.idle;
+    }
+    if (this.currentVisual === "jump") {
+      return poses.jump;
+    }
+    if (this.currentVisual === "crouch") {
+      return poses.crouch;
+    }
+    if (this.currentVisual === "walk") {
+      return this.hatPoseAt(poses.walk, this.walkAnimationFrameIndex);
+    }
+    return this.hatActionPoseAt("blockBreak", this.blockBreakAnimation.currentFrameIndex);
+  }
+
+  private hatActionPoseAt(action: PowerupAction, frameIndex: number) {
+    return this.hatPoseAt(this.activeHat?.poses.actions?.[action], frameIndex);
+  }
+
+  private hatPoseAt(poses: readonly HatPose[] | undefined, frameIndex: number) {
+    return poses?.[frameIndex] ?? poses?.[0];
   }
 
   private currentPosition() {
@@ -665,8 +760,9 @@ export class Player extends MovingActor {
     if (this.canTurnFromInput()) {
       this.syncFacingFromHorizontalSign(keySign);
     }
-    if (this.isUsingPowerup) {
+    if (this.isBreakingBlock) {
       this.graphics.flipHorizontal = this.facingLeft;
+      this.syncHat();
       return;
     }
     const nextVisual: PlayerVisual = !this.isGrounded
@@ -685,6 +781,7 @@ export class Player extends MovingActor {
         this.graphics.use(this.idleSprite);
       }
       if (nextVisual === "walk") {
+        this.walkAnimationFrameIndex = 0;
         this.walkAnimation.reset();
         this.graphics.use(this.walkAnimation);
         this.walkAnimation.play();
@@ -697,6 +794,7 @@ export class Player extends MovingActor {
       }
     }
     this.graphics.flipHorizontal = this.facingLeft;
+    this.syncHat();
   }
 
   private horizontalAccelerationFor(keySign: number) {
@@ -798,7 +896,7 @@ export class Player extends MovingActor {
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.updateDamageFeedback(delta);
     if (this.isPaused) {
-      this.updatePowerupUseTimer(delta);
+      this.updateBlockBreakActionTimer(delta);
       return;
     }
     this.updateControls(engine);
@@ -829,6 +927,6 @@ export class Player extends MovingActor {
     this.syncPlayerVisuals(keySign);
     this.onMove();
     this.syncMovementPeriodically(delta, isKnockbackActive);
-    this.updatePowerupUseTimer(delta);
+    this.updateBlockBreakActionTimer(delta);
   }
 }

@@ -44,7 +44,7 @@ const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
 const expireLocalPowerup = () => {
-  localPlayerSlot.player?.stopUsingPowerupAction();
+  localPlayerSlot.player?.stopBlockBreakAction();
   localPlayerSlot.player?.syncPowerupState("none");
 };
 const addLocalPauseListeners = () => {
@@ -255,7 +255,7 @@ const syncMovementFieldsFromPayload = (
     player.syncPowerupState(payload.activePowerup);
   }
   if (payload.isUsingPowerup !== undefined) {
-    player.syncPowerupUseState(
+    player.syncBlockBreakActionState(
       payload.isUsingPowerup,
       undefined,
       payload.activePowerup,
