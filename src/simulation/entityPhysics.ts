@@ -52,16 +52,16 @@ export const overlapsWorldBounds = (
   entity: Pick<EntityPhysicsState, "x" | "y" | "width" | "height">,
   bounds: WorldBounds,
 ) => {
-  if (entity.x + entity.width < bounds.left) {
+  if (entity.x + entity.width <= bounds.left) {
     return false;
   }
-  if (entity.x > bounds.right) {
+  if (entity.x >= bounds.right) {
     return false;
   }
-  if (entity.y + entity.height < bounds.top) {
+  if (entity.y + entity.height <= bounds.top) {
     return false;
   }
-  return entity.y <= bounds.bottom;
+  return entity.y < bounds.bottom;
 };
 
 export const entityCenterX = (

@@ -45,7 +45,7 @@ export class MovingActor extends TileCollisionActor {
   }
 
   public overlapsWorldBounds(bounds: WorldBounds) {
-    return entityOverlapsWorldBounds(this.entityPhysicsState(), bounds);
+    return entityOverlapsWorldBounds(this.entityCollisionState(), bounds);
   }
 
   protected centerX() {
@@ -111,6 +111,15 @@ export class MovingActor extends TileCollisionActor {
       height: this.height,
       isGrounded: this.isGrounded,
       isJumping: this.isJumping,
+    };
+  }
+
+  private entityCollisionState() {
+    return {
+      x: this.pos.x + this.collisionBounds.offsetX,
+      y: this.pos.y + this.collisionBounds.offsetY,
+      width: this.collisionBounds.width,
+      height: this.collisionBounds.height,
     };
   }
 

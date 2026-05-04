@@ -37,7 +37,7 @@ const collisionHeight = TILE_PX - 2;
 const collisionOffsetX = (TILE_PX - collisionWidth) / 2;
 const collisionOffsetY = TILE_PX - collisionHeight;
 const collisionEdgeInset = 0.1;
-const walkSpeed = 1.25;
+const walkSpeed = 1.2;
 const runSpeedMultiplier = 2;
 const walkAcceleration = 0.25;
 const stopDeceleration = 0.22;
@@ -500,8 +500,11 @@ export class Player extends MovingActor {
   }
 
   private applyPowerupVisuals(powerup: PlayerPowerup) {
-    const visuals = powerupVisualsFor(powerup, this.powerupAttachmentActor, TILE_PX, () =>
-      this.syncHat(),
+    const visuals = powerupVisualsFor(
+      powerup,
+      this.powerupAttachmentActor,
+      TILE_PX,
+      () => this.syncHat(),
     );
     const isWalking = this.currentVisual === "walk";
     const isBreakingBlock = this.isBreakingBlock;
@@ -611,7 +614,10 @@ export class Player extends MovingActor {
     if (this.currentVisual === "walk") {
       return this.hatPoseAt(poses.walk, this.walkAnimationFrameIndex);
     }
-    return this.hatActionPoseAt("blockBreak", this.blockBreakAnimation.currentFrameIndex);
+    return this.hatActionPoseAt(
+      "blockBreak",
+      this.blockBreakAnimation.currentFrameIndex,
+    );
   }
 
   private hatActionPoseAt(action: PowerupAction, frameIndex: number) {
@@ -652,7 +658,10 @@ export class Player extends MovingActor {
     this.sendClient(messageTypes.updatePlayer, movementState, movementState);
   }
 
-  private syncMovementPeriodically(delta: number, shouldBroadcastMovement = false) {
+  private syncMovementPeriodically(
+    delta: number,
+    shouldBroadcastMovement = false,
+  ) {
     if (!this.client) {
       return;
     }
@@ -828,9 +837,7 @@ export class Player extends MovingActor {
 
   private moveWithGravity(delta: number, dt: number, keySign: number) {
     const targetHspeed =
-      keySign *
-      walkSpeed *
-      (this.isRunning ? runSpeedMultiplier : 1);
+      keySign * walkSpeed * (this.isRunning ? runSpeedMultiplier : 1);
     const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
 
     this.hspeed = approach(
@@ -917,7 +924,12 @@ export class Player extends MovingActor {
       this.moveWithGravity(delta, dt, keySign);
     }
 
-    if (!isKnockbackActive && !this.isFlying && this.isGrounded && this.keyJump) {
+    if (
+      !isKnockbackActive &&
+      !this.isFlying &&
+      this.isGrounded &&
+      this.keyJump
+    ) {
       this.onJump();
     }
     if (!this.isFlying && !previousGrounded && this.isGrounded) {

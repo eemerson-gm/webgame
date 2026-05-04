@@ -33,6 +33,10 @@ type RemotePlayerEntry = {
   id: string;
   player: Player;
 };
+type RemoteBreakAnimationEntry = {
+  animation: ex.Animation;
+  durationMs: number;
+};
 
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
@@ -70,7 +74,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly breakAnimationActor: ex.Actor;
   private readonly remoteBreakAnimationsByPlayerId: Record<
     string,
-    ex.Animation
+    RemoteBreakAnimationEntry
   >;
   private readonly remoteBreakAnimationActorsByPlayerId: Record<
     string,
@@ -587,6 +591,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       animation.reset();
       animation.play();
       actor.graphics.visible = true;
+      actor.graphics.opacity = 1;
     }
   }
 
@@ -597,7 +602,8 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     actor.pos = hiddenActorPosition();
     actor.graphics.visible = false;
-    this.remoteBreakAnimationsByPlayerId[playerId]?.pause();
+    actor.graphics.opacity = 0;
+    this.remoteBreakAnimationsByPlayerId[playerId]?.animation.pause();
     delete this.remoteBreakParticleStatesByPlayerId[playerId];
     delete this.remoteBreakTargetKeysByPlayerId[playerId];
   }
@@ -615,7 +621,8 @@ export class BlockTargetingHighlight extends ex.Actor {
       z: blockBreakAnimationZ,
     });
     actor.graphics.anchor = ex.vec(0, 0);
-    actor.graphics.use(this.remoteBreakAnimationFor(playerId));
+    actor.graphics.visible = false;
+    actor.graphics.opacity = 0;
     this.remoteBreakAnimationActorsByPlayerId[playerId] = actor;
     this.engine?.add(actor);
     return actor;
@@ -625,12 +632,16 @@ export class BlockTargetingHighlight extends ex.Actor {
     playerId: string,
     breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
   ) {
-    const existingAnimation = this.remoteBreakAnimationsByPlayerId[playerId];
-    if (existingAnimation) {
-      return existingAnimation;
+    const existingEntry = this.remoteBreakAnimationsByPlayerId[playerId];
+    if (existingEntry?.durationMs === breakDurationMs) {
+      return existingEntry.animation;
     }
+    existingEntry?.animation.pause();
     const animation = this.createBlockBreakAnimation(breakDurationMs);
-    this.remoteBreakAnimationsByPlayerId[playerId] = animation;
+    this.remoteBreakAnimationsByPlayerId[playerId] = {
+      animation,
+      durationMs: breakDurationMs,
+    };
     return animation;
   }
 
