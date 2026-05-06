@@ -24,6 +24,12 @@ export type EntityPhysicsState = {
   isJumping: boolean;
 };
 
+export type EntitySeparationBody = EntityPhysicsState & {
+  id: string;
+  collisionBounds: CollisionBounds;
+  canSeparate: boolean;
+};
+
 export type TileCollisionWorld = {
   tileWidth: number;
   tileHeight: number;
@@ -40,6 +46,13 @@ export type EntityPhysicsOptions = {
 export type EntityStepOptions = EntityPhysicsOptions & {
   positionScale: number;
   dt: number;
+};
+
+export type EntitySeparationOptions = {
+  world: TileCollisionWorld;
+  padding: number;
+  maxMoveX: number;
+  passes: number;
 };
 
 export const applyGravity = (
@@ -76,6 +89,13 @@ export const horizontalSignBetween = (
   from: Pick<EntityPhysicsState, "x" | "width">,
   to: Pick<EntityPhysicsState, "x" | "width">,
 ) => Math.sign(entityCenterX(to) - entityCenterX(from));
+
+export const separateEntityBodies = (
+  bodies: EntitySeparationBody[],
+  options: EntitySeparationOptions,
+) => {
+  return resolveSeparationPasses(bodies, options, options.passes);
+};
 
 export const tileMeeting = (
   x: number,
@@ -195,6 +215,157 @@ export const stepEntityFreely = (
     options,
   );
 };
+
+const resolveSeparationPasses = (
+  bodies: EntitySeparationBody[],
+  options: EntitySeparationOptions,
+  remainingPasses: number,
+): EntitySeparationBody[] => {
+  if (remainingPasses <= 0) {
+    return bodies;
+  }
+  return resolveSeparationPasses(
+    resolveSeparationPass(bodies, options),
+    options,
+    remainingPasses - 1,
+  );
+};
+
+const resolveSeparationPass = (
+  bodies: EntitySeparationBody[],
+  options: EntitySeparationOptions,
+) =>
+  separationPairs(bodies).reduce(
+    (currentBodies, pair) => separateBodyPair(currentBodies, pair, options),
+    bodies,
+  );
+
+const separationPairs = (bodies: EntitySeparationBody[]) =>
+  bodies.flatMap((_body, index) =>
+    bodies
+      .slice(index + 1)
+      .map((_otherBody, offset) => [index, index + offset + 1] as const),
+  );
+
+const separateBodyPair = (
+  bodies: EntitySeparationBody[],
+  [leftIndex, rightIndex]: readonly [number, number],
+  options: EntitySeparationOptions,
+) => {
+  const leftBody = bodies[leftIndex];
+  const rightBody = bodies[rightIndex];
+  if (!leftBody || !rightBody) {
+    return bodies;
+  }
+  if (!shouldSeparateBodies(leftBody, rightBody, options.padding)) {
+    return bodies;
+  }
+  const moves = separationMoves(leftBody, rightBody, options);
+  return bodies.map((body, index) => {
+    if (index === leftIndex) {
+      return { ...body, x: body.x + moves.left };
+    }
+    if (index === rightIndex) {
+      return { ...body, x: body.x + moves.right };
+    }
+    return body;
+  });
+};
+
+const shouldSeparateBodies = (
+  leftBody: EntitySeparationBody,
+  rightBody: EntitySeparationBody,
+  padding: number,
+) => {
+  if (!leftBody.canSeparate && !rightBody.canSeparate) {
+    return false;
+  }
+  if (horizontalOverlap(leftBody, rightBody, padding) <= 0) {
+    return false;
+  }
+  return verticalOverlap(leftBody, rightBody) > 0;
+};
+
+const separationMoves = (
+  leftBody: EntitySeparationBody,
+  rightBody: EntitySeparationBody,
+  options: EntitySeparationOptions,
+) => {
+  const overlap = horizontalOverlap(leftBody, rightBody, options.padding);
+  const direction = separationDirection(leftBody, rightBody);
+  const movableCount =
+    Number(leftBody.canSeparate) + Number(rightBody.canSeparate);
+  const sharedMove = Math.min(overlap / movableCount, options.maxMoveX);
+  const soloMove = Math.min(overlap, options.maxMoveX);
+  const leftMove = leftBody.canSeparate
+    ? safeSeparationMoveX(
+        leftBody,
+        direction * (rightBody.canSeparate ? sharedMove : soloMove),
+        options,
+      )
+    : 0;
+  const rightMove = rightBody.canSeparate
+    ? safeSeparationMoveX(
+        rightBody,
+        -direction * (leftBody.canSeparate ? sharedMove : soloMove),
+        options,
+      )
+    : 0;
+  return {
+    left: leftMove,
+    right: rightMove,
+  };
+};
+
+const separationDirection = (
+  leftBody: EntitySeparationBody,
+  rightBody: EntitySeparationBody,
+) => {
+  const centerDelta = entityCenterX(leftBody) - entityCenterX(rightBody);
+  if (centerDelta !== 0) {
+    return Math.sign(centerDelta);
+  }
+  return leftBody.id < rightBody.id ? -1 : 1;
+};
+
+const safeSeparationMoveX = (
+  body: EntitySeparationBody,
+  moveX: number,
+  options: EntitySeparationOptions,
+) => {
+  const physicsOptions = {
+    collisionBounds: body.collisionBounds,
+    world: options.world,
+  };
+  const proposedX = body.x + moveX;
+  const unclampedX = tileMeeting(proposedX, body.y, physicsOptions)
+    ? body.x
+    : proposedX;
+  const bounded = stayInsideWorldBounds(
+    {
+      ...body,
+      x: unclampedX,
+    },
+    physicsOptions,
+  );
+  return bounded.x - body.x;
+};
+
+const horizontalOverlap = (
+  leftBody: EntitySeparationBody,
+  rightBody: EntitySeparationBody,
+  padding: number,
+) =>
+  Math.min(leftBody.x + leftBody.width, rightBody.x + rightBody.width) -
+  Math.max(leftBody.x, rightBody.x) +
+  padding;
+
+const verticalOverlap = (
+  leftBody: EntitySeparationBody,
+  rightBody: EntitySeparationBody,
+) =>
+  Math.min(leftBody.y + leftBody.height, rightBody.y + rightBody.height) -
+  Math.max(leftBody.y, rightBody.y);
 
 const collisionTilePositionsAt = (
   x: number,

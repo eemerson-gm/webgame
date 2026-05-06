@@ -19,7 +19,10 @@ import {
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
-import type { TileCollisionWorld } from "../simulation/entityPhysics";
+import type {
+  EntitySeparationBody,
+  TileCollisionWorld,
+} from "../simulation/entityPhysics";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
 
@@ -99,6 +102,7 @@ export class Player extends MovingActor {
   private jumpHoldTimeRemainingMs: number = 0;
   private serverMovementSyncElapsedMs: number = 0;
   private lastServerMovementState?: Data;
+  private shouldBroadcastSeparatedPosition: boolean = false;
 
   constructor(
     pos: ex.Vector,
@@ -325,6 +329,34 @@ export class Player extends MovingActor {
 
   public isAlive() {
     return this.health > 0;
+  }
+
+  public entitySeparationBody(
+    playerId: string,
+    canSeparate: boolean,
+  ): EntitySeparationBody {
+    return {
+      id: `player:${playerId}`,
+      x: this.pos.x,
+      y: this.pos.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      width: this.width,
+      height: this.height,
+      isGrounded: this.isGrounded,
+      isJumping: this.isJumping,
+      collisionBounds: this.collisionBounds,
+      canSeparate: canSeparate && !this.isPaused && this.isAlive(),
+    };
+  }
+
+  public applySeparatedX(x: number) {
+    if (this.pos.x === x) {
+      return;
+    }
+    this.pos.x = x;
+    this.lastServerMovementState = undefined;
+    this.shouldBroadcastSeparatedPosition = true;
   }
 
   public currentPowerup() {
@@ -681,9 +713,12 @@ export class Player extends MovingActor {
     if (!this.shouldSyncMovementState(movementState)) {
       return;
     }
+    const shouldBroadcastToPeers =
+      shouldBroadcastMovement || this.shouldBroadcastSeparatedPosition;
     this.lastServerMovementState = movementState;
-    const payload = shouldBroadcastMovement ? movementState : {};
-    const statePatch = shouldBroadcastMovement ? undefined : movementState;
+    this.shouldBroadcastSeparatedPosition = false;
+    const payload = shouldBroadcastToPeers ? movementState : {};
+    const statePatch = shouldBroadcastToPeers ? undefined : movementState;
     this.sendClient(messageTypes.updatePlayer, payload, statePatch);
   }
 

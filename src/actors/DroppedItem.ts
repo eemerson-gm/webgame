@@ -6,8 +6,14 @@ import type {
 } from "../classes/GameProtocol";
 import { blockItemSpriteForKind } from "../classes/BlockItemSprites";
 import { isPlaceableBlockKind } from "../classes/ToolbarSelection";
-import { stepItemEntity } from "../simulation/itemEntityBehavior";
-import type { TileCollisionWorld } from "../simulation/entityPhysics";
+import {
+  itemCollisionBounds,
+  stepItemEntity,
+} from "../simulation/itemEntityBehavior";
+import type {
+  EntitySeparationBody,
+  TileCollisionWorld,
+} from "../simulation/entityPhysics";
 import type { Player } from "./Player";
 import { Resources } from "../resource";
 
@@ -120,14 +126,19 @@ export class DroppedItem extends ex.Actor {
   }
 
   override onInitialize() {
+    const item = this.state.item;
+    const blockKind =
+      item.type === "block" && isPlaceableBlockKind(item.kind)
+        ? item.kind
+        : null;
     if (
-      this.state.item.type === "block" &&
-      !isPlaceableBlockKind(this.state.item.kind)
+      item.type === "block" &&
+      !blockKind
     ) {
       this.kill();
       return;
     }
-    if (this.state.item.type === "block") {
+    if (blockKind) {
       const outline = new ex.Actor({
         pos: ex.vec(0, 0),
         anchor: ex.vec(0, 0),
@@ -141,10 +152,11 @@ export class DroppedItem extends ex.Actor {
       this.graphics.offset = ex.vec(itemOutlineWidth, itemOutlineWidth);
     }
     this.graphics.anchor = ex.vec(0, 0);
-    if (this.state.item.type === "powerup") {
+    if (item.type === "powerup") {
       this.graphics.use(powerupItemSprite());
-    } else {
-      this.graphics.use(blockItemSpriteForKind(this.state.item.kind, itemSize));
+    }
+    if (blockKind) {
+      this.graphics.use(blockItemSpriteForKind(blockKind, itemSize));
     }
     this.renderState();
   }
@@ -175,6 +187,37 @@ export class DroppedItem extends ex.Actor {
       x: this.state.x,
       y: this.state.y,
     };
+  }
+
+  public entitySeparationBody(): EntitySeparationBody {
+    return {
+      id: `item:${this.state.id}`,
+      x: this.state.x,
+      y: this.state.y,
+      horizontalSpeed: this.state.horizontalSpeed,
+      verticalSpeed: this.state.verticalSpeed,
+      width: this.width,
+      height: this.height,
+      isGrounded: this.state.isGrounded,
+      isJumping: this.state.isJumping,
+      collisionBounds: itemCollisionBounds,
+      canSeparate: this.isOwnedByLocal() && !this.isKilled(),
+    };
+  }
+
+  public applySeparatedX(x: number) {
+    if (!this.isOwnedByLocal()) {
+      return;
+    }
+    if (this.state.x === x) {
+      return;
+    }
+    this.state = {
+      ...this.state,
+      x,
+    };
+    this.hasSentSettledState = false;
+    this.renderState();
   }
 
   override onPostUpdate(_engine: ex.Engine, delta: number) {

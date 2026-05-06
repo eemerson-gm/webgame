@@ -2,8 +2,15 @@ import * as ex from "excalibur";
 import { Resources } from "../resource";
 import type { EntityState, PlayerState, SlimeEntityState } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
-import type { TileCollisionWorld, WorldBounds } from "../simulation/entityPhysics";
-import { stepSlimeEntity } from "../simulation/slimeEntityBehavior";
+import type {
+  EntitySeparationBody,
+  TileCollisionWorld,
+  WorldBounds,
+} from "../simulation/entityPhysics";
+import {
+  slimeCollisionBounds,
+  stepSlimeEntity,
+} from "../simulation/slimeEntityBehavior";
 import { DamageFlash } from "./DamageableActor";
 import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
@@ -157,6 +164,36 @@ export class Slime extends ex.Actor implements EntityActor {
 
   public isAlive() {
     return this.state.health > 0 && !this.isKilled();
+  }
+
+  public entitySeparationBody(): EntitySeparationBody {
+    return {
+      id: `slime:${this.state.id}`,
+      x: this.state.x,
+      y: this.state.y,
+      horizontalSpeed: this.state.horizontalSpeed,
+      verticalSpeed: this.state.verticalSpeed,
+      width: this.width,
+      height: this.height,
+      isGrounded: this.state.isGrounded,
+      isJumping: this.state.isJumping,
+      collisionBounds: slimeCollisionBounds,
+      canSeparate: this.isOwnedByLocal() && this.isAlive(),
+    };
+  }
+
+  public applySeparatedX(x: number) {
+    if (!this.isOwnedByLocal()) {
+      return;
+    }
+    if (this.state.x === x) {
+      return;
+    }
+    this.state = {
+      ...this.state,
+      x,
+    };
+    this.renderState();
   }
 
   override onPostUpdate(_engine: ex.Engine, delta: number) {

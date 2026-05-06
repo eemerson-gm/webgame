@@ -27,6 +27,8 @@ import type {
 import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TileLightingOverlay } from "./classes/TileLightingOverlay";
 import { DynamicLightSource } from "./classes/DynamicLightSource";
+import { separateEntityBodies } from "./simulation/entityPhysics";
+import type { EntitySeparationBody } from "./simulation/entityPhysics";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
@@ -45,6 +47,15 @@ const blockTargetingSlot = {
 };
 const remotePlayerPositionTolerance = 0.5;
 const pingIntervalMs = 2000;
+const entitySeparationPadding = 1;
+const entitySeparationMaxMoveX = 0.5;
+const entitySeparationPasses = 1;
+
+type EntitySeparationEntry = {
+  body: EntitySeparationBody;
+  applySeparatedX: (x: number) => void;
+};
+
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
@@ -315,6 +326,76 @@ const currentPlayersData = () =>
       playerStateFromActor(playerId, player),
     ),
   ]);
+
+const localPlayerSeparationEntries = (): EntitySeparationEntry[] => {
+  const localPlayer = localPlayerSlot.player;
+  const localPlayerId = clientSlot.client?.clientId;
+  if (!localPlayer || !localPlayerId) {
+    return [];
+  }
+  return [
+    {
+      body: localPlayer.entitySeparationBody(localPlayerId, true),
+      applySeparatedX: (x) => localPlayer.applySeparatedX(x),
+    },
+  ];
+};
+
+const remotePlayerSeparationEntries = (): EntitySeparationEntry[] =>
+  Object.entries(playerById).map(([playerId, player]) => ({
+    body: player.entitySeparationBody(playerId, true),
+    applySeparatedX: (x) => player.applySeparatedX(x),
+  }));
+
+const droppedItemSeparationEntries = (): EntitySeparationEntry[] =>
+  Object.values(droppedItemById).map((item) => ({
+    body: item.entitySeparationBody(),
+    applySeparatedX: (x) => item.applySeparatedX(x),
+  }));
+
+const slimeSeparationEntries = (): EntitySeparationEntry[] =>
+  Object.values(slimeById).map((slime) => ({
+    body: slime.entitySeparationBody(),
+    applySeparatedX: (x) => slime.applySeparatedX(x),
+  }));
+
+const entitySeparationEntries = () => [
+  ...localPlayerSeparationEntries(),
+  ...remotePlayerSeparationEntries(),
+  ...droppedItemSeparationEntries(),
+  ...slimeSeparationEntries(),
+];
+
+const separateEntityActors = () => {
+  const world = worldSession.terrain?.tileCollisionWorld();
+  if (!world) {
+    return;
+  }
+  const entries = entitySeparationEntries();
+  const separatedBodies = separateEntityBodies(
+    entries.map((entry) => entry.body),
+    {
+      world,
+      padding: entitySeparationPadding,
+      maxMoveX: entitySeparationMaxMoveX,
+      passes: entitySeparationPasses,
+    },
+  );
+  const separatedBodyById = Object.fromEntries(
+    separatedBodies.map((body) => [body.id, body]),
+  );
+  entries
+    .filter((entry) => entry.body.canSeparate)
+    .forEach((entry) => {
+      const separatedBody = separatedBodyById[entry.body.id];
+      if (!separatedBody) {
+        return;
+      }
+      entry.applySeparatedX(separatedBody.x);
+    });
+};
+
+game.on("postupdate", separateEntityActors);
 
 const applyRemotePlayerUpdate = (payload: Data) => {
   const playerState = payload as PlayerState;

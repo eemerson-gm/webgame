@@ -38,7 +38,7 @@ type SlimePathStep = {
   shouldJump: boolean;
 };
 
-const slimeCollisionBounds: CollisionBounds = {
+export const slimeCollisionBounds: CollisionBounds = {
   offsetX: 2,
   offsetY: 4,
   width: TILE_PX - 4,

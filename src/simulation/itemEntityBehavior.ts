@@ -11,7 +11,7 @@ const itemGravity = 0.2;
 const itemPositionScale = 100;
 const itemAirFriction = 0.98;
 const itemGroundFriction = 0.84;
-const itemCollisionBounds: CollisionBounds = {
+export const itemCollisionBounds: CollisionBounds = {
   offsetX: 0,
   offsetY: 0,
   width: itemSize,
