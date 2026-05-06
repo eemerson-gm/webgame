@@ -32,6 +32,7 @@ type TerrainBorderOptions = {
   columns: number;
   rows: number;
   solidTiles: Set<string>;
+  terrainTiles: Record<string, TerrainTileKind>;
   chunkColumn: number;
   chunkRow: number;
 };
@@ -104,13 +105,22 @@ const borderSegmentsForTile = (
   row: number,
   options: TerrainBorderOptions,
 ) => {
-  const { tileWidth, tileHeight, columns, rows, solidTiles, chunkColumn, chunkRow } = options;
+  const { tileWidth, tileHeight, columns, rows, solidTiles, chunkColumn, chunkRow, terrainTiles } = options;
   const x = (column - chunkStartTile(chunkColumn)) * tileWidth;
   const y = (row - chunkStartTile(chunkRow)) * tileHeight;
-  const above = isSolidTerrainTile(column, row - 1, columns, rows, solidTiles);
-  const left = isSolidTerrainTile(column - 1, row, columns, rows, solidTiles);
-  const right = isSolidTerrainTile(column + 1, row, columns, rows, solidTiles);
-  const below = isSolidTerrainTile(column, row + 1, columns, rows, solidTiles);
+  
+  const isVisualSolid = (c: number, r: number) => {
+    if (!isSolidTerrainTile(c, r, columns, rows, solidTiles)) {
+      return false;
+    }
+    const key = terrainTileKey(c, r);
+    return terrainTiles[key] !== "mushroom";
+  };
+
+  const above = isVisualSolid(column, row - 1);
+  const left = isVisualSolid(column - 1, row);
+  const right = isVisualSolid(column + 1, row);
+  const below = isVisualSolid(column, row + 1);
 
   return [
     above
@@ -149,11 +159,17 @@ const chunkTileRange = (chunkIndex: number, totalTiles: number) => {
 };
 
 const terrainBorderSegmentsForChunk = (options: TerrainBorderOptions) => {
-  const { columns, rows, solidTiles, chunkColumn, chunkRow } = options;
+  const { columns, rows, solidTiles, chunkColumn, chunkRow, terrainTiles } = options;
 
   return chunkTileRange(chunkColumn, columns).flatMap((column) =>
     chunkTileRange(chunkRow, rows)
-      .filter((row) => isSolidTerrainTile(column, row, columns, rows, solidTiles))
+      .filter((row) => {
+        if (!isSolidTerrainTile(column, row, columns, rows, solidTiles)) {
+          return false;
+        }
+        const key = terrainTileKey(column, row);
+        return terrainTiles[key] !== "mushroom";
+      })
       .flatMap((row) => borderSegmentsForTile(column, row, options)),
   );
 };
@@ -379,6 +395,10 @@ export class TerrainTileMap {
     if (row < 0) {
       return false;
     }
+    const kind = this.tileKindAt(column, row);
+    if (kind === "mushroom") {
+      return false;
+    }
     return this.isSolidAt(column, row);
   }
 
@@ -438,6 +458,7 @@ export class TerrainTileMap {
         columns: this.columns,
         rows: this.rows,
         solidTiles: this.solidTiles,
+        terrainTiles: this.terrainTiles,
         chunkColumn,
         chunkRow,
       }),

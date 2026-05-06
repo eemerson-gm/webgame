@@ -36,10 +36,9 @@ export type PlayerState = {
 
 export type EntityType = "slime" | "item";
 
-export type ItemEntityItem = {
-  type: "block";
-  kind: TerrainTileKind;
-};
+export type ItemEntityItem =
+  | { type: "block"; kind: TerrainTileKind }
+  | { type: "powerup"; powerup: PlayerPowerup };
 
 type BaseEntityState = {
   id: string;
@@ -102,6 +101,7 @@ export type TerrainTileKind =
   | "dirt"
   | "grass"
   | "lamp"
+  | "mushroom"
   | "pillarBottom"
   | "pillarMiddle"
   | "pillarTop"

@@ -27,6 +27,12 @@ const blockHighlightGradient = [
   [255, 242, 122],
   [255, 255, 255],
 ];
+const blockBreakFrameResources = [
+  Resources.BlockBreak1,
+  Resources.BlockBreak2,
+  Resources.BlockBreak3,
+  Resources.BlockBreak4,
+];
 const hiddenActorPosition = () => ex.vec(-100000, -100000);
 
 type RemotePlayerEntry = {
@@ -36,6 +42,7 @@ type RemotePlayerEntry = {
 type RemoteBreakAnimationEntry = {
   animation: ex.Animation;
   durationMs: number;
+  targetKey: string;
 };
 
 type LocalPlayerProvider = () => Player | null;
@@ -63,6 +70,33 @@ const blockHighlightColorAt = (elapsedMs: number) => {
 
   return `#${channels.map(hexChannel).join("")}`;
 };
+
+class AlphaMaskedBlockBreakRaster extends ex.Raster {
+  private readonly frame: ex.ImageSource;
+
+  constructor(frame: ex.ImageSource) {
+    super({
+      width: TILE_PX,
+      height: TILE_PX,
+      origin: ex.vec(0, 0),
+      smoothing: false,
+      filtering: ex.ImageFiltering.Pixel,
+    });
+    this.frame = frame;
+  }
+
+  override clone() {
+    return new AlphaMaskedBlockBreakRaster(this.frame);
+  }
+
+  override execute(ctx: CanvasRenderingContext2D) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.frame.image, 0, 0);
+    ctx.globalCompositeOperation = "destination-in";
+    ctx.drawImage(Resources.MinerPowerup.image, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+  }
+}
 
 export class BlockTargetingHighlight extends ex.Actor {
   private readonly terrain: TerrainTileMap;
@@ -125,7 +159,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.graphics.use(this.highlightGraphic);
     this.graphics.visible = false;
     this.graphics.opacity = 0;
-    this.breakAnimation = this.createBlockBreakAnimation();
+    this.breakAnimation = this.createBlockBreakAnimation(null);
     this.breakAnimationActor = new ex.Actor({
       pos: hiddenActorPosition(),
       anchor: ex.vec(0, 0),
@@ -500,7 +534,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       breakDurationMs,
     );
     this.moveBreakAnimationToTarget(target);
-    this.breakAnimation = this.createBlockBreakAnimation(breakDurationMs);
+    this.breakAnimation = this.createBlockBreakAnimation(target, breakDurationMs);
     this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.breakAnimation.reset();
     this.breakAnimation.play();
@@ -593,7 +627,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     breakDurationMs: number,
   ) {
     const actor = this.remoteBreakAnimationActorFor(playerId);
-    const animation = this.remoteBreakAnimationFor(playerId, breakDurationMs);
+    const animation = this.remoteBreakAnimationFor(playerId, target, breakDurationMs);
     actor.pos.x =
       this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
     actor.pos.y =
@@ -601,13 +635,11 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.remoteBreakParticleStatesByPlayerId[playerId] =
       this.breakParticleEmitter.createState(target, breakDurationMs);
     this.remoteBreakTargetKeysByPlayerId[playerId] = this.targetKey(target);
-    if (!actor.graphics.visible) {
-      actor.graphics.use(animation);
-      animation.reset();
-      animation.play();
-      actor.graphics.visible = true;
-      actor.graphics.opacity = 1;
-    }
+    actor.graphics.use(animation);
+    animation.reset();
+    animation.play();
+    actor.graphics.visible = true;
+    actor.graphics.opacity = 1;
   }
 
   private hideRemoteBreakAnimation(playerId: string) {
@@ -645,17 +677,23 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   private remoteBreakAnimationFor(
     playerId: string,
+    target: TargetBlockPosition,
     breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
   ) {
     const existingEntry = this.remoteBreakAnimationsByPlayerId[playerId];
-    if (existingEntry?.durationMs === breakDurationMs) {
+    const targetKey = this.targetKey(target);
+    if (
+      existingEntry?.durationMs === breakDurationMs &&
+      existingEntry.targetKey === targetKey
+    ) {
       return existingEntry.animation;
     }
     existingEntry?.animation.pause();
-    const animation = this.createBlockBreakAnimation(breakDurationMs);
+    const animation = this.createBlockBreakAnimation(target, breakDurationMs);
     this.remoteBreakAnimationsByPlayerId[playerId] = {
       animation,
       durationMs: breakDurationMs,
+      targetKey,
     };
     return animation;
   }
@@ -673,18 +711,25 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private createBlockBreakAnimation(
+    target: TargetBlockPosition | null,
     breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
   ) {
     return new ex.Animation({
-      frames: [
-        { graphic: Resources.BlockBreak1.toSprite() },
-        { graphic: Resources.BlockBreak2.toSprite() },
-        { graphic: Resources.BlockBreak3.toSprite() },
-        { graphic: Resources.BlockBreak4.toSprite() },
-      ],
+      frames: this.blockBreakFramesFor(target),
       frameDuration: breakDurationMs / blockBreakFrameCount,
       strategy: ex.AnimationStrategy.End,
     });
+  }
+
+  private blockBreakFramesFor(target: TargetBlockPosition | null) {
+    if (target && this.terrain.tileKindAt(target.column, target.row) === "mushroom") {
+      return blockBreakFrameResources.map((frame) => ({
+        graphic: new AlphaMaskedBlockBreakRaster(frame),
+      }));
+    }
+    return blockBreakFrameResources.map((frame) => ({
+      graphic: frame.toSprite(),
+    }));
   }
 
   private moveBreakAnimationToTarget(target: TargetBlockPosition) {

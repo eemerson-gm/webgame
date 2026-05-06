@@ -5,6 +5,7 @@ export const terrainTileKinds = [
   "dirt",
   "grass",
   "lamp",
+  "mushroom",
   "pillarBottom",
   "pillarMiddle",
   "pillarTop",
@@ -19,6 +20,7 @@ const solidTerrainTileKinds: readonly TerrainTileKind[] = [
   "dirt",
   "grass",
   "lamp",
+  "mushroom",
   "spawn",
   "stone",
   "whiteWool",
@@ -28,6 +30,7 @@ const breakableTerrainTileKinds: readonly TerrainTileKind[] = [
   "dirt",
   "grass",
   "lamp",
+  "mushroom",
   "stone",
   "whiteWool",
 ] as const;

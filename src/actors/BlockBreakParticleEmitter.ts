@@ -15,11 +15,25 @@ export type BlockBreakParticleState = {
   nextParticleAtMs: number;
 };
 
+type SpriteAlphaMask = {
+  width: number;
+  height: number;
+  alpha: Uint8ClampedArray;
+};
+
+type ParticleSample = {
+  fragmentSize: number;
+  sourceCenterX: number;
+  sourceCenterY: number;
+};
+
 const blockBreakParticleIntervalMs = 70;
 const blockBreakParticlesPerBurst = 2;
 const blockBreakParticleSpawnChance = 0.72;
 const blockBreakParticleSizes = [1, 2];
 const blockBreakParticleDurationMs = 420;
+const alphaMaskBySpriteKey: Record<string, SpriteAlphaMask | null> = {};
+const opaqueParticlePositionsBySpriteKey: Record<string, ex.Vector[]> = {};
 
 const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
 
@@ -28,6 +42,91 @@ const randomBetween = (minimum: number, maximum: number) =>
 
 const randomIntegerBetween = (minimum: number, maximum: number) =>
   Math.floor(randomBetween(minimum, maximum + 1));
+
+const spriteKeyFor = (sprite: ex.Sprite, fragmentSize: number = 0) =>
+  [
+    sprite.image.path,
+    sprite.sourceView.x,
+    sprite.sourceView.y,
+    sprite.sourceView.width,
+    sprite.sourceView.height,
+    fragmentSize,
+  ].join(":");
+
+const alphaMaskFor = (sprite: ex.Sprite) => {
+  const key = spriteKeyFor(sprite);
+  if (Object.prototype.hasOwnProperty.call(alphaMaskBySpriteKey, key)) {
+    return alphaMaskBySpriteKey[key];
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = sprite.sourceView.width;
+  canvas.height = sprite.sourceView.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    alphaMaskBySpriteKey[key] = null;
+    return null;
+  }
+  context.imageSmoothingEnabled = false;
+  context.drawImage(
+    sprite.image.image,
+    sprite.sourceView.x,
+    sprite.sourceView.y,
+    sprite.sourceView.width,
+    sprite.sourceView.height,
+    0,
+    0,
+    sprite.sourceView.width,
+    sprite.sourceView.height,
+  );
+  const mask = {
+    width: sprite.sourceView.width,
+    height: sprite.sourceView.height,
+    alpha: context.getImageData(
+      0,
+      0,
+      sprite.sourceView.width,
+      sprite.sourceView.height,
+    ).data,
+  };
+  alphaMaskBySpriteKey[key] = mask;
+  return mask;
+};
+
+const isOpaquePixel = (mask: SpriteAlphaMask, x: number, y: number) =>
+  mask.alpha[(y * mask.width + x) * 4 + 3] > 0;
+
+const isOpaqueFragment = (
+  mask: SpriteAlphaMask,
+  x: number,
+  y: number,
+  size: number,
+) =>
+  indexes(size).every((offsetX) =>
+    indexes(size).every((offsetY) =>
+      isOpaquePixel(mask, x + offsetX, y + offsetY),
+    ),
+  );
+
+const opaqueParticlePositionsFor = (block: TerrainBlock, fragmentSize: number) => {
+  const sprite = block.toSprite();
+  const key = spriteKeyFor(sprite, fragmentSize);
+  const cachedPositions = opaqueParticlePositionsBySpriteKey[key];
+  if (cachedPositions) {
+    return cachedPositions;
+  }
+  const mask = alphaMaskFor(sprite);
+  if (!mask) {
+    opaqueParticlePositionsBySpriteKey[key] = [];
+    return [];
+  }
+  const positions = indexes(mask.width - fragmentSize + 1).flatMap((x) =>
+    indexes(mask.height - fragmentSize + 1)
+      .filter((y) => isOpaqueFragment(mask, x, y, fragmentSize))
+      .map((y) => ex.vec(x, y)),
+  );
+  opaqueParticlePositionsBySpriteKey[key] = positions;
+  return positions;
+};
 
 export class BlockBreakParticleEmitter {
   private readonly terrain: TerrainTileMap;
@@ -81,17 +180,13 @@ export class BlockBreakParticleEmitter {
     if (!availableParticleSizes.length) {
       return;
     }
-    indexes(blockBreakParticlesPerBurst).forEach(() =>
-      this.emitParticleAt(
-        target,
-        block,
-        engine,
-        spriteSize,
-        availableParticleSizes,
-        randomBetween(0, spriteSize.width),
-        randomBetween(0, spriteSize.height),
-      ),
-    );
+    indexes(blockBreakParticlesPerBurst).forEach(() => {
+      const sample = this.particleSampleFor(block, availableParticleSizes);
+      if (!sample) {
+        return;
+      }
+      this.emitParticleAt(target, block, engine, spriteSize, sample);
+    });
   }
 
   private availableParticleSizes(spriteSize: { width: number; height: number }) {
@@ -105,18 +200,13 @@ export class BlockBreakParticleEmitter {
     block: TerrainBlock,
     engine: ex.Engine,
     spriteSize: { width: number; height: number },
-    availableParticleSizes: number[],
-    sourceCenterX: number,
-    sourceCenterY: number,
+    sample: ParticleSample,
     spawnChance = blockBreakParticleSpawnChance,
   ) {
     if (Math.random() > spawnChance) {
       return;
     }
-    const fragmentSize =
-      availableParticleSizes[
-        randomIntegerBetween(0, availableParticleSizes.length - 1)
-      ];
+    const { fragmentSize, sourceCenterX, sourceCenterY } = sample;
     const sourceX = Math.max(
       0,
       Math.min(
@@ -154,6 +244,26 @@ export class BlockBreakParticleEmitter {
         ),
       }),
     );
+  }
+
+  private particleSampleFor(
+    block: TerrainBlock,
+    availableParticleSizes: number[],
+  ): ParticleSample | null {
+    const fragmentSize =
+      availableParticleSizes[
+        randomIntegerBetween(0, availableParticleSizes.length - 1)
+      ];
+    const positions = opaqueParticlePositionsFor(block, fragmentSize);
+    if (!positions.length) {
+      return null;
+    }
+    const position = positions[randomIntegerBetween(0, positions.length - 1)];
+    return {
+      fragmentSize,
+      sourceCenterX: position.x + fragmentSize / 2,
+      sourceCenterY: position.y + fragmentSize / 2,
+    };
   }
 
   private particlePositionFor(

@@ -88,6 +88,11 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
     breakDurationMs: 360,
     sprite: Resources.Lamp,
   }),
+  mushroom: new TerrainBlock({
+    kind: "mushroom",
+    breakDurationMs: 270,
+    sprite: Resources.MinerPowerup,
+  }),
   pillarBottom: new TerrainBlock({
     kind: "pillarBottom",
     breakDurationMs: Number.POSITIVE_INFINITY,

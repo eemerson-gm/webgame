@@ -1,10 +1,15 @@
 import * as ex from "excalibur";
-import type { EntityState, ItemEntityState, PlayerState } from "../classes/GameProtocol";
+import type {
+  EntityState,
+  ItemEntityState,
+  PlayerState,
+} from "../classes/GameProtocol";
 import { blockItemSpriteForKind } from "../classes/BlockItemSprites";
 import { isPlaceableBlockKind } from "../classes/ToolbarSelection";
 import { stepItemEntity } from "../simulation/itemEntityBehavior";
 import type { TileCollisionWorld } from "../simulation/entityPhysics";
 import type { Player } from "./Player";
+import { Resources } from "../resource";
 
 type DroppedItemProviders = {
   world: () => TileCollisionWorld | null;
@@ -19,6 +24,7 @@ const itemSize = 6;
 const itemOutlineWidth = 1;
 const itemOutlineSize = itemSize + itemOutlineWidth * 2;
 const itemOutlineColor = "#000000";
+const powerupItemDisplaySize = 8;
 const correctionSnapDistance = 32;
 const ownerStateSyncIntervalMs = 200;
 const settledSpeedThreshold = 0.02;
@@ -36,6 +42,39 @@ const overlaps = (a: ex.Actor, b: ex.Actor) => {
   }
   return a.pos.y <= b.pos.y + b.height;
 };
+
+const powerupItemSprite = () => new PowerupItemRaster();
+
+class PowerupItemRaster extends ex.Raster {
+  constructor() {
+    super({
+      width: powerupItemDisplaySize,
+      height: powerupItemDisplaySize,
+      origin: ex.vec(0, 0),
+      smoothing: false,
+      filtering: ex.ImageFiltering.Pixel,
+    });
+  }
+
+  override clone() {
+    return new PowerupItemRaster();
+  }
+
+  override execute(ctx: CanvasRenderingContext2D) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      Resources.MinerPowerupItem.image,
+      0,
+      0,
+      Resources.MinerPowerupItem.width,
+      Resources.MinerPowerupItem.height,
+      0,
+      0,
+      powerupItemDisplaySize,
+      powerupItemDisplaySize,
+    );
+  }
+}
 
 class DroppedItemOutlineRaster extends ex.Raster {
   constructor() {
@@ -81,23 +120,32 @@ export class DroppedItem extends ex.Actor {
   }
 
   override onInitialize() {
-    if (!isPlaceableBlockKind(this.state.item.kind)) {
+    if (
+      this.state.item.type === "block" &&
+      !isPlaceableBlockKind(this.state.item.kind)
+    ) {
       this.kill();
       return;
     }
-    const outline = new ex.Actor({
-      pos: ex.vec(0, 0),
-      anchor: ex.vec(0, 0),
-      width: itemOutlineSize,
-      height: itemOutlineSize,
-      z: -1,
-    });
-    outline.graphics.anchor = ex.vec(0, 0);
-    outline.graphics.use(new DroppedItemOutlineRaster());
-    this.addChild(outline);
-    this.graphics.offset = ex.vec(itemOutlineWidth, itemOutlineWidth);
+    if (this.state.item.type === "block") {
+      const outline = new ex.Actor({
+        pos: ex.vec(0, 0),
+        anchor: ex.vec(0, 0),
+        width: itemOutlineSize,
+        height: itemOutlineSize,
+        z: -1,
+      });
+      outline.graphics.anchor = ex.vec(0, 0);
+      outline.graphics.use(new DroppedItemOutlineRaster());
+      this.addChild(outline);
+      this.graphics.offset = ex.vec(itemOutlineWidth, itemOutlineWidth);
+    }
     this.graphics.anchor = ex.vec(0, 0);
-    this.graphics.use(blockItemSpriteForKind(this.state.item.kind, itemSize));
+    if (this.state.item.type === "powerup") {
+      this.graphics.use(powerupItemSprite());
+    } else {
+      this.graphics.use(blockItemSpriteForKind(this.state.item.kind, itemSize));
+    }
     this.renderState();
   }
 

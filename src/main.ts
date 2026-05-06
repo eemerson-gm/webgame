@@ -3,7 +3,6 @@ import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { DroppedItem } from "./actors/DroppedItem";
 import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
-import { PowerupPickup } from "./actors/PowerupPickup";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
@@ -46,7 +45,6 @@ const blockTargetingSlot = {
 };
 const remotePlayerPositionTolerance = 0.5;
 const pingIntervalMs = 2000;
-const minerPowerupSpawnColumns = [18, 34, 50, 66, 82, 98, 114];
 const syncLocalPauseState = (isPaused: boolean = document.hidden) => {
   localPlayerSlot.player?.syncPauseState(isPaused);
 };
@@ -232,39 +230,6 @@ const spawnPlayerAt = (
   game.add(playerById[playerId]);
   addPlayerLight(playerId, playerById[playerId]);
   return playerById[playerId];
-};
-
-const powerupPickupPosition = (
-  column: number,
-  surfaceStartByColumn: number[],
-) => ex.vec(column * TILE_PX, (surfaceStartByColumn[column] - 1) * TILE_PX);
-
-const canSpawnPowerupAt = (
-  column: number,
-  surfaceStartByColumn: number[],
-) => {
-  if (column < 0 || column >= surfaceStartByColumn.length) {
-    return false;
-  }
-  return surfaceStartByColumn[column] > 0;
-};
-
-const spawnMinerPowerupPickups = (
-  game: ex.Engine,
-  surfaceStartByColumn: number[],
-) => {
-  minerPowerupSpawnColumns
-    .filter((column) => canSpawnPowerupAt(column, surfaceStartByColumn))
-    .map(
-      (column) =>
-        new PowerupPickup({
-          pos: powerupPickupPosition(column, surfaceStartByColumn),
-          powerup: "miner",
-          player: () => localPlayerSlot.player,
-          onCollect: collectLocalPowerup,
-        }),
-    )
-    .forEach((pickup) => game.add(pickup));
 };
 
 const applyPositionFromPayloadIfPresent = (
@@ -471,10 +436,14 @@ const applyEntitiesSnapshot = (payload: Data) => {
       ? collectedItem
       : null;
   if (localCollectedItem) {
-    toolbarSelection.addBlock(
-      localCollectedItem.item.kind,
-      localCollectedItem.count,
-    );
+    if (localCollectedItem.item.type === "block") {
+      toolbarSelection.addBlock(
+        localCollectedItem.item.kind,
+        localCollectedItem.count,
+      );
+    } else if (localCollectedItem.item.type === "powerup") {
+      collectLocalPowerup(localCollectedItem.item.powerup);
+    }
   }
   if (!replaceExisting) {
     return;
@@ -627,7 +596,6 @@ game.start(loader).then(() => {
       game.add(tilemap);
       terrain.borders.forEach((border) => game.add(border));
       game.add(lighting);
-      spawnMinerPowerupPickups(game, world.surfaceStartByColumn);
 
       const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
       localPlayerSlot.player = new Player(

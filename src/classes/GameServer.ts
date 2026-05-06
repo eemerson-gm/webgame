@@ -3,7 +3,12 @@ import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
 import { buildSurfaceStartByColumn } from "../world/terrainGen";
-import { TILE_PX, WORLD_TILE_COLUMNS, WORLD_TILE_ROWS } from "../world/worldConfig";
+import {
+  TILE_PX,
+  WORLD_TILE_COLUMNS,
+  WORLD_TILE_ROWS,
+  minerPowerupSpawnColumns,
+} from "../world/worldConfig";
 import {
   buildTerrainTilesFromSurface,
   terrainTileKey,
@@ -20,7 +25,6 @@ import {
   createSlimeEntityState,
 } from "../simulation/entitySpawns";
 import {
-  isPlaceableTerrainDropKind,
   terrainBlockDropsForKind,
   type ResolvedTerrainBlockDrop,
 } from "./TerrainBlockDrops";
@@ -160,6 +164,16 @@ export class GameServer {
     this.worldTerrainTiles = spawnStructure.applyTo(worldTerrainTiles);
     this.protectedTerrainTiles = new Set(spawnStructure.tileKeys());
     this.playerSpawn = spawnStructure.spawnPosition(TILE_PX);
+
+    minerPowerupSpawnColumns.forEach((column) => {
+      const surfaceRow = this.worldSurfaceStarts[column];
+      if (surfaceRow !== undefined) {
+        const key = terrainTileKey(column, surfaceRow - 1);
+        if (!this.protectedTerrainTiles.has(key)) {
+          this.worldTerrainTiles[key] = "mushroom";
+        }
+      }
+    });
   }
 
   public listen(messages: MessageRouting) {
@@ -716,13 +730,12 @@ export class GameServer {
       brokenWith,
     );
     return drops
-      .filter((drop) => isPlaceableTerrainDropKind(drop.kind))
       .map((drop) => {
         const entity = createItemEntityState(
           `item${this.nextEntityIndex++}`,
           update.column * TILE_PX + Math.floor((TILE_PX - droppedItemSize) / 2),
           update.row * TILE_PX + Math.floor((TILE_PX - droppedItemSize) / 2),
-          { type: "block", kind: drop.kind },
+          drop.item,
           drop.count,
           Date.now() + droppedItemPickupDelayMs,
           this.isActivePlayer(playerId) ? playerId : undefined,
