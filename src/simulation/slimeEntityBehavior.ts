@@ -1,4 +1,4 @@
-import type { EntityState, PlayerState } from "../classes/GameProtocol";
+import type { PlayerState, SlimeEntityState } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import {
   applyGravity,
@@ -60,7 +60,7 @@ const pathHorizontalOffsets = [-1, 1];
 const standNodeVerticalOffsets = [0, 1, 2, 3, -1, -2, -3];
 
 export const stepSlimeEntity = (
-  entity: EntityState,
+  entity: SlimeEntityState,
   context: EntitySimulationContext,
 ) => {
   const target = nearestTargetPlayer(entity, context.playersData);
@@ -113,7 +113,7 @@ export const stepSlimeEntity = (
 };
 
 const slimeHorizontalSpeed = (
-  entity: EntityState,
+  entity: SlimeEntityState,
   target: TargetPlayerState | null,
   horizontalSign: number,
   dt: number,
@@ -134,7 +134,7 @@ const slimeHorizontalSpeed = (
 };
 
 const shouldSlimeJump = (
-  entity: EntityState,
+  entity: SlimeEntityState,
   target: TargetPlayerState | null,
   pathStep: SlimePathStep,
   context: EntitySimulationContext,
@@ -158,7 +158,7 @@ const shouldSlimeJump = (
 };
 
 const slimePathStep = (
-  entity: EntityState,
+  entity: SlimeEntityState,
   target: TargetPlayerState | null,
   context: EntitySimulationContext,
 ): SlimePathStep => {
@@ -186,7 +186,7 @@ const slimePathStep = (
 };
 
 const slimePathToTarget = (
-  entity: EntityState,
+  entity: SlimeEntityState,
   target: TargetPlayerState,
   world: TileCollisionWorld,
 ) => {
@@ -309,7 +309,7 @@ const pathNodeKey = (node: PathNode) => `${node.column},${node.row}`;
 const pathNodeDistance = (a: PathNode, b: PathNode) =>
   Math.abs(a.column - b.column) + Math.abs(a.row - b.row);
 
-const facingLeftAfterStep = (entity: EntityState, horizontalSign: number) => {
+const facingLeftAfterStep = (entity: SlimeEntityState, horizontalSign: number) => {
   if (horizontalSign === 0) {
     return entity.facingLeft;
   }
@@ -317,7 +317,7 @@ const facingLeftAfterStep = (entity: EntityState, horizontalSign: number) => {
 };
 
 const nearestTargetPlayer = (
-  entity: EntityState,
+  entity: SlimeEntityState,
   playersData: Record<string, PlayerState>,
 ) => {
   const targets = Object.entries(playersData)
@@ -334,7 +334,7 @@ const nearestTargetPlayer = (
   }, null);
 };
 
-const slimeBody = (entity: EntityState) => ({
+const slimeBody = (entity: SlimeEntityState) => ({
   x: entity.x,
   y: entity.y,
   width: slimeWidth,

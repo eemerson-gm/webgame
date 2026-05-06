@@ -16,17 +16,26 @@ import {
 } from "./TerrainTileKinds";
 import {
   createInitialEntitiesData,
+  createItemEntityState,
   createSlimeEntityState,
 } from "../simulation/entitySpawns";
+import {
+  isPlaceableTerrainDropKind,
+  terrainBlockDropsForKind,
+  type ResolvedTerrainBlockDrop,
+} from "./TerrainBlockDrops";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
+  EntityCollectPayload,
   EntitiesSnapshotPayload,
   EntityCreatePayload,
   EntityState,
   EntityUpdatePayload,
   EntityDamageUpdate,
+  ItemEntityState,
   PlayerDamageUpdate,
+  PlayerPowerup,
   PlayerState,
   TerrainBlockBreakUpdate,
   TerrainBlockUpdate,
@@ -44,6 +53,12 @@ const playerStateMessageTypes: string[] = [
 const entityDamageKnockbackHorizontalSpeed = 1.5;
 const entityDamageKnockbackVerticalSpeed = -1.6;
 const entityDamageKnockbackDurationMs = 240;
+const droppedItemPickupDelayMs = 100;
+const droppedItemSize = 8;
+const droppedItemSpawnHorizontalSpeed = 0.45;
+const droppedItemSpawnVerticalSpeed = -1.2;
+const droppedItemCollectionDistance = TILE_PX * 2;
+const playerPowerups = ["none", "miner"] as const satisfies readonly PlayerPowerup[];
 
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
@@ -58,6 +73,9 @@ const isInsideWorld = (column: number, row: number) => {
   }
   return true;
 };
+
+const isServerPlayerPowerup = (value: unknown): value is PlayerPowerup =>
+  playerPowerups.includes(value as PlayerPowerup);
 
 const blockUpdateFromPayload = (payload: Data): TerrainBlockUpdate | null => {
   const column = Number(payload.column);
@@ -76,6 +94,10 @@ const blockUpdateFromPayload = (payload: Data): TerrainBlockUpdate | null => {
     row,
     solid: payload.solid,
     kind: payload.kind,
+    ...(isServerPlayerPowerup(payload.brokenWith)
+      ? { brokenWith: payload.brokenWith }
+      : {}),
+    ...(typeof payload.dropItems === "boolean" ? { dropItems: payload.dropItems } : {}),
   };
 };
 
@@ -332,6 +354,15 @@ export class GameServer {
     };
   }
 
+  private entitiesPayloadFor(entities: EntityState[]): EntitiesSnapshotPayload {
+    return {
+      entitiesData: Object.fromEntries(
+        entities.map((entity) => [entity.id, entity]),
+      ),
+      replaceExisting: false,
+    };
+  }
+
   private activePlayerIds() {
     return Object.keys(this.playerSockets).filter((playerId) =>
       this.isActivePlayer(playerId),
@@ -378,6 +409,12 @@ export class GameServer {
     if (storedEntity.ownerId !== playerId) {
       return null;
     }
+    if (storedEntity.type === "item") {
+      return this.applyItemEntityUpdate(storedEntity, entity, playerId);
+    }
+    if (entity.type !== "slime") {
+      return null;
+    }
     const updatedEntity = {
       ...storedEntity,
       ...entity,
@@ -385,6 +422,31 @@ export class GameServer {
       type: storedEntity.type,
       ownerId: playerId,
       health: storedEntity.health,
+    };
+    this.entitiesData = {
+      ...this.entitiesData,
+      [storedEntity.id]: updatedEntity,
+    };
+    return this.entityPayload(updatedEntity);
+  }
+
+  private applyItemEntityUpdate(
+    storedEntity: ItemEntityState,
+    entity: EntityState,
+    playerId: string,
+  ) {
+    if (entity.type !== "item") {
+      return null;
+    }
+    const updatedEntity = {
+      ...storedEntity,
+      ...entity,
+      id: storedEntity.id,
+      type: storedEntity.type,
+      ownerId: playerId,
+      item: storedEntity.item,
+      count: storedEntity.count,
+      collectibleAtMs: storedEntity.collectibleAtMs,
     };
     this.entitiesData = {
       ...this.entitiesData,
@@ -433,6 +495,9 @@ export class GameServer {
     if (!storedEntity) {
       return null;
     }
+    if (storedEntity.type !== "slime") {
+      return null;
+    }
     const damage = update.damage ?? 1;
     const nextHealth = Math.max(storedEntity.health - damage, 0);
     const player = this.playersData[playerId];
@@ -474,6 +539,55 @@ export class GameServer {
     };
   }
 
+  private applyEntityCollection(payload: Data, playerId: string) {
+    const entityId = String((payload as EntityCollectPayload).entityId ?? "");
+    if (!entityId) {
+      return null;
+    }
+    const entity = this.entitiesData[entityId];
+    if (!entity) {
+      return null;
+    }
+    if (entity.type !== "item") {
+      return null;
+    }
+    if (!this.isActivePlayer(playerId)) {
+      return null;
+    }
+    if (Date.now() < entity.collectibleAtMs) {
+      return null;
+    }
+    if (!this.isPlayerCloseEnoughToItem(playerId, entity)) {
+      return null;
+    }
+    delete this.entitiesData[entity.id];
+    return {
+      entitiesData: {},
+      removedEntityIds: [entity.id],
+      replaceExisting: false,
+      collectedItem: {
+        collectorId: playerId,
+        item: entity.item,
+        count: entity.count,
+      },
+    } satisfies EntitiesSnapshotPayload;
+  }
+
+  private isPlayerCloseEnoughToItem(playerId: string, entity: ItemEntityState) {
+    const player = this.playersData[playerId];
+    const playerX = Number(player?.x);
+    const playerY = Number(player?.y);
+    if (!Number.isFinite(playerX) || !Number.isFinite(playerY)) {
+      return false;
+    }
+    return (
+      Math.hypot(
+        playerX + TILE_PX / 2 - (entity.x + droppedItemSize / 2),
+        playerY + TILE_PX / 2 - (entity.y + droppedItemSize / 2),
+      ) <= droppedItemCollectionDistance
+    );
+  }
+
   private playerDamagePayload(payload: Data, playerId: string) {
     const update = payload as PlayerDamageUpdate;
     const targetId = String(update.targetId ?? "");
@@ -507,6 +621,9 @@ export class GameServer {
     if (type === messageTypes.damageEntity) {
       return messageTypes.updateEntities;
     }
+    if (type === messageTypes.collectEntity) {
+      return messageTypes.updateEntities;
+    }
     return type;
   }
 
@@ -519,6 +636,9 @@ export class GameServer {
     }
     if (type === messageTypes.damageEntity) {
       return this.applyEntityDamage(payload, playerId);
+    }
+    if (type === messageTypes.collectEntity) {
+      return this.applyEntityCollection(payload, playerId);
     }
     if (type === messageTypes.damagePlayer) {
       return this.playerDamagePayload(payload, playerId);
@@ -557,11 +677,16 @@ export class GameServer {
       return null;
     }
     if (!update.solid) {
-      if (!this.worldTerrainTiles[key]) {
+      if (!existingKind) {
         return null;
       }
       delete this.worldTerrainTiles[key];
-      return { ...update, id: playerId };
+      const drops = this.createBlockDropEntities(update, existingKind, playerId);
+      return {
+        ...update,
+        id: playerId,
+        ...this.entitiesPayloadFor(drops),
+      };
     }
     const kind = update.kind ?? "dirt";
     if (this.protectedTerrainTiles.has(key)) {
@@ -572,5 +697,47 @@ export class GameServer {
     }
     this.worldTerrainTiles[key] = kind;
     return { ...update, id: playerId, kind };
+  }
+
+  private createBlockDropEntities(
+    update: TerrainBlockUpdate,
+    existingKind: TerrainTileKind,
+    playerId: string,
+  ) {
+    if (this.playersData[playerId]?.isFlying) {
+      return [];
+    }
+    if (update.dropItems === false) {
+      return [];
+    }
+    const brokenWith = update.brokenWith ?? "none";
+    const drops: ResolvedTerrainBlockDrop[] = terrainBlockDropsForKind(
+      existingKind,
+      brokenWith,
+    );
+    return drops
+      .filter((drop) => isPlaceableTerrainDropKind(drop.kind))
+      .map((drop) => {
+        const entity = createItemEntityState(
+          `item${this.nextEntityIndex++}`,
+          update.column * TILE_PX + Math.floor((TILE_PX - droppedItemSize) / 2),
+          update.row * TILE_PX + Math.floor((TILE_PX - droppedItemSize) / 2),
+          { type: "block", kind: drop.kind },
+          drop.count,
+          Date.now() + droppedItemPickupDelayMs,
+          this.isActivePlayer(playerId) ? playerId : undefined,
+          this.itemDropHorizontalSpeed(),
+          droppedItemSpawnVerticalSpeed,
+        );
+        this.entitiesData = {
+          ...this.entitiesData,
+          [entity.id]: entity,
+        };
+        return entity;
+      });
+  }
+
+  private itemDropHorizontalSpeed() {
+    return (Math.random() * 2 - 1) * droppedItemSpawnHorizontalSpeed;
   }
 }

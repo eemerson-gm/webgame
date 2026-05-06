@@ -1,6 +1,6 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-import type { EntityState, PlayerState } from "../classes/GameProtocol";
+import type { EntityState, PlayerState, SlimeEntityState } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import type { TileCollisionWorld, WorldBounds } from "../simulation/entityPhysics";
 import { stepSlimeEntity } from "../simulation/slimeEntityBehavior";
@@ -27,12 +27,12 @@ const slimeDamageFlashDurationMs = 240;
 const slimeDamageBlinkFrameMs = 80;
 
 export class Slime extends ex.Actor implements EntityActor {
-  private state: EntityState;
+  private state: SlimeEntityState;
   private readonly simulationProviders: SlimeSimulationProviders;
   private readonly damageFlash: DamageFlash;
   private ownerStateSyncElapsedMs = 0;
 
-  constructor(state: EntityState, simulationProviders: SlimeSimulationProviders) {
+  constructor(state: SlimeEntityState, simulationProviders: SlimeSimulationProviders) {
     super({
       pos: ex.vec(state.x, state.y),
       anchor: ex.vec(0, 0),
@@ -54,7 +54,7 @@ export class Slime extends ex.Actor implements EntityActor {
     this.renderState();
   }
 
-  public syncFromState(state: EntityState) {
+  public syncFromState(state: SlimeEntityState) {
     const didLoseHealth = state.health < this.state.health;
     if (state.health <= 0) {
       this.state = { ...state };

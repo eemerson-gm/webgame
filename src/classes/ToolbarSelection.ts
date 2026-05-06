@@ -18,12 +18,18 @@ export const placeableBlockKinds = [
 ] as const;
 
 export type PowerupMode = PlayerPowerup;
+export type InventoryPowerup = Exclude<PlayerPowerup, "none">;
 export type PlaceableBlockKind = (typeof placeableBlockKinds)[number];
 export type BlockPlacementMode = "creative" | "survival";
-export type InventoryItem = {
-  type: "block";
-  kind: PlaceableBlockKind;
-};
+export type InventoryItem =
+  | {
+      type: "block";
+      kind: PlaceableBlockKind;
+    }
+  | {
+      type: "powerup";
+      powerup: InventoryPowerup;
+    };
 export type InventoryStack = {
   item: InventoryItem;
   count: number;
@@ -37,8 +43,18 @@ export const isPlaceableBlockKind = (
 ): kind is PlaceableBlockKind =>
   !!kind && placeableBlockKinds.includes(kind as PlaceableBlockKind);
 
-const isSameInventoryItem = (a: InventoryItem, b: InventoryItem) =>
-  a.type === b.type && a.kind === b.kind;
+const isSameInventoryItem = (a: InventoryItem, b: InventoryItem) => {
+  if (a.type !== b.type) {
+    return false;
+  }
+  if (a.type === "block" && b.type === "block") {
+    return a.kind === b.kind;
+  }
+  if (a.type === "powerup" && b.type === "powerup") {
+    return a.powerup === b.powerup;
+  }
+  return false;
+};
 
 const cloneSlot = (slot: InventorySlot): InventorySlot => {
   if (!slot) {
@@ -140,6 +156,13 @@ class ToolbarSelection {
     this.addItem({ type: "block", kind }, count);
   }
 
+  public addPowerup(powerup: PlayerPowerup, count: number = 1) {
+    if (powerup === "none") {
+      return false;
+    }
+    return this.addItem({ type: "powerup", powerup }, count);
+  }
+
   public addItem(item: InventoryItem, count: number = 1) {
     if (count <= 0) {
       return false;
@@ -170,6 +193,29 @@ class ToolbarSelection {
       this.selectedHotbarSlotIndex = emptySlotIndex;
     }
     return true;
+  }
+
+  public useSelectedPowerupItem() {
+    const slot = this.inventorySlots[this.selectedHotbarSlotIndex] ?? null;
+    if (!slot) {
+      return null;
+    }
+    if (slot.item.type !== "powerup") {
+      return null;
+    }
+    const powerup = slot.item.powerup;
+    const nextCount = slot.count - 1;
+    this.inventorySlots[this.selectedHotbarSlotIndex] =
+      nextCount > 0
+        ? {
+            item: slot.item,
+            count: nextCount,
+          }
+        : null;
+    if (nextCount <= 0) {
+      this.selectNextFilledSlot(1);
+    }
+    return powerup;
   }
 
   public selectedBlockForMode(mode: BlockPlacementMode) {

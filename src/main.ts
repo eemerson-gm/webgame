@@ -1,5 +1,6 @@
 import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
+import { DroppedItem } from "./actors/DroppedItem";
 import { Player } from "./actors/Player";
 import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { PowerupPickup } from "./actors/PowerupPickup";
@@ -13,12 +14,14 @@ import type {
   Data,
   EntitiesSnapshotPayload,
   EntityState,
+  ItemEntityState,
   ParticleCreatePayload,
   PlayerDamageUpdate,
   PlayerKnockbackUpdate,
   PlayerPowerup,
   TerrainBlockBreakUpdate,
   PlayerState,
+  SlimeEntityState,
   TerrainBlockUpdate,
   WorldTerrainPayload,
 } from "./classes/GameProtocol";
@@ -33,6 +36,7 @@ const playerLightById: Record<string, DynamicLightSource> = {};
 const playerPingById: Record<string, number | undefined> = {};
 const pingLoopSlot = { intervalId: null as number | null };
 const slimeById: Record<string, Slime> = {};
+const droppedItemById: Record<string, DroppedItem> = {};
 const worldSession = {
   terrain: null as TerrainTileMap | null,
   dynamicLighting: null as TileLightingOverlay | null,
@@ -50,6 +54,8 @@ const activateLocalPowerup = (powerup: PlayerPowerup) => {
   toolbarSelection.setPowerup(powerup);
   localPlayerSlot.player?.syncPowerupState(powerup);
 };
+const collectLocalPowerup = (powerup: PlayerPowerup) =>
+  toolbarSelection.addPowerup(powerup);
 const expireLocalPowerup = () => {
   localPlayerSlot.player?.stopBlockBreakAction();
   localPlayerSlot.player?.syncPowerupState("none");
@@ -255,7 +261,7 @@ const spawnMinerPowerupPickups = (
           pos: powerupPickupPosition(column, surfaceStartByColumn),
           powerup: "miner",
           player: () => localPlayerSlot.player,
-          onCollect: activateLocalPowerup,
+          onCollect: collectLocalPowerup,
         }),
     )
     .forEach((pickup) => game.add(pickup));
@@ -376,7 +382,26 @@ const joinExistingRemotePlayers = (
   });
 };
 
-const spawnSlimeFromState = (game: ex.Engine, state: EntityState) => {
+const collectDroppedItem = (entityId: string) => {
+  clientSlot.client?.send(messageTypes.collectEntity, { entityId });
+};
+
+const spawnDroppedItemFromState = (game: ex.Engine, state: ItemEntityState) => {
+  const item = new DroppedItem(state, {
+    world: () => worldSession.terrain?.tileCollisionWorld() ?? null,
+    player: () => localPlayerSlot.player,
+    playersData: currentPlayersData,
+    clientId: () => clientSlot.client?.clientId ?? "",
+    sendState: (entity) =>
+      clientSlot.client?.send(messageTypes.updateEntity, { entity }),
+    collect: collectDroppedItem,
+  });
+  droppedItemById[state.id] = item;
+  game.add(item);
+  return item;
+};
+
+const spawnSlimeFromState = (game: ex.Engine, state: SlimeEntityState) => {
   const slime = new Slime(state, {
     world: () => worldSession.terrain?.tileCollisionWorld() ?? null,
     playersData: currentPlayersData,
@@ -389,14 +414,32 @@ const spawnSlimeFromState = (game: ex.Engine, state: EntityState) => {
   return slime;
 };
 
+const removeEntityActor = (entityId: string) => {
+  slimeById[entityId]?.kill();
+  delete slimeById[entityId];
+  droppedItemById[entityId]?.kill();
+  delete droppedItemById[entityId];
+};
+
+const applyDroppedItemState = (state: ItemEntityState) => {
+  const droppedItem = droppedItemById[state.id];
+  if (droppedItem) {
+    droppedItem.syncFromState(state);
+    return;
+  }
+  spawnDroppedItemFromState(game, state);
+};
+
 const applyEntityState = (state: EntityState) => {
+  if (state.type === "item") {
+    applyDroppedItemState(state);
+    return;
+  }
   if (state.type !== "slime") {
     return;
   }
   if (state.health <= 0) {
-    const slime = slimeById[state.id];
-    slime?.kill();
-    delete slimeById[state.id];
+    removeEntityActor(state.id);
     return;
   }
   const slime = slimeById[state.id];
@@ -415,24 +458,36 @@ const applyEntitiesSnapshot = (payload: Data) => {
   const {
     entitiesData,
     removedEntityIds = [],
+    collectedItem,
     replaceExisting = true,
   } = payload as EntitiesSnapshotPayload;
   if (!entitiesData) {
     return;
   }
   Object.values(entitiesData).forEach((state) => applyEntityState(state));
-  removedEntityIds.forEach((slimeId) => {
-    slimeById[slimeId]?.kill();
-    delete slimeById[slimeId];
-  });
+  removedEntityIds.forEach(removeEntityActor);
+  const localCollectedItem =
+    collectedItem?.collectorId === clientSlot.client?.clientId
+      ? collectedItem
+      : null;
+  if (localCollectedItem) {
+    toolbarSelection.addBlock(
+      localCollectedItem.item.kind,
+      localCollectedItem.count,
+    );
+  }
   if (!replaceExisting) {
     return;
   }
   Object.keys(slimeById)
     .filter((slimeId) => !entitiesData[slimeId])
     .forEach((slimeId) => {
-      slimeById[slimeId].kill();
-      delete slimeById[slimeId];
+      removeEntityActor(slimeId);
+    });
+  Object.keys(droppedItemById)
+    .filter((itemId) => !entitiesData[itemId])
+    .forEach((itemId) => {
+      removeEntityActor(itemId);
     });
 };
 
@@ -442,6 +497,10 @@ const applyTerrainBlockUpdate = (payload: Data) => {
     return;
   }
   terrain.applyBlockUpdate(payload as TerrainBlockUpdate);
+  applyEntitiesSnapshot({
+    ...(payload as EntitiesSnapshotPayload),
+    replaceExisting: false,
+  });
 };
 
 const applyTerrainBlockBreakUpdate = (payload: Data) => {
@@ -602,6 +661,7 @@ game.start(loader).then(() => {
             id,
             player,
           })),
+        activateLocalPowerup,
       );
       game.add(blockTargetingSlot.highlight);
       client.send(messageTypes.createPlayer, {

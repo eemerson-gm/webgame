@@ -9,7 +9,7 @@ type PowerupPickupOptions = {
   pos: ex.Vector;
   powerup: PlayerPowerup;
   player: PlayerProvider;
-  onCollect: (powerup: PlayerPowerup) => void;
+  onCollect: (powerup: PlayerPowerup) => boolean | void;
 };
 
 const overlaps = (a: ex.Actor, b: ex.Actor) => {
@@ -28,7 +28,7 @@ const overlaps = (a: ex.Actor, b: ex.Actor) => {
 export class PowerupPickup extends ex.Actor {
   private readonly powerup: PlayerPowerup;
   private readonly player: PlayerProvider;
-  private readonly onCollect: (powerup: PlayerPowerup) => void;
+  private readonly onCollect: (powerup: PlayerPowerup) => boolean | void;
   private isCollected = false;
 
   constructor(options: PowerupPickupOptions) {
@@ -67,7 +67,10 @@ export class PowerupPickup extends ex.Actor {
       return;
     }
     this.isCollected = true;
-    this.onCollect(this.powerup);
+    if (this.onCollect(this.powerup) === false) {
+      this.isCollected = false;
+      return;
+    }
     this.kill();
   }
 }

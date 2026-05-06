@@ -36,6 +36,7 @@ export const Resources = {
   NonePowerupIcon: new ex.ImageSource("./assets/powerups/none_powerup_icon.png"),
   MinerPowerupIcon: new ex.ImageSource("./assets/powerups/miner_powerup_icon.png"),
   MinerPowerup: new ex.ImageSource("./assets/powerups/miner_powerup.png"),
+  MinerPowerupItem: new ex.ImageSource("./assets/items/miner_powerup.png"),
   MinerHat: new ex.ImageSource("./assets/powerups/miner_powerup_hat.png"),
   PowerupSlot: new ex.ImageSource("./assets/ui/powerup_slot.png"),
   InventoryBlockSlot: new ex.ImageSource("./assets/ui/inventory_block_slot.png"),

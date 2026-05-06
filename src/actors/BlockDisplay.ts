@@ -1,9 +1,9 @@
 import * as ex from "excalibur";
+import { blockItemSpriteForImage } from "../classes/BlockItemSprites";
 
 export const blockDisplaySpriteSize = 10;
 const blockDisplayOutlineWidth = 1;
 export const blockDisplaySize = blockDisplaySpriteSize + blockDisplayOutlineWidth * 2;
-const blockDisplaySourceEdgeCut = 1;
 const blockDisplayOutlineColor = "#000000";
 
 class BlockDisplayOutlineRaster extends ex.Raster {
@@ -91,24 +91,7 @@ export class BlockDisplay extends ex.Actor {
   }
 
   private createBlockSprite() {
-    const sprite = this.image.toSprite();
-    const sourceWidth = sprite.width - blockDisplaySourceEdgeCut * 2;
-    const sourceHeight = sprite.height - blockDisplaySourceEdgeCut * 2;
-    const sourceX =
-      blockDisplaySourceEdgeCut +
-      Math.floor((sourceWidth - blockDisplaySpriteSize) / 2);
-    const sourceY =
-      blockDisplaySourceEdgeCut +
-      Math.floor((sourceHeight - blockDisplaySpriteSize) / 2);
-    return new ex.Sprite({
-      image: this.image,
-      sourceView: {
-        x: sourceX,
-        y: sourceY,
-        width: blockDisplaySpriteSize,
-        height: blockDisplaySpriteSize,
-      },
-    });
+    return blockItemSpriteForImage(this.image, blockDisplaySpriteSize);
   }
 
   private syncDisplayVisibility() {

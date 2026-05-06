@@ -41,6 +41,7 @@ type RemoteBreakAnimationEntry = {
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
 type RemotePlayersProvider = () => RemotePlayerEntry[];
+type PowerupUseHandler = (powerup: PlayerPowerup) => void;
 const colorChannelBetween = (start: number, end: number, progress: number) =>
   Math.round(start + (end - start) * progress);
 
@@ -69,6 +70,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly getLocalPlayer: LocalPlayerProvider;
   private readonly getRemotePlayer: RemotePlayerProvider;
   private readonly getRemotePlayers: RemotePlayersProvider;
+  private readonly onUsePowerup: PowerupUseHandler;
   private readonly highlightGraphic: BlockHighlightRaster;
   private breakAnimation: ex.Animation;
   private readonly breakAnimationActor: ex.Actor;
@@ -102,6 +104,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     getLocalPlayer: LocalPlayerProvider,
     getRemotePlayer: RemotePlayerProvider,
     getRemotePlayers: RemotePlayersProvider,
+    onUsePowerup: PowerupUseHandler,
   ) {
     super({
       pos: ex.vec(-TILE_PX, -TILE_PX),
@@ -115,6 +118,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.getLocalPlayer = getLocalPlayer;
     this.getRemotePlayer = getRemotePlayer;
     this.getRemotePlayers = getRemotePlayers;
+    this.onUsePowerup = onUsePowerup;
     this.breakParticleEmitter = new BlockBreakParticleEmitter(terrain);
     this.highlightGraphic = new BlockHighlightRaster(blockHighlightColorAt(0));
     this.graphics.anchor = ex.vec(0, 0);
@@ -153,6 +157,9 @@ export class BlockTargetingHighlight extends ex.Actor {
     });
     engine.input.pointers.primary.on("down", (event) => {
       if (event.button !== ex.PointerButton.Right) {
+        return;
+      }
+      if (this.useSelectedPowerupItem()) {
         return;
       }
       this.isPlacePointerHeld = true;
@@ -422,6 +429,26 @@ export class BlockTargetingHighlight extends ex.Actor {
     });
   }
 
+  private useSelectedPowerupItem() {
+    const localPlayer = this.getLocalPlayer();
+    if (!localPlayer) {
+      return false;
+    }
+    if (localPlayer.isPaused) {
+      return false;
+    }
+    if (!localPlayer.isAlive()) {
+      return false;
+    }
+    const powerup = toolbarSelection.useSelectedPowerupItem();
+    if (!powerup) {
+      return false;
+    }
+    this.lastPlacedTargetKey = null;
+    this.onUsePowerup(powerup);
+    return true;
+  }
+
   private startToolUseAt(target: TargetBlockPosition | null) {
     if (!target) {
       return;
@@ -483,11 +510,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     target: TargetBlockPosition,
     brokenWith: PlayerPowerup,
   ) {
-    this.collectBlockAt(target, brokenWith);
     this.client.send(messageTypes.updateBlock, {
       column: target.column,
       row: target.row,
       solid: false,
+      brokenWith,
+      dropItems: false,
     });
   }
 
@@ -521,26 +549,13 @@ export class BlockTargetingHighlight extends ex.Actor {
     ) {
       return;
     }
-    this.collectBlockAt(this.breakingTarget, brokenWith);
     this.client.send(messageTypes.updateBlock, {
       column: this.breakingTarget.column,
       row: this.breakingTarget.row,
       solid: false,
+      brokenWith,
     });
     this.cancelBreakingTarget();
-  }
-
-  private collectBlockAt(target: TargetBlockPosition, brokenWith: PlayerPowerup) {
-    if (this.getLocalPlayer()?.isFlying) {
-      return;
-    }
-    const block = this.terrain.blockAt(target.column, target.row);
-    if (!block) {
-      return;
-    }
-    block
-      .dropsFor(brokenWith)
-      .forEach((drop) => toolbarSelection.addBlock(drop.kind, drop.count));
   }
 
   private cancelBreakingTarget() {
