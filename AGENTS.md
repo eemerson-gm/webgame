@@ -4,6 +4,10 @@
 
 Excalibird is a small **multiplayer pixel platformer**: an **Excalibur** client with a **Node** server for sync.
 
+## Architecture principle — client-authoritative physics
+
+Physics is always simulated by the client. A client "owns" an entity and periodically corrects others by sending position/velocity data to the server, which relays it to peers. The server never runs physics itself — it is a relay and validator.
+
 ## Environment and workflow
 
 - This repo is developed on a **Windows operating system**.
@@ -42,3 +46,4 @@ Excalibird is a small **multiplayer pixel platformer**: an **Excalibur** client 
 
 - Keep the pixel-art setup.
 - **Never turn on `snapToPixel`**; keep Excalibur `snapToPixel: false`.
+
