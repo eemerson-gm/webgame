@@ -62,10 +62,13 @@ const playerMaxHealth = 6;
 const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const positionPrecision = 1000;
-const serverMovementSyncIntervalMs = 150;
+const serverMovementSyncIntervalMs = 75;
 const serverKnockbackMovementSyncIntervalMs = 50;
+const serverPeerMovementCorrectionIntervalMs = 100;
 const serverMovementPositionThreshold = 0.5;
 const serverMovementSpeedThreshold = 0.05;
+const remoteVisualCorrectionDurationMs = 100;
+const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const hatAnchor = ex.vec(0.5, 1);
@@ -101,8 +104,12 @@ export class Player extends MovingActor {
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private serverMovementSyncElapsedMs: number = 0;
+  private serverPeerMovementSyncElapsedMs: number = 0;
   private lastServerMovementState?: Data;
   private shouldBroadcastSeparatedPosition: boolean = false;
+  private visualCorrectionOffset: ex.Vector = ex.vec(0, 0);
+  private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
+  private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
 
   constructor(
     pos: ex.Vector,
@@ -128,7 +135,7 @@ export class Player extends MovingActor {
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
     this.graphics.anchor = ex.vec(0.5, 0.5);
-    this.graphics.offset = ex.vec(width / 2, height / 2);
+    this.graphics.offset = playerGraphicOffset;
     this.powerupAttachmentActor = new ex.Actor({
       pos: attachedVisualHiddenPosition(),
       anchor: ex.vec(0, 0),
@@ -361,6 +368,19 @@ export class Player extends MovingActor {
 
   public currentPowerup() {
     return this.activePowerup;
+  }
+
+  public applyRemotePositionCorrection(position: ex.Vector, snapDistance: number) {
+    const visualWorldPosition = this.visualWorldPosition();
+    this.pos = ex.vec(position.x, position.y);
+    const nextOffset = visualWorldPosition.sub(this.pos);
+    if (nextOffset.distance(ex.vec(0, 0)) >= snapDistance) {
+      this.applyVisualCorrectionOffset(ex.vec(0, 0));
+      return;
+    }
+    this.visualCorrectionStartOffset = nextOffset;
+    this.visualCorrectionElapsedMs = 0;
+    this.applyVisualCorrectionOffset(nextOffset);
   }
 
   public currentPowerupCan(behavior: PowerupBehavior) {
@@ -667,6 +687,34 @@ export class Player extends MovingActor {
     };
   }
 
+  private visualWorldPosition() {
+    return this.pos.add(this.visualCorrectionOffset);
+  }
+
+  private applyVisualCorrectionOffset(offset: ex.Vector) {
+    this.visualCorrectionOffset = offset;
+    this.graphics.offset = playerGraphicOffset.add(offset);
+    this.powerupAttachmentActor.graphics.offset = offset;
+    this.hatActor.graphics.offset = offset;
+    this.sleepBubbleActor.graphics.offset = offset;
+  }
+
+  private updateVisualCorrection(delta: number) {
+    if (this.visualCorrectionElapsedMs >= remoteVisualCorrectionDurationMs) {
+      return;
+    }
+    const elapsedMs = Math.min(
+      this.visualCorrectionElapsedMs + delta,
+      remoteVisualCorrectionDurationMs,
+    );
+    const remainingRatio =
+      1 - elapsedMs / remoteVisualCorrectionDurationMs;
+    this.visualCorrectionElapsedMs = elapsedMs;
+    this.applyVisualCorrectionOffset(
+      this.visualCorrectionStartOffset.scale(remainingRatio),
+    );
+  }
+
   private currentMovementState() {
     const position = this.currentPosition();
     return {
@@ -698,6 +746,7 @@ export class Player extends MovingActor {
       return;
     }
     this.serverMovementSyncElapsedMs += delta;
+    this.serverPeerMovementSyncElapsedMs += delta;
     const syncIntervalMs = shouldBroadcastMovement
       ? serverKnockbackMovementSyncIntervalMs
       : serverMovementSyncIntervalMs;
@@ -713,8 +762,18 @@ export class Player extends MovingActor {
     if (!this.shouldSyncMovementState(movementState)) {
       return;
     }
+    const shouldBroadcastPeerCorrection =
+      this.serverPeerMovementSyncElapsedMs >=
+      serverPeerMovementCorrectionIntervalMs;
     const shouldBroadcastToPeers =
-      shouldBroadcastMovement || this.shouldBroadcastSeparatedPosition;
+      shouldBroadcastMovement ||
+      this.shouldBroadcastSeparatedPosition ||
+      shouldBroadcastPeerCorrection;
+    if (shouldBroadcastToPeers) {
+      this.serverPeerMovementSyncElapsedMs =
+        this.serverPeerMovementSyncElapsedMs %
+        serverPeerMovementCorrectionIntervalMs;
+    }
     this.lastServerMovementState = movementState;
     this.shouldBroadcastSeparatedPosition = false;
     const payload = shouldBroadcastToPeers ? movementState : {};
@@ -936,6 +995,7 @@ export class Player extends MovingActor {
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
+    this.updateVisualCorrection(delta);
     this.updateDamageFeedback(delta);
     if (this.isPaused) {
       this.updateBlockBreakActionTimer(delta);

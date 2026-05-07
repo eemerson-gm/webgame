@@ -46,6 +46,7 @@ const blockTargetingSlot = {
   highlight: null as BlockTargetingHighlight | null,
 };
 const remotePlayerPositionTolerance = 0.5;
+const remotePlayerSnapDistance = TILE_PX * 2;
 const pingIntervalMs = 2000;
 const entitySeparationPadding = 1;
 const entitySeparationMaxMoveX = 0.5;
@@ -255,10 +256,13 @@ const applyPositionFromPayloadIfPresent = (
     payload.x === undefined ? player.pos.x : Number(payload.x),
     payload.y === undefined ? player.pos.y : Number(payload.y),
   );
+  if (!Number.isFinite(nextPosition.x) || !Number.isFinite(nextPosition.y)) {
+    return;
+  }
   if (player.pos.distance(nextPosition) < tolerance) {
     return;
   }
-  player.pos = nextPosition;
+  player.applyRemotePositionCorrection(nextPosition, remotePlayerSnapDistance);
 };
 
 const syncMovementFieldsFromPayload = (
