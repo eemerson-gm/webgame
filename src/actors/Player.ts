@@ -1,30 +1,16 @@
 import * as ex from "excalibur";
-import { Resources } from "../resource";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { Data, PlayerPowerup } from "../classes/GameProtocol";
-import {
-  attachedVisualHiddenPosition,
-  type AttachedVisualAnimation,
-} from "../classes/AttachedVisualAnimation";
-import {
-  isPlayerPowerup,
-  powerupHasBehavior,
-  powerupVisualsFor,
-  type HatPose,
-  type PowerupAction,
-  type PowerupBehavior,
-  type PowerupHatVisual,
-} from "../classes/Powerups";
+import { isPlayerPowerup, powerupHasBehavior, type PowerupBehavior } from "../classes/Powerups";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
-import type {
-  EntitySeparationBody,
-  TileCollisionWorld,
-} from "../simulation/entityPhysics";
+import type { EntitySeparationBody, TileCollisionWorld } from "../simulation/entityPhysics";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
+import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
+import { PlayerNetworkSync } from "./player/PlayerNetworkSync";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -62,17 +48,6 @@ const playerMaxHealth = 6;
 const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const positionPrecision = 1000;
-const serverMovementSyncIntervalMs = 75;
-const serverKnockbackMovementSyncIntervalMs = 50;
-const serverPeerMovementCorrectionIntervalMs = 100;
-const serverMovementPositionThreshold = 0.5;
-const serverMovementSpeedThreshold = 0.05;
-const remoteVisualCorrectionDurationMs = 100;
-const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
-const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
-const sleepBubbleAnchor = ex.vec(0.5, 1);
-const hatAnchor = ex.vec(0.5, 1);
-type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "blockBreakAction";
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
@@ -86,30 +61,15 @@ export class Player extends MovingActor {
   public readonly maxHealth: number = playerMaxHealth;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
-  private idleSprite: ex.Sprite = Resources.Player.toSprite();
-  private jumpSprite: ex.Sprite = Resources.PlayerJump.toSprite();
-  private crouchSprite: ex.Sprite = Resources.PlayerCrouch.toSprite();
-  private sleepBubbleActor: ex.Actor;
-  private powerupAttachmentActor: ex.Actor;
-  private hatActor: ex.Actor;
   private damageFlash: DamageFlash;
-  private currentVisual: PlayerVisual = "idle";
   private activePowerup: PlayerPowerup = "none";
-  private activeHat?: PowerupHatVisual;
-  private walkAnimation!: ex.Animation;
-  private walkAnimationFrameIndex: number = 0;
-  private blockBreakAnimation!: AttachedVisualAnimation;
   private blockBreakActionTimeRemainingMs: number = 0;
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
-  private serverMovementSyncElapsedMs: number = 0;
-  private serverPeerMovementSyncElapsedMs: number = 0;
-  private lastServerMovementState?: Data;
-  private shouldBroadcastSeparatedPosition: boolean = false;
-  private visualCorrectionOffset: ex.Vector = ex.vec(0, 0);
-  private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
-  private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
+
+  private visuals: PlayerVisuals;
+  private networkSync: PlayerNetworkSync;
 
   constructor(
     pos: ex.Vector,
@@ -134,36 +94,10 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
-    this.graphics.anchor = ex.vec(0.5, 0.5);
-    this.graphics.offset = playerGraphicOffset;
-    this.powerupAttachmentActor = new ex.Actor({
-      pos: attachedVisualHiddenPosition(),
-      anchor: ex.vec(0, 0),
-      width: TILE_PX,
-      height: TILE_PX,
-      z: -1,
-    });
-    this.hatActor = new ex.Actor({
-      pos: attachedVisualHiddenPosition(),
-      anchor: hatAnchor,
-      width: TILE_PX,
-      height: TILE_PX,
-      z: 12,
-    });
-    this.hatActor.graphics.anchor = hatAnchor;
-    this.hideHat();
-    this.applyPowerupVisuals("none");
-    this.sleepBubbleActor = new ex.Actor({
-      pos: sleepBubbleOffset,
-      anchor: sleepBubbleAnchor,
-      width: TILE_PX,
-      height: TILE_PX,
-      z: 11,
-    });
-    this.sleepBubbleActor.graphics.anchor = sleepBubbleAnchor;
-    this.sleepBubbleActor.graphics.use(Resources.ThoughtBubbleSleep.toSprite());
-    this.sleepBubbleActor.graphics.visible = false;
-    this.sleepBubbleActor.graphics.opacity = 0;
+    
+    this.visuals = new PlayerVisuals(this);
+    this.networkSync = new PlayerNetworkSync(client);
+    
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
       blinkFrameMs: playerDamageBlinkFrameMs,
@@ -211,11 +145,7 @@ export class Player extends MovingActor {
   }
 
   override onInitialize(engine: ex.Engine) {
-    this.walkAnimation.pause();
-    this.graphics.use(this.idleSprite);
-    this.addChild(this.powerupAttachmentActor);
-    this.addChild(this.hatActor);
-    this.addChild(this.sleepBubbleActor);
+    this.visuals.initialize();
     this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
@@ -269,7 +199,7 @@ export class Player extends MovingActor {
     if (this.isBreakingBlock) {
       return false;
     }
-    const actualDurationMs = durationMs ?? this.blockBreakAnimation.durationMs;
+    const actualDurationMs = durationMs ?? this.visuals.blockBreakDurationMs;
     this.beginBlockBreakActionVisual(actualDurationMs);
     this.sendBlockBreakActionState(true);
     return true;
@@ -362,8 +292,8 @@ export class Player extends MovingActor {
       return;
     }
     this.pos.x = x;
-    this.lastServerMovementState = undefined;
-    this.shouldBroadcastSeparatedPosition = true;
+    this.networkSync.markPositionChanged();
+    this.networkSync.setShouldBroadcastSeparatedPosition(true);
   }
 
   public currentPowerup() {
@@ -371,16 +301,7 @@ export class Player extends MovingActor {
   }
 
   public applyRemotePositionCorrection(position: ex.Vector, snapDistance: number) {
-    const visualWorldPosition = this.visualWorldPosition();
-    this.pos = ex.vec(position.x, position.y);
-    const nextOffset = visualWorldPosition.sub(this.pos);
-    if (nextOffset.distance(ex.vec(0, 0)) >= snapDistance) {
-      this.applyVisualCorrectionOffset(ex.vec(0, 0));
-      return;
-    }
-    this.visualCorrectionStartOffset = nextOffset;
-    this.visualCorrectionElapsedMs = 0;
-    this.applyVisualCorrectionOffset(nextOffset);
+    this.visuals.applyRemotePositionCorrection(position, snapDistance);
   }
 
   public currentPowerupCan(behavior: PowerupBehavior) {
@@ -395,7 +316,7 @@ export class Player extends MovingActor {
       return;
     }
     this.activePowerup = powerup;
-    this.applyPowerupVisuals(powerup);
+    this.visuals.applyPowerup(powerup, this.isUsingPowerup);
     const position = this.currentPosition();
     this.sendClient(messageTypes.updatePlayer, {
       activePowerup: powerup,
@@ -482,8 +403,7 @@ export class Player extends MovingActor {
 
   public setPaused(isPaused: boolean) {
     this.isPaused = isPaused;
-    this.sleepBubbleActor.graphics.visible = isPaused;
-    this.sleepBubbleActor.graphics.opacity = isPaused ? 1 : 0;
+    this.visuals.setPaused(isPaused);
     if (!isPaused) {
       return;
     }
@@ -496,10 +416,7 @@ export class Player extends MovingActor {
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
     this.stopBlockBreakActionVisual();
-    this.walkAnimation.pause();
-    this.currentVisual = "idle";
-    this.graphics.use(this.idleSprite);
-    this.syncHat();
+    this.visuals.setVisual("idle");
   }
 
   public syncBlockBreakActionState(
@@ -510,7 +427,7 @@ export class Player extends MovingActor {
     if (isPlayerPowerup(powerup) && powerup !== this.activePowerup) {
       this.syncPowerupState(powerup);
     }
-    const actualDurationMs = durationMs ?? this.blockBreakAnimation.durationMs;
+    const actualDurationMs = durationMs ?? this.visuals.blockBreakDurationMs;
     if (isBreakingBlock && !this.isBreakingBlock) {
       this.beginBlockBreakActionVisual(actualDurationMs);
       return;
@@ -529,88 +446,24 @@ export class Player extends MovingActor {
 
   private beginBlockBreakActionVisual(durationMs: number) {
     this.blockBreakActionTimeRemainingMs = durationMs;
-    if (this.currentVisual === "walk") {
-      this.walkAnimation.pause();
-    }
-    this.currentVisual = "blockBreakAction";
-    this.blockBreakAnimation.reset();
-    this.graphics.use(this.blockBreakAnimation.graphic);
-    this.blockBreakAnimation.play();
-    this.blockBreakAnimation.update(0, this.facingLeft);
-    this.syncHat();
+    this.visuals.setVisual("blockBreakAction");
   }
 
   private stopBlockBreakActionVisual() {
     this.blockBreakActionTimeRemainingMs = 0;
-    this.blockBreakAnimation.pause();
-    this.blockBreakAnimation.hideAttachment();
-    if (this.currentVisual === "blockBreakAction") {
-      this.currentVisual = "idle";
-      this.graphics.use(this.idleSprite);
+    this.visuals.hideBlockBreakAttachment();
+    if (this.visuals.currentVisual === "blockBreakAction") {
+      this.visuals.setVisual("idle");
     }
-    this.syncHat();
-  }
-
-  private applyPowerupVisuals(powerup: PlayerPowerup) {
-    const visuals = powerupVisualsFor(
-      powerup,
-      this.powerupAttachmentActor,
-      TILE_PX,
-      () => this.syncHat(),
-    );
-    const isWalking = this.currentVisual === "walk";
-    const isBreakingBlock = this.isBreakingBlock;
-    if (isWalking) {
-      this.walkAnimation.pause();
-    }
-    if (isBreakingBlock) {
-      this.blockBreakAnimation.pause();
-      this.blockBreakAnimation.hideAttachment();
-    }
-    this.idleSprite = visuals.idleSprite;
-    this.jumpSprite = visuals.jumpSprite;
-    this.crouchSprite = visuals.crouchSprite;
-    this.walkAnimation = visuals.walkAnimation;
-    this.walkAnimation.events.on("frame", (frame) => {
-      this.walkAnimationFrameIndex = frame.frameIndex;
-      this.syncHat();
-    });
-    this.blockBreakAnimation = visuals.actions.blockBreak;
-    this.activeHat = visuals.hat;
-    this.applyHatVisual();
-    if (this.currentVisual === "idle") {
-      this.graphics.use(this.idleSprite);
-    }
-    if (this.currentVisual === "walk") {
-      this.walkAnimationFrameIndex = 0;
-      this.walkAnimation.reset();
-      this.graphics.use(this.walkAnimation);
-      this.walkAnimation.play();
-    }
-    if (this.currentVisual === "jump") {
-      this.graphics.use(this.jumpSprite);
-    }
-    if (this.currentVisual === "crouch") {
-      this.graphics.use(this.crouchSprite);
-    }
-    if (this.currentVisual === "blockBreakAction") {
-      this.blockBreakAnimation.reset();
-      this.graphics.use(this.blockBreakAnimation.graphic);
-      this.blockBreakAnimation.play();
-    }
-    this.blockBreakAnimation.update(0, this.facingLeft);
-    this.syncHat();
   }
 
   private updateBlockBreakActionTimer(delta: number) {
     if (!this.isBreakingBlock) {
-      this.blockBreakAnimation.hideAttachment();
-      this.syncHat();
+      this.visuals.hideBlockBreakAttachment();
       return;
     }
-    this.blockBreakAnimation.update(delta, this.facingLeft);
+    this.visuals.updateBlockBreakAction(delta, this.facingLeft);
     this.blockBreakActionTimeRemainingMs -= delta;
-    this.syncHat();
     if (this.blockBreakActionTimeRemainingMs > 0) {
       return;
     }
@@ -618,101 +471,11 @@ export class Player extends MovingActor {
     this.sendBlockBreakActionState(false);
   }
 
-  private applyHatVisual() {
-    const hat = this.activeHat;
-    if (!hat) {
-      this.hideHat();
-      return;
-    }
-    this.hatActor.graphics.use(hat.sprite);
-    this.hatActor.graphics.anchor = hatAnchor;
-  }
-
-  private hideHat() {
-    this.hatActor.pos = attachedVisualHiddenPosition();
-    this.hatActor.graphics.visible = false;
-    this.hatActor.graphics.opacity = 0;
-  }
-
-  private syncHat() {
-    const hat = this.activeHat;
-    const pose = this.currentHatPose();
-    if (!hat || !pose || pose.visible === false) {
-      this.hideHat();
-      return;
-    }
-    const offsetX = this.facingLeft ? -pose.offset.x : pose.offset.x;
-    this.hatActor.pos = ex.vec(TILE_PX / 2 + offsetX, pose.offset.y);
-    this.hatActor.graphics.anchor = hatAnchor;
-    this.hatActor.graphics.flipHorizontal = this.facingLeft;
-    this.hatActor.graphics.visible = true;
-    this.hatActor.graphics.opacity = 1;
-  }
-
-  private currentHatPose() {
-    const poses = this.activeHat?.poses;
-    if (!poses) {
-      return undefined;
-    }
-    if (this.currentVisual === "idle") {
-      return poses.idle;
-    }
-    if (this.currentVisual === "jump") {
-      return poses.jump;
-    }
-    if (this.currentVisual === "crouch") {
-      return poses.crouch;
-    }
-    if (this.currentVisual === "walk") {
-      return this.hatPoseAt(poses.walk, this.walkAnimationFrameIndex);
-    }
-    return this.hatActionPoseAt(
-      "blockBreak",
-      this.blockBreakAnimation.currentFrameIndex,
-    );
-  }
-
-  private hatActionPoseAt(action: PowerupAction, frameIndex: number) {
-    return this.hatPoseAt(this.activeHat?.poses.actions?.[action], frameIndex);
-  }
-
-  private hatPoseAt(poses: readonly HatPose[] | undefined, frameIndex: number) {
-    return poses?.[frameIndex] ?? poses?.[0];
-  }
-
   private currentPosition() {
     return {
       x: syncedPositionValue(this.pos.x),
       y: syncedPositionValue(this.pos.y),
     };
-  }
-
-  private visualWorldPosition() {
-    return this.pos.add(this.visualCorrectionOffset);
-  }
-
-  private applyVisualCorrectionOffset(offset: ex.Vector) {
-    this.visualCorrectionOffset = offset;
-    this.graphics.offset = playerGraphicOffset.add(offset);
-    this.powerupAttachmentActor.graphics.offset = offset;
-    this.hatActor.graphics.offset = offset;
-    this.sleepBubbleActor.graphics.offset = offset;
-  }
-
-  private updateVisualCorrection(delta: number) {
-    if (this.visualCorrectionElapsedMs >= remoteVisualCorrectionDurationMs) {
-      return;
-    }
-    const elapsedMs = Math.min(
-      this.visualCorrectionElapsedMs + delta,
-      remoteVisualCorrectionDurationMs,
-    );
-    const remainingRatio =
-      1 - elapsedMs / remoteVisualCorrectionDurationMs;
-    this.visualCorrectionElapsedMs = elapsedMs;
-    this.applyVisualCorrectionOffset(
-      this.visualCorrectionStartOffset.scale(remainingRatio),
-    );
   }
 
   private currentMovementState() {
@@ -736,85 +499,6 @@ export class Player extends MovingActor {
       isFlying: this.isFlying,
     };
     this.sendClient(messageTypes.updatePlayer, movementState, movementState);
-  }
-
-  private syncMovementPeriodically(
-    delta: number,
-    shouldBroadcastMovement = false,
-  ) {
-    if (!this.client) {
-      return;
-    }
-    this.serverMovementSyncElapsedMs += delta;
-    this.serverPeerMovementSyncElapsedMs += delta;
-    const syncIntervalMs = shouldBroadcastMovement
-      ? serverKnockbackMovementSyncIntervalMs
-      : serverMovementSyncIntervalMs;
-    if (this.serverMovementSyncElapsedMs < syncIntervalMs) {
-      return;
-    }
-    this.serverMovementSyncElapsedMs =
-      this.serverMovementSyncElapsedMs % syncIntervalMs;
-    const movementState = {
-      ...this.currentMovementState(),
-      isFlying: this.isFlying,
-    };
-    if (!this.shouldSyncMovementState(movementState)) {
-      return;
-    }
-    const shouldBroadcastPeerCorrection =
-      this.serverPeerMovementSyncElapsedMs >=
-      serverPeerMovementCorrectionIntervalMs;
-    const shouldBroadcastToPeers =
-      shouldBroadcastMovement ||
-      this.shouldBroadcastSeparatedPosition ||
-      shouldBroadcastPeerCorrection;
-    if (shouldBroadcastToPeers) {
-      this.serverPeerMovementSyncElapsedMs =
-        this.serverPeerMovementSyncElapsedMs %
-        serverPeerMovementCorrectionIntervalMs;
-    }
-    this.lastServerMovementState = movementState;
-    this.shouldBroadcastSeparatedPosition = false;
-    const payload = shouldBroadcastToPeers ? movementState : {};
-    const statePatch = shouldBroadcastToPeers ? undefined : movementState;
-    this.sendClient(messageTypes.updatePlayer, payload, statePatch);
-  }
-
-  private shouldSyncMovementState(movementState: Data) {
-    const lastMovementState = this.lastServerMovementState;
-    if (!lastMovementState) {
-      return true;
-    }
-    if (
-      Math.abs(Number(movementState.x) - Number(lastMovementState.x)) >=
-      serverMovementPositionThreshold
-    ) {
-      return true;
-    }
-    if (
-      Math.abs(Number(movementState.y) - Number(lastMovementState.y)) >=
-      serverMovementPositionThreshold
-    ) {
-      return true;
-    }
-    if (
-      Math.abs(
-        Number(movementState.horizontalSpeed) -
-          Number(lastMovementState.horizontalSpeed),
-      ) >= serverMovementSpeedThreshold
-    ) {
-      return true;
-    }
-    if (
-      Math.abs(
-        Number(movementState.verticalSpeed) -
-          Number(lastMovementState.verticalSpeed),
-      ) >= serverMovementSpeedThreshold
-    ) {
-      return true;
-    }
-    return movementState.isFlying !== lastMovementState.isFlying;
   }
 
   private onMove() {
@@ -864,8 +548,7 @@ export class Player extends MovingActor {
       this.syncFacingFromHorizontalSign(keySign);
     }
     if (this.isBreakingBlock) {
-      this.graphics.flipHorizontal = this.facingLeft;
-      this.syncHat();
+      this.visuals.updateFacing(this.facingLeft);
       return;
     }
     const nextVisual: PlayerVisual = !this.isGrounded
@@ -875,29 +558,9 @@ export class Player extends MovingActor {
         : keySign !== 0
           ? "walk"
           : "idle";
-    if (nextVisual !== this.currentVisual) {
-      if (this.currentVisual === "walk") {
-        this.walkAnimation.pause();
-      }
-      this.currentVisual = nextVisual;
-      if (nextVisual === "idle") {
-        this.graphics.use(this.idleSprite);
-      }
-      if (nextVisual === "walk") {
-        this.walkAnimationFrameIndex = 0;
-        this.walkAnimation.reset();
-        this.graphics.use(this.walkAnimation);
-        this.walkAnimation.play();
-      }
-      if (nextVisual === "jump") {
-        this.graphics.use(this.jumpSprite);
-      }
-      if (nextVisual === "crouch") {
-        this.graphics.use(this.crouchSprite);
-      }
-    }
-    this.graphics.flipHorizontal = this.facingLeft;
-    this.syncHat();
+    
+    this.visuals.setVisual(nextVisual);
+    this.visuals.updateFacing(this.facingLeft);
   }
 
   private horizontalAccelerationFor(keySign: number) {
@@ -995,7 +658,7 @@ export class Player extends MovingActor {
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
-    this.updateVisualCorrection(delta);
+    this.visuals.updateVisualCorrection(delta);
     this.updateDamageFeedback(delta);
     if (this.isPaused) {
       this.updateBlockBreakActionTimer(delta);
@@ -1033,7 +696,12 @@ export class Player extends MovingActor {
 
     this.syncPlayerVisuals(keySign);
     this.onMove();
-    this.syncMovementPeriodically(delta, isKnockbackActive);
+    
+    this.networkSync.syncMovementPeriodically(delta, {
+      ...this.currentMovementState(),
+      isFlying: this.isFlying,
+    }, isKnockbackActive);
+    
     this.updateBlockBreakActionTimer(delta);
   }
 }

@@ -2,7 +2,7 @@ import * as ex from "excalibur";
 import { BlockTargetingHighlight } from "./actors/BlockTargetingHighlight";
 import { DroppedItem } from "./actors/DroppedItem";
 import { Player } from "./actors/Player";
-import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
+import { HUDManager } from "./ui/HUDManager";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
@@ -776,7 +776,7 @@ const startWorldSession = (
   game.add(localPlayerSlot.player);
   addPlayerLight(myPlayerId, localPlayerSlot.player);
   game.add(
-    new PlayerHealthDisplay(() => {
+    new HUDManager(() => {
       const player = localPlayerSlot.player;
       if (!player) {
         return null;

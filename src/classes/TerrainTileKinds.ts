@@ -48,5 +48,5 @@ export const solidTerrainTileKeys = (
   terrainTiles: Record<string, TerrainTileKind>,
 ) =>
   Object.entries(terrainTiles)
-    .filter(([_key, kind]) => isSolidTerrainTileKind(kind))
+    .filter(([, kind]) => isSolidTerrainTileKind(kind))
     .map(([key]) => key);

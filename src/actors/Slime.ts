@@ -15,6 +15,7 @@ import { DamageFlash } from "./DamageableActor";
 import type { EntityActor } from "./EntityActor";
 import type { Player } from "./Player";
 import { SmashParticleActor } from "./SmashParticleActor";
+import { NetworkedEntityBehavior } from "../simulation/NetworkedEntityBehavior";
 
 type SlimeSimulationProviders = {
   world: () => TileCollisionWorld | null;
@@ -24,7 +25,6 @@ type SlimeSimulationProviders = {
 };
 
 const correctionSnapDistance = TILE_PX * 4;
-const ownerStateSyncIntervalMs = 200;
 const slimeContactDamage = 1;
 const slimeSwordDamage = 1;
 const slimeDamageKnockbackHorizontalSpeed = 1.5;
@@ -37,7 +37,7 @@ export class Slime extends ex.Actor implements EntityActor {
   private state: SlimeEntityState;
   private readonly simulationProviders: SlimeSimulationProviders;
   private readonly damageFlash: DamageFlash;
-  private ownerStateSyncElapsedMs = 0;
+  private readonly networkedBehavior: NetworkedEntityBehavior<SlimeEntityState>;
 
   constructor(state: SlimeEntityState, simulationProviders: SlimeSimulationProviders) {
     super({
@@ -49,6 +49,7 @@ export class Slime extends ex.Actor implements EntityActor {
     });
     this.state = { ...state };
     this.simulationProviders = simulationProviders;
+    this.networkedBehavior = new NetworkedEntityBehavior(simulationProviders);
     this.damageFlash = new DamageFlash(this, {
       durationMs: slimeDamageFlashDurationMs,
       blinkFrameMs: slimeDamageBlinkFrameMs,
@@ -71,7 +72,7 @@ export class Slime extends ex.Actor implements EntityActor {
     if (didLoseHealth) {
       this.damageFlash.start();
     }
-    if (this.isOwnedByLocal() && state.ownerId === this.localClientId()) {
+    if (this.networkedBehavior.isOwnedByLocal(this.state) && state.ownerId === this.networkedBehavior.localClientId()) {
       this.state = {
         ...this.state,
         ownerId: state.ownerId,
@@ -178,12 +179,12 @@ export class Slime extends ex.Actor implements EntityActor {
       isGrounded: this.state.isGrounded,
       isJumping: this.state.isJumping,
       collisionBounds: slimeCollisionBounds,
-      canSeparate: this.isOwnedByLocal() && this.isAlive(),
+      canSeparate: this.networkedBehavior.isOwnedByLocal(this.state) && this.isAlive(),
     };
   }
 
   public applySeparatedX(x: number) {
-    if (!this.isOwnedByLocal()) {
+    if (!this.networkedBehavior.isOwnedByLocal(this.state)) {
       return;
     }
     if (this.state.x === x) {
@@ -210,7 +211,7 @@ export class Slime extends ex.Actor implements EntityActor {
       dt: delta / 1000,
     });
     this.renderState();
-    this.syncOwnerStatePeriodically(delta);
+    this.networkedBehavior.syncOwnerStatePeriodically(delta, this.state);
   }
 
   private renderState() {
@@ -226,26 +227,5 @@ export class Slime extends ex.Actor implements EntityActor {
   private showDamageFeedback(position: ex.Vector) {
     this.damageFlash.start();
     this.scene?.add(new SmashParticleActor(position));
-  }
-
-  private syncOwnerStatePeriodically(delta: number) {
-    if (!this.isOwnedByLocal()) {
-      return;
-    }
-    this.ownerStateSyncElapsedMs += delta;
-    if (this.ownerStateSyncElapsedMs < ownerStateSyncIntervalMs) {
-      return;
-    }
-    this.ownerStateSyncElapsedMs =
-      this.ownerStateSyncElapsedMs % ownerStateSyncIntervalMs;
-    this.simulationProviders.sendState(this.state);
-  }
-
-  private isOwnedByLocal() {
-    return this.state.ownerId === this.localClientId();
-  }
-
-  private localClientId() {
-    return this.simulationProviders.clientId();
   }
 }

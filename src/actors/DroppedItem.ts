@@ -15,7 +15,9 @@ import type {
   TileCollisionWorld,
 } from "../simulation/entityPhysics";
 import type { Player } from "./Player";
-import { Resources } from "../resource";
+import { NetworkedEntityBehavior } from "../simulation/NetworkedEntityBehavior";
+
+import { PowerupItemRaster } from "../ui/PowerupItemRaster";
 
 type DroppedItemProviders = {
   world: () => TileCollisionWorld | null;
@@ -30,9 +32,7 @@ const itemSize = 6;
 const itemOutlineWidth = 1;
 const itemOutlineSize = itemSize + itemOutlineWidth * 2;
 const itemOutlineColor = "#000000";
-const powerupItemDisplaySize = 8;
 const correctionSnapDistance = 32;
-const ownerStateSyncIntervalMs = 200;
 const settledSpeedThreshold = 0.02;
 const collectRetryDelayMs = 250;
 
@@ -48,39 +48,6 @@ const overlaps = (a: ex.Actor, b: ex.Actor) => {
   }
   return a.pos.y <= b.pos.y + b.height;
 };
-
-const powerupItemSprite = () => new PowerupItemRaster();
-
-class PowerupItemRaster extends ex.Raster {
-  constructor() {
-    super({
-      width: powerupItemDisplaySize,
-      height: powerupItemDisplaySize,
-      origin: ex.vec(0, 0),
-      smoothing: false,
-      filtering: ex.ImageFiltering.Pixel,
-    });
-  }
-
-  override clone() {
-    return new PowerupItemRaster();
-  }
-
-  override execute(ctx: CanvasRenderingContext2D) {
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(
-      Resources.MinerPowerupItem.image,
-      0,
-      0,
-      Resources.MinerPowerupItem.width,
-      Resources.MinerPowerupItem.height,
-      0,
-      0,
-      powerupItemDisplaySize,
-      powerupItemDisplaySize,
-    );
-  }
-}
 
 class DroppedItemOutlineRaster extends ex.Raster {
   constructor() {
@@ -109,9 +76,8 @@ class DroppedItemOutlineRaster extends ex.Raster {
 export class DroppedItem extends ex.Actor {
   private state: ItemEntityState;
   private readonly providers: DroppedItemProviders;
-  private ownerStateSyncElapsedMs = 0;
   private collectRetryMsRemaining = 0;
-  private hasSentSettledState = false;
+  private readonly networkedBehavior: NetworkedEntityBehavior<ItemEntityState>;
 
   constructor(state: ItemEntityState, providers: DroppedItemProviders) {
     super({
@@ -123,6 +89,7 @@ export class DroppedItem extends ex.Actor {
     });
     this.state = { ...state };
     this.providers = providers;
+    this.networkedBehavior = new NetworkedEntityBehavior(providers);
   }
 
   override onInitialize() {
@@ -153,7 +120,7 @@ export class DroppedItem extends ex.Actor {
     }
     this.graphics.anchor = ex.vec(0, 0);
     if (item.type === "powerup") {
-      this.graphics.use(powerupItemSprite());
+      this.graphics.use(new PowerupItemRaster());
     }
     if (blockKind) {
       this.graphics.use(blockItemSpriteForKind(blockKind, itemSize));
@@ -163,13 +130,13 @@ export class DroppedItem extends ex.Actor {
 
   public syncFromState(state: ItemEntityState) {
     const isBecomingLocalOwner =
-      !this.isOwnedByLocal() && state.ownerId === this.localClientId();
+      !this.networkedBehavior.isOwnedByLocal(this.state) && state.ownerId === this.networkedBehavior.localClientId();
     if (isBecomingLocalOwner) {
       this.state = { ...state };
       this.renderState();
       return;
     }
-    if (this.isOwnedByLocal() && state.ownerId === this.localClientId()) {
+    if (this.networkedBehavior.isOwnedByLocal(this.state) && state.ownerId === this.networkedBehavior.localClientId()) {
       this.state = {
         ...this.state,
         ownerId: state.ownerId,
@@ -201,12 +168,12 @@ export class DroppedItem extends ex.Actor {
       isGrounded: this.state.isGrounded,
       isJumping: this.state.isJumping,
       collisionBounds: itemCollisionBounds,
-      canSeparate: this.isOwnedByLocal() && !this.isKilled(),
+      canSeparate: this.networkedBehavior.isOwnedByLocal(this.state) && !this.isKilled(),
     };
   }
 
   public applySeparatedX(x: number) {
-    if (!this.isOwnedByLocal()) {
+    if (!this.networkedBehavior.isOwnedByLocal(this.state)) {
       return;
     }
     if (this.state.x === x) {
@@ -216,7 +183,7 @@ export class DroppedItem extends ex.Actor {
       ...this.state,
       x,
     };
-    this.hasSentSettledState = false;
+    this.networkedBehavior.resetSettledState();
     this.renderState();
   }
 
@@ -242,7 +209,7 @@ export class DroppedItem extends ex.Actor {
       dt: delta / 1000,
     });
     this.renderState();
-    this.syncOwnerState(delta);
+    this.networkedBehavior.syncOwnerStatePeriodically(delta, this.state, this.isSettled());
   }
 
   private collectWhenTouchingPlayer() {
@@ -274,29 +241,6 @@ export class DroppedItem extends ex.Actor {
     this.pos.y = this.state.y;
   }
 
-  private syncOwnerState(delta: number) {
-    if (!this.isOwnedByLocal()) {
-      return;
-    }
-    if (this.isSettled()) {
-      if (this.hasSentSettledState) {
-        return;
-      }
-      this.hasSentSettledState = true;
-      this.ownerStateSyncElapsedMs = 0;
-      this.providers.sendState(this.state);
-      return;
-    }
-    this.hasSentSettledState = false;
-    this.ownerStateSyncElapsedMs += delta;
-    if (this.ownerStateSyncElapsedMs < ownerStateSyncIntervalMs) {
-      return;
-    }
-    this.ownerStateSyncElapsedMs =
-      this.ownerStateSyncElapsedMs % ownerStateSyncIntervalMs;
-    this.providers.sendState(this.state);
-  }
-
   private isSettled() {
     if (!this.state.isGrounded) {
       return false;
@@ -305,13 +249,5 @@ export class DroppedItem extends ex.Actor {
       return false;
     }
     return Math.abs(this.state.verticalSpeed) <= settledSpeedThreshold;
-  }
-
-  private isOwnedByLocal() {
-    return this.state.ownerId === this.localClientId();
-  }
-
-  private localClientId() {
-    return this.providers.clientId();
   }
 }
