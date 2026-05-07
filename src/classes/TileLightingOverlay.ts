@@ -14,7 +14,7 @@ type TileLightNode = {
 type SunlightState = {
   isBlocked: boolean;
   brightness: number;
-  entries: [string, number][];
+  levels: number[];
 };
 
 type TileBounds = {
@@ -37,6 +37,11 @@ type ViewLightingState = {
   brightnessByTile: Record<string, number>;
   tileBounds: TileBounds;
   dynamicLights: ScreenLightSnapshot[];
+};
+
+type BrightnessCache = {
+  key: string;
+  brightnessByTile: Record<string, number>;
 };
 
 type ScreenLightSnapshot = {
@@ -70,6 +75,12 @@ const indexes = (count: number) => Array.from({ length: count }, (_, index) => i
 const tileKeyFor = (position: { column: number; row: number }) =>
   terrainTileKey(position.column, position.row);
 
+const tileBoundsKey = (bounds: TileBounds) =>
+  `${bounds.left},${bounds.right},${bounds.top},${bounds.bottom}`;
+
+const lightingCacheKey = (bounds: TileBounds, revision: number) =>
+  `${tileBoundsKey(bounds)}:${revision}`;
+
 const lightLevelForKind = (kind: TerrainTileKind | null) =>
   kind === "lamp" ? lampLightLevel : 0;
 
@@ -88,17 +99,6 @@ const expandBounds = (
   bottom: Math.min(bounds.bottom + amount, rows - 1),
 });
 
-const columnsInBounds = (bounds: TileBounds) =>
-  indexes(bounds.right - bounds.left + 1).map((index) => bounds.left + index);
-
-const rowsInBounds = (bounds: TileBounds) =>
-  indexes(bounds.bottom - bounds.top + 1).map((index) => bounds.top + index);
-
-const positionsInBounds = (bounds: TileBounds) =>
-  columnsInBounds(bounds).flatMap((column) =>
-    rowsInBounds(bounds).map((row) => ({ column, row })),
-  );
-
 const isPositionInBounds = (
   position: { column: number; row: number },
   bounds: TileBounds,
@@ -116,7 +116,7 @@ const adjacentPositions = (column: number, row: number) => [
   { column, row: row + 1 },
 ];
 
-const sunlightEntriesForColumn = (terrain: TerrainTileMap, column: number) =>
+const sunlightLevelsForColumn = (terrain: TerrainTileMap, column: number) =>
   indexes(terrain.rowCount()).reduce<SunlightState>(
     (state, row) => {
       const isSolid = terrain.isSolidAt(column, row);
@@ -125,15 +125,18 @@ const sunlightEntriesForColumn = (terrain: TerrainTileMap, column: number) =>
       const brightness = isOpenSky
         ? maxLightLevel
         : Math.max(state.brightness - fadeAmount, 0);
-      state.entries.push([terrainTileKey(column, row), brightness]);
+      state.levels.push(brightness);
       return {
         isBlocked: state.isBlocked || isSolid,
         brightness,
-        entries: state.entries,
+        levels: state.levels,
       };
     },
-    { isBlocked: false, brightness: maxLightLevel, entries: [] },
-  ).entries;
+    { isBlocked: false, brightness: maxLightLevel, levels: [] },
+  ).levels;
+
+const sunlightByColumnForTerrain = (terrain: TerrainTileMap) =>
+  indexes(terrain.columnCount()).map((column) => sunlightLevelsForColumn(terrain, column));
 
 const lightSourcesForTerrain = (terrain: TerrainTileMap) =>
   indexes(terrain.columnCount()).flatMap((column) =>
@@ -224,18 +227,20 @@ const blockLightBrightnessByTile = (
   return spreadBlockLightFromQueue(terrain, queue, brightnessByTile, spreadBounds);
 };
 
-const sunlightBrightnessByTile = (terrain: TerrainTileMap, bounds: TileBounds) =>
-  Object.fromEntries(
-    columnsInBounds(bounds).flatMap((column) =>
-      sunlightEntriesForColumn(terrain, column).filter((entry) => {
-        const { row } = positionFromKey(entry[0]);
-        if (row < bounds.top) {
-          return false;
-        }
-        return row <= bounds.bottom;
-      }),
-    ),
-  ) as Record<string, number>;
+const sunlightBrightnessByTile = (sunlightByColumn: number[][], bounds: TileBounds) => {
+  const brightnessByTile: Record<string, number> = {};
+  const columnCursor = { value: bounds.left };
+  while (columnCursor.value <= bounds.right) {
+    const rowCursor = { value: bounds.top };
+    while (rowCursor.value <= bounds.bottom) {
+      brightnessByTile[terrainTileKey(columnCursor.value, rowCursor.value)] =
+        sunlightByColumn[columnCursor.value]?.[rowCursor.value] ?? 0;
+      rowCursor.value += 1;
+    }
+    columnCursor.value += 1;
+  }
+  return brightnessByTile;
+};
 
 const viewBoundsFor = (camera: ex.Camera, width: number, height: number) => ({
   left: camera.pos.x - width / 2,
@@ -350,39 +355,48 @@ const fillAlphaMap = (
   brightnessByTile: Record<string, number>,
   tileBounds: TileBounds,
 ) => {
-  indexes(alphaMap.canvas.width).forEach((x) =>
-    indexes(alphaMap.canvas.height).forEach((y) =>
+  const xCursor = { value: 0 };
+  while (xCursor.value < alphaMap.canvas.width) {
+    const yCursor = { value: 0 };
+    while (yCursor.value < alphaMap.canvas.height) {
       writeAlphaPixel(
         alphaMap.imageData,
         alphaMap.canvas.width,
-        x,
-        y,
+        xCursor.value,
+        yCursor.value,
         cornerAlphaAt(
           brightnessByTile,
           tileBounds,
-          tileBounds.left + x,
-          tileBounds.top + y,
+          tileBounds.left + xCursor.value,
+          tileBounds.top + yCursor.value,
         ),
-      ),
-    ),
-  );
+      );
+      yCursor.value += 1;
+    }
+    xCursor.value += 1;
+  }
   alphaMap.context.putImageData(alphaMap.imageData, 0, 0);
 };
 
 const combinedBrightnessByTile = (
-  terrain: TerrainTileMap,
   sunlightByTile: Record<string, number>,
   blockLightByTile: Record<string, number>,
   bounds: TileBounds,
 ) => {
   const brightnessByTile: Record<string, number> = {};
-  positionsInBounds(bounds).forEach((position) => {
-    const key = tileKeyFor(position);
-    brightnessByTile[key] = Math.max(
-      sunlightByTile[key] ?? 0,
-      blockLightByTile[key] ?? 0,
-    );
-  });
+  const columnCursor = { value: bounds.left };
+  while (columnCursor.value <= bounds.right) {
+    const rowCursor = { value: bounds.top };
+    while (rowCursor.value <= bounds.bottom) {
+      const key = terrainTileKey(columnCursor.value, rowCursor.value);
+      brightnessByTile[key] = Math.max(
+        sunlightByTile[key] ?? 0,
+        blockLightByTile[key] ?? 0,
+      );
+      rowCursor.value += 1;
+    }
+    columnCursor.value += 1;
+  }
   return brightnessByTile;
 };
 
@@ -390,6 +404,7 @@ class TileLightingRaster extends ex.Raster {
   private readonly tileWidth: number;
   private readonly tileHeight: number;
   private viewState: ViewLightingState | null = null;
+  private alphaMap: CanvasContext | null = null;
 
   constructor(options: TileLightingRasterOptions) {
     super({
@@ -432,7 +447,7 @@ class TileLightingRaster extends ex.Raster {
   private drawView(ctx: CanvasRenderingContext2D, viewState: ViewLightingState) {
     const alphaWidth = viewState.tileBounds.right - viewState.tileBounds.left + 2;
     const alphaHeight = viewState.tileBounds.bottom - viewState.tileBounds.top + 2;
-    const alphaMap = createCanvasContext(alphaWidth, alphaHeight);
+    const alphaMap = this.alphaMapFor(alphaWidth, alphaHeight);
     const worldX = viewState.tileBounds.left * this.tileWidth;
     const worldY = viewState.tileBounds.top * this.tileHeight;
     fillAlphaMap(alphaMap, viewState.brightnessByTile, viewState.tileBounds);
@@ -447,6 +462,14 @@ class TileLightingRaster extends ex.Raster {
     );
     this.cutDynamicLights(ctx, viewState.dynamicLights);
     ctx.restore();
+  }
+
+  private alphaMapFor(width: number, height: number) {
+    if (this.alphaMap?.canvas.width === width && this.alphaMap.canvas.height === height) {
+      return this.alphaMap;
+    }
+    this.alphaMap = createCanvasContext(width, height);
+    return this.alphaMap;
   }
 
   private cutDynamicLights(ctx: CanvasRenderingContext2D, lights: ScreenLightSnapshot[]) {
@@ -484,8 +507,11 @@ export class TileLightingOverlay extends ex.ScreenElement {
   private readonly lightingRaster: TileLightingRaster;
   private readonly dynamicLightSources: DynamicLightSource[] = [];
   private readonly lampKeys: Set<string>;
+  private readonly sunlightByColumn: number[][];
   private readonly viewWidth: number;
   private readonly viewHeight: number;
+  private brightnessCache: BrightnessCache | null = null;
+  private terrainLightRevision: number = 0;
 
   constructor(terrain: TerrainTileMap, viewSize: ex.Vector) {
     super({
@@ -499,6 +525,7 @@ export class TileLightingOverlay extends ex.ScreenElement {
     this.viewWidth = viewSize.x;
     this.viewHeight = viewSize.y;
     this.lampKeys = lampKeysForTerrain(terrain);
+    this.sunlightByColumn = sunlightByColumnForTerrain(terrain);
     this.lightingRaster = new TileLightingRaster({
       width: viewSize.x,
       height: viewSize.y,
@@ -507,7 +534,7 @@ export class TileLightingOverlay extends ex.ScreenElement {
     });
     this.graphics.anchor = ex.vec(0, 0);
     this.graphics.use(this.lightingRaster);
-    this.terrain.onBlocksChanged((change) => this.updateLampSource(change));
+    this.terrain.onBlocksChanged((change) => this.updateTerrainLightSources(change));
   }
 
   public addDynamicLight(source: DynamicLightSource) {
@@ -532,9 +559,27 @@ export class TileLightingOverlay extends ex.ScreenElement {
     if (!change) {
       this.lampKeys.clear();
       lampKeysForTerrain(this.terrain).forEach((key) => this.lampKeys.add(key));
+      sunlightByColumnForTerrain(this.terrain).forEach((levels, column) => {
+        this.sunlightByColumn[column] = levels;
+      });
+      this.invalidateBrightnessCache();
       return;
     }
+    this.updateTerrainLightSources(change);
+  }
+
+  private updateTerrainLightSources(change: TerrainChange) {
     this.updateLampSource(change);
+    this.sunlightByColumn[change.column] = sunlightLevelsForColumn(
+      this.terrain,
+      change.column,
+    );
+    this.invalidateBrightnessCache();
+  }
+
+  private invalidateBrightnessCache() {
+    this.terrainLightRevision += 1;
+    this.brightnessCache = null;
   }
 
   private updateLampSource(change: TerrainChange) {
@@ -555,29 +600,38 @@ export class TileLightingOverlay extends ex.ScreenElement {
       this.terrain.columnCount(),
       this.terrain.rowCount(),
     );
+    this.lightingRaster.setView({
+      cameraLeft: viewBounds.left,
+      cameraTop: viewBounds.top,
+      brightnessByTile: this.brightnessByTileFor(tileBounds, spreadBounds),
+      tileBounds,
+      dynamicLights: this.visibleDynamicLights(viewBounds),
+    });
+  }
+
+  private brightnessByTileFor(tileBounds: TileBounds, spreadBounds: TileBounds) {
+    const key = lightingCacheKey(tileBounds, this.terrainLightRevision);
+    if (this.brightnessCache?.key === key) {
+      return this.brightnessCache.brightnessByTile;
+    }
     const visibleLampKeys = new Set(
-      Array.from(this.lampKeys).filter((key) =>
-        isPositionInBounds(positionFromKey(key), spreadBounds),
+      Array.from(this.lampKeys).filter((lampKey) =>
+        isPositionInBounds(positionFromKey(lampKey), spreadBounds),
       ),
     );
-    const sunlightByTile = sunlightBrightnessByTile(this.terrain, tileBounds);
+    const sunlightByTile = sunlightBrightnessByTile(this.sunlightByColumn, tileBounds);
     const blockLightByTile = blockLightBrightnessByTile(
       this.terrain,
       visibleLampKeys,
       spreadBounds,
     );
-    this.lightingRaster.setView({
-      cameraLeft: viewBounds.left,
-      cameraTop: viewBounds.top,
-      brightnessByTile: combinedBrightnessByTile(
-        this.terrain,
-        sunlightByTile,
-        blockLightByTile,
-        tileBounds,
-      ),
+    const brightnessByTile = combinedBrightnessByTile(
+      sunlightByTile,
+      blockLightByTile,
       tileBounds,
-      dynamicLights: this.visibleDynamicLights(viewBounds),
-    });
+    );
+    this.brightnessCache = { key, brightnessByTile };
+    return brightnessByTile;
   }
 
   private visibleDynamicLights(viewBounds: ViewBounds) {
