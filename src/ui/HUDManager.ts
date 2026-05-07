@@ -3,6 +3,7 @@ import { toolbarSelection } from "../classes/ToolbarSelection";
 import { HeartDisplay } from "./HeartDisplay";
 import { ToolbarDisplay } from "./ToolbarDisplay";
 import { PowerupTimerDisplay } from "./PowerupTimerDisplay";
+import { FpsDisplay } from "./FpsDisplay";
 
 type HealthProvider = () => {
   health: number;
@@ -13,7 +14,9 @@ type HealthProvider = () => {
 type PowerupExpiredHandler = () => void;
 
 const displayPosition = ex.vec(4, 4);
+const viewWidth = 320;
 const viewHeight = 180;
+const fpsDisplayRightTop = ex.vec(viewWidth - displayPosition.x - 1, 0);
 
 export class HUDManager extends ex.ScreenElement {
   private readonly getHealth: HealthProvider;
@@ -22,6 +25,7 @@ export class HUDManager extends ex.ScreenElement {
   private readonly heartDisplay: HeartDisplay;
   private readonly toolbarDisplay: ToolbarDisplay;
   private readonly powerupTimerDisplay: PowerupTimerDisplay;
+  private readonly fpsDisplay: FpsDisplay;
 
   private readonly selectBlockFromWheel = (event: WheelEvent) => {
     const direction = Math.sign(event.deltaY);
@@ -48,6 +52,7 @@ export class HUDManager extends ex.ScreenElement {
     this.heartDisplay = new HeartDisplay(ex.vec(0, 0));
     this.toolbarDisplay = new ToolbarDisplay(ex.vec(0, 0), ex.vec(0, viewHeight), this.getHealth);
     this.powerupTimerDisplay = new PowerupTimerDisplay(() => this.toolbarDisplay.getPowerupSlotPosition());
+    this.fpsDisplay = new FpsDisplay(fpsDisplayRightTop);
   }
 
   override onInitialize(engine: ex.Engine) {
@@ -58,6 +63,7 @@ export class HUDManager extends ex.ScreenElement {
     this.heartDisplay.getActors().forEach((actor) => this.addChild(actor));
     this.toolbarDisplay.getActors().forEach((actor) => this.addChild(actor));
     this.powerupTimerDisplay.getActors().forEach((actor) => this.addChild(actor));
+    this.fpsDisplay.getActors().forEach((actor) => this.addChild(actor));
 
     this.toolbarDisplay.sync();
     this.powerupTimerDisplay.sync();
@@ -74,6 +80,7 @@ export class HUDManager extends ex.ScreenElement {
     
     this.toolbarDisplay.sync();
     this.powerupTimerDisplay.sync();
+    this.fpsDisplay.sync(delta);
     this.syncHearts();
   }
 
