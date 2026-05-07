@@ -6,7 +6,7 @@ import { PlayerHealthDisplay } from "./actors/PlayerHealthDisplay";
 import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
-import { GameClient } from "./classes/GameClient";
+import { GameClient, type MessageEvents } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
 import { toolbarSelection } from "./classes/ToolbarSelection";
 import type {
@@ -22,7 +22,9 @@ import type {
   PlayerState,
   SlimeEntityState,
   TerrainBlockUpdate,
+  WorldSummary,
   WorldTerrainPayload,
+  WorldsUpdatedPayload,
 } from "./classes/GameProtocol";
 import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TileLightingOverlay } from "./classes/TileLightingOverlay";
@@ -123,6 +125,87 @@ const focusGameCanvas = (engine: ex.Engine) => {
 };
 
 const playerListElement = () => document.getElementById("player-list");
+const playerListPanelElement = () =>
+  document.querySelector<HTMLElement>(".player-list");
+const mainMenuElement = () => document.getElementById("main-menu");
+const worldListElement = () => document.getElementById("world-list");
+const createWorldButtonElement = () =>
+  document.getElementById("create-world") as HTMLButtonElement | null;
+const mainMenuStatusElement = () => document.getElementById("main-menu-status");
+
+const setMenuStatus = (text: string) => {
+  const status = mainMenuStatusElement();
+  if (!status) {
+    return;
+  }
+  status.textContent = text;
+};
+
+const setCreateWorldButtonDisabled = (isDisabled: boolean) => {
+  const button = createWorldButtonElement();
+  if (!button) {
+    return;
+  }
+  button.disabled = isDisabled;
+};
+
+const showMainMenu = () => {
+  mainMenuElement()?.removeAttribute("hidden");
+  playerListPanelElement()?.setAttribute("hidden", "");
+};
+
+const hideMainMenu = () => {
+  mainMenuElement()?.setAttribute("hidden", "");
+  playerListPanelElement()?.removeAttribute("hidden");
+};
+
+const createJoinWorldButton = (world: WorldSummary, client: GameClient) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Join";
+  button.addEventListener("click", () => {
+    setMenuStatus(`Joining ${world.name}...`);
+    client.send(messageTypes.joinWorld, { worldId: world.id });
+  });
+  return button;
+};
+
+const createWorldCard = (world: WorldSummary, client: GameClient) => {
+  const card = document.createElement("div");
+  const details = document.createElement("div");
+  const name = document.createElement("div");
+  const count = document.createElement("div");
+  card.className = "world-card";
+  name.className = "world-card__name";
+  count.className = "world-card__count";
+  name.textContent = world.name;
+  count.textContent = `${world.playerCount} player${world.playerCount === 1 ? "" : "s"}`;
+  details.replaceChildren(name, count);
+  card.replaceChildren(details, createJoinWorldButton(world, client));
+  return card;
+};
+
+const renderWorldList = (worlds: WorldSummary[], client: GameClient) => {
+  const list = worldListElement();
+  if (!list) {
+    return;
+  }
+  list.replaceChildren(...worlds.map((world) => createWorldCard(world, client)));
+  setMenuStatus(worlds.length === 0 ? "No worlds available" : "Select a world");
+};
+
+const wireMainMenu = (client: GameClient) => {
+  const button = createWorldButtonElement();
+  if (!button) {
+    return;
+  }
+  button.disabled = true;
+  button.addEventListener("click", () => {
+    setMenuStatus("Creating world...");
+    button.disabled = true;
+    client.send(messageTypes.createWorld, {});
+  });
+};
 
 const playerDisplayName = (playerId: string) => {
   if (playerId === clientSlot.client?.clientId) {
@@ -646,119 +729,152 @@ const startPingLoop = (client: GameClient) => {
 
 const clientSlot = { client: null as GameClient | null };
 
-game.start(loader).then(() => {
-  focusGameCanvas(game);
-  const client = new GameClient();
-  clientSlot.client = client;
-  client.listen({
-    onConnect: (myPlayerId, playersData, entitiesData, world) => {
-      if (!isWorldTerrainPayload(world)) {
-        console.error("Invalid or missing world payload from server");
-        return;
-      }
-      rememberPlayerPings(playersData);
-      playerPingById[myPlayerId] = playersData[myPlayerId]?.pingMs;
-      renderPlayerList();
-      startPingLoop(client);
-      const terrain = new TerrainTileMap({
-        pos: ex.vec(0, 0),
-        tileWidth: TILE_PX,
-        tileHeight: TILE_PX,
-        columns: world.columns,
-        rows: world.rows,
-        surfaceStartByColumn: world.surfaceStartByColumn,
-        solidTiles: world.solidTiles,
-        protectedTiles: world.protectedTiles,
-        terrainTiles: world.terrainTiles,
-      });
-      const tilemap = terrain.map;
-      const lighting = new TileLightingOverlay(
-        terrain,
-        ex.vec(viewWidth, viewHeight),
-      );
-      worldSession.terrain = terrain;
-      worldSession.dynamicLighting = lighting;
-      game.add(tilemap);
-      terrain.borders.forEach((border) => game.add(border));
-      game.add(lighting);
+const startWorldSession = (
+  client: GameClient,
+  myPlayerId: string,
+  playersData: Record<string, PlayerState>,
+  entitiesData: Record<string, EntityState>,
+  world: Data,
+) => {
+  if (!isWorldTerrainPayload(world)) {
+    console.error("Invalid or missing world payload from server");
+    setMenuStatus("Unable to join world");
+    return;
+  }
+  hideMainMenu();
+  setCreateWorldButtonDisabled(true);
+  rememberPlayerPings(playersData);
+  playerPingById[myPlayerId] = playersData[myPlayerId]?.pingMs;
+  renderPlayerList();
+  startPingLoop(client);
+  const terrain = new TerrainTileMap({
+    pos: ex.vec(0, 0),
+    tileWidth: TILE_PX,
+    tileHeight: TILE_PX,
+    columns: world.columns,
+    rows: world.rows,
+    surfaceStartByColumn: world.surfaceStartByColumn,
+    solidTiles: world.solidTiles,
+    protectedTiles: world.protectedTiles,
+    terrainTiles: world.terrainTiles,
+  });
+  const tilemap = terrain.map;
+  const lighting = new TileLightingOverlay(terrain, ex.vec(viewWidth, viewHeight));
+  worldSession.terrain = terrain;
+  worldSession.dynamicLighting = lighting;
+  game.add(tilemap);
+  terrain.borders.forEach((border) => game.add(border));
+  game.add(lighting);
 
-      const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
-      localPlayerSlot.player = new Player(
-        playerSpawn,
-        tilemap,
+  const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
+  localPlayerSlot.player = new Player(
+    playerSpawn,
+    tilemap,
+    client,
+    terrain.tileCollisionWorld(),
+  );
+  game.add(localPlayerSlot.player);
+  addPlayerLight(myPlayerId, localPlayerSlot.player);
+  game.add(
+    new PlayerHealthDisplay(() => {
+      const player = localPlayerSlot.player;
+      if (!player) {
+        return null;
+      }
+      return {
+        health: player.health,
+        maxHealth: player.maxHealth,
+        isFlying: player.isFlying,
+      };
+    }, expireLocalPowerup),
+  );
+  blockTargetingSlot.highlight = new BlockTargetingHighlight(
+    terrain,
+    client,
+    () => localPlayerSlot.player,
+    (playerId) => playerById[playerId] ?? null,
+    () =>
+      Object.entries(playerById).map(([id, player]) => ({
+        id,
+        player,
+      })),
+    activateLocalPowerup,
+  );
+  game.add(blockTargetingSlot.highlight);
+  client.send(messageTypes.createPlayer, {
+    x: playerSpawn.x,
+    y: playerSpawn.y,
+  });
+  addLocalPauseListeners();
+  syncLocalPauseState();
+  console.log("Players:", playersData);
+  joinExistingRemotePlayers(game, terrain, myPlayerId, playersData);
+  renderPlayerList();
+  applyEntitiesSnapshot({ entitiesData });
+};
+
+const gameMessageHandlers = (client: GameClient): MessageEvents => ({
+  [messageTypes.createPlayer]: (payload) => {
+    const terrain = worldSession.terrain;
+    if (!terrain) {
+      return;
+    }
+    const { id, x, y } = payload as PlayerState;
+    if (!id) {
+      return;
+    }
+    spawnPlayerAt(game, terrain, id, Number(x), Number(y));
+    playerPingById[id] = (payload as PlayerState).pingMs;
+    renderPlayerList();
+  },
+  [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
+  [messageTypes.updatePing]: applyPlayerPingUpdate,
+  [messageTypes.updateBlock]: applyTerrainBlockUpdate,
+  [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
+  [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
+  [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
+  [messageTypes.updateEntities]: applyEntitiesSnapshot,
+  [messageTypes.createParticle]: applyParticleCreate,
+  [messageTypes.pong]: (payload) => applyPongUpdate(client, payload),
+});
+
+const wireGameClient = (client: GameClient) => {
+  client.listen({
+    onOpen: () => {
+      setMenuStatus("Loading worlds...");
+      setCreateWorldButtonDisabled(false);
+      client.send(messageTypes.listWorlds, {});
+    },
+    onWorldsUpdated: (payload: WorldsUpdatedPayload) => {
+      setCreateWorldButtonDisabled(false);
+      renderWorldList(payload.worlds, client);
+    },
+    onConnect: (myPlayerId, playersData, entitiesData, world) => {
+      startWorldSession(
         client,
-        terrain.tileCollisionWorld(),
+        myPlayerId,
+        playersData as Record<string, PlayerState>,
+        entitiesData as Record<string, EntityState>,
+        world,
       );
-      game.add(localPlayerSlot.player);
-      addPlayerLight(myPlayerId, localPlayerSlot.player);
-      game.add(
-        new PlayerHealthDisplay(() => {
-          const player = localPlayerSlot.player;
-          if (!player) {
-            return null;
-          }
-          return {
-            health: player.health,
-            maxHealth: player.maxHealth,
-            isFlying: player.isFlying,
-          };
-        }, expireLocalPowerup),
-      );
-      blockTargetingSlot.highlight = new BlockTargetingHighlight(
-        terrain,
-        client,
-        () => localPlayerSlot.player,
-        (playerId) => playerById[playerId] ?? null,
-        () =>
-          Object.entries(playerById).map(([id, player]) => ({
-            id,
-            player,
-          })),
-        activateLocalPowerup,
-      );
-      game.add(blockTargetingSlot.highlight);
-      client.send(messageTypes.createPlayer, {
-        x: playerSpawn.x,
-        y: playerSpawn.y,
-      });
-      addLocalPauseListeners();
-      syncLocalPauseState();
-      console.log("Players:", playersData);
-      joinExistingRemotePlayers(game, terrain, myPlayerId, playersData);
-      renderPlayerList();
-      applyEntitiesSnapshot({ entitiesData });
     },
     onDisconnect: (gonePlayerId) => {
       blockTargetingSlot.highlight?.removeRemoteBreakAnimation(gonePlayerId);
       removePlayerLight(gonePlayerId);
-      playerById[gonePlayerId].kill();
+      playerById[gonePlayerId]?.kill();
       delete playerById[gonePlayerId];
       delete playerPingById[gonePlayerId];
       renderPlayerList();
     },
-    listener: () => ({
-      [messageTypes.createPlayer]: (payload) => {
-        const terrain = worldSession.terrain;
-        if (!terrain) {
-          return;
-        }
-        const { id, x, y } = payload as PlayerState;
-        if (!id) {
-          return;
-        }
-        spawnPlayerAt(game, terrain, id, Number(x), Number(y));
-        playerPingById[id] = (payload as PlayerState).pingMs;
-        renderPlayerList();
-      },
-      [messageTypes.updatePlayer]: applyRemotePlayerUpdate,
-      [messageTypes.updatePing]: applyPlayerPingUpdate,
-      [messageTypes.updateBlock]: applyTerrainBlockUpdate,
-      [messageTypes.updateBlockBreak]: applyTerrainBlockBreakUpdate,
-      [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
-      [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
-      [messageTypes.updateEntities]: applyEntitiesSnapshot,
-      [messageTypes.createParticle]: applyParticleCreate,
-      [messageTypes.pong]: (payload) => applyPongUpdate(client, payload),
-    }),
+    listener: () => gameMessageHandlers(client),
   });
+};
+
+game.start(loader).then(() => {
+  focusGameCanvas(game);
+  showMainMenu();
+  const client = new GameClient();
+  clientSlot.client = client;
+  wireMainMenu(client);
+  wireGameClient(client);
 });

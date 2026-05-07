@@ -174,9 +174,28 @@ export type ConnectedPayload = {
   world: Data;
 };
 
+export type WorldSummary = {
+  id: string;
+  name: string;
+  playerCount: number;
+};
+
+export type WorldsUpdatedPayload = {
+  worlds: WorldSummary[];
+};
+
+export type JoinWorldPayload = {
+  worldId: string;
+};
+
 export const messageTypes = {
   connected: "_connected",
   disconnected: "_disconnected",
+  listWorlds: "list_worlds",
+  worldsUpdated: "worlds_updated",
+  createWorld: "create_world",
+  joinWorld: "join_world",
+  leaveWorld: "leave_world",
   createPlayer: "create_player",
   updatePlayer: "update_player",
   updatePing: "update_ping",

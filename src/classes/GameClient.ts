@@ -4,6 +4,7 @@ import {
   decodeMessage,
   encodeMessage,
   messageTypes,
+  WorldsUpdatedPayload,
 } from "./GameProtocol";
 
 export type Event = (data: Data) => void;
@@ -24,6 +25,8 @@ export class GameClient {
     listener,
     onConnect,
     onDisconnect,
+    onWorldsUpdated,
+    onOpen = () => {},
   }: {
     listener: (playerSocket: WebSocket) => MessageEvents;
     onConnect: (
@@ -33,14 +36,17 @@ export class GameClient {
       world: Data,
     ) => void;
     onDisconnect: (id: string) => void;
+    onWorldsUpdated?: (payload: WorldsUpdatedPayload) => void;
+    onOpen?: () => void;
   }) {
     const appHandlers = listener(this.playerSocket);
     const handlers = this.handlersWithLifecycle(
       onConnect,
       onDisconnect,
+      onWorldsUpdated,
       appHandlers,
     );
-    this.wireSocketHandlers(handlers);
+    this.wireSocketHandlers(handlers, onOpen);
   }
 
   public send(type: string, payload: Data, patch?: Data) {
@@ -66,6 +72,7 @@ export class GameClient {
       world: Data,
     ) => void,
     onDisconnect: (id: string) => void,
+    onWorldsUpdated: ((payload: WorldsUpdatedPayload) => void) | undefined,
     appHandlers: MessageEvents,
   ): MessageEvents {
     return {
@@ -80,12 +87,16 @@ export class GameClient {
         const { id } = data;
         onDisconnect(id);
       },
+      [messageTypes.worldsUpdated]: (data: Data) => {
+        onWorldsUpdated?.(data as WorldsUpdatedPayload);
+      },
     } as MessageEvents;
   }
 
-  private wireSocketHandlers(handlers: MessageEvents) {
+  private wireSocketHandlers(handlers: MessageEvents, onOpen: () => void) {
     this.playerSocket.addEventListener("open", () => {
       console.log("Connected to server");
+      onOpen();
     });
     this.playerSocket.addEventListener("message", (wsEvent) => {
       this.dispatchInboundMessage(wsEvent, handlers);
