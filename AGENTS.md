@@ -46,4 +46,5 @@ Physics is always simulated by the client. A client "owns" an entity and periodi
 
 - Keep the pixel-art setup.
 - **Never turn on `snapToPixel`**; keep Excalibur `snapToPixel: false`.
+- For player movement jitter, prefer fixed-step physics with render interpolation. Physics/collision should advance on a stable tick such as 60 Hz, while the sprite/graphics offset interpolates between the previous and current physics positions using the leftover accumulator time. This fixes temporal aliasing between browser repaint timing and physics ticks without tying movement back to framerate.
 

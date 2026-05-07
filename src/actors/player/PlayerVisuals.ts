@@ -40,6 +40,7 @@ export class PlayerVisuals {
   private visualCorrectionOffset: ex.Vector = ex.vec(0, 0);
   private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
   private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
+  private renderOffset: ex.Vector = ex.vec(0, 0);
   
   constructor(private readonly actor: ex.Actor) {
     this.powerupAttachmentActor = new ex.Actor({
@@ -257,15 +258,25 @@ export class PlayerVisuals {
   }
   
   private visualWorldPosition() {
-    return this.actor.pos.add(this.visualCorrectionOffset);
+    return this.actor.pos.add(this.visualCorrectionOffset).add(this.renderOffset);
   }
 
-  private applyVisualCorrectionOffset(offset: ex.Vector) {
-    this.visualCorrectionOffset = offset;
+  public applyRenderOffset(offset: ex.Vector) {
+    this.renderOffset = offset;
+    this.syncOffsets();
+  }
+
+  private syncOffsets() {
+    const offset = this.visualCorrectionOffset.add(this.renderOffset);
     this.actor.graphics.offset = playerGraphicOffset.add(offset);
     this.powerupAttachmentActor.graphics.offset = offset;
     this.hatActor.graphics.offset = offset;
     this.sleepBubbleActor.graphics.offset = offset;
+  }
+
+  private applyVisualCorrectionOffset(offset: ex.Vector) {
+    this.visualCorrectionOffset = offset;
+    this.syncOffsets();
   }
 
   public updateVisualCorrection(delta: number) {

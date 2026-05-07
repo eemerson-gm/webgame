@@ -19,6 +19,12 @@ const approach = (start: number, end: number, amount: number) => {
   return Math.max(start - amount, end);
 };
 
+const interpolatePosition = (start: ex.Vector, end: ex.Vector, progress: number) =>
+  ex.vec(
+    start.x * (1 - progress) + end.x * progress,
+    start.y * (1 - progress) + end.y * progress,
+  );
+
 const localCameraFollowElasticity = 0.14;
 const localCameraFollowFriction = 0.22;
 const collisionWidth = TILE_PX - 4;
@@ -47,6 +53,8 @@ const playerKnockbackFriction = 0.94;
 const playerMaxHealth = 6;
 const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
+const playerFixedStepMs = 1000 / 60;
+const playerMaxFixedStepAccumulatedMs = playerFixedStepMs * 5;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -67,6 +75,8 @@ export class Player extends MovingActor {
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
+  private fixedStepElapsedMs: number = 0;
+  private fixedStepPreviousPosition: ex.Vector = ex.vec(0, 0);
 
   private visuals: PlayerVisuals;
   private networkSync: PlayerNetworkSync;
@@ -94,6 +104,7 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
+    this.fixedStepPreviousPosition = ex.vec(pos.x, pos.y);
     
     this.visuals = new PlayerVisuals(this);
     this.networkSync = new PlayerNetworkSync(client);
@@ -292,6 +303,7 @@ export class Player extends MovingActor {
       return;
     }
     this.pos.x = x;
+    this.resetRenderInterpolation();
     this.networkSync.markPositionChanged();
     this.networkSync.setShouldBroadcastSeparatedPosition(true);
   }
@@ -302,6 +314,7 @@ export class Player extends MovingActor {
 
   public applyRemotePositionCorrection(position: ex.Vector, snapDistance: number) {
     this.visuals.applyRemotePositionCorrection(position, snapDistance);
+    this.resetRenderInterpolation();
   }
 
   public currentPowerupCan(behavior: PowerupBehavior) {
@@ -368,6 +381,7 @@ export class Player extends MovingActor {
   private respawnAtJoinPosition() {
     this.health = this.maxHealth;
     this.pos = ex.vec(this.spawnPosition.x, this.spawnPosition.y);
+    this.resetRenderInterpolation();
     this.hspeed = 0;
     this.vspeed = 0;
     this.isFlying = false;
@@ -657,13 +671,28 @@ export class Player extends MovingActor {
     this.damageFlash.tick(delta);
   }
 
-  override onPostUpdate(engine: ex.Engine, delta: number) {
-    this.visuals.updateVisualCorrection(delta);
-    this.updateDamageFeedback(delta);
+  private resetRenderInterpolation() {
+    this.fixedStepElapsedMs = 0;
+    this.fixedStepPreviousPosition = ex.vec(this.pos.x, this.pos.y);
+    this.visuals.applyRenderOffset(ex.vec(0, 0));
+  }
+
+  private updateRenderInterpolation() {
+    const progress = this.fixedStepElapsedMs / playerFixedStepMs;
+    const renderPosition = interpolatePosition(
+      this.fixedStepPreviousPosition,
+      this.pos,
+      progress,
+    );
+    this.visuals.applyRenderOffset(renderPosition.sub(this.pos));
+  }
+
+  private stepPlayerPhysics(engine: ex.Engine, delta: number) {
     if (this.isPaused) {
       this.updateBlockBreakActionTimer(delta);
       return;
     }
+    this.fixedStepPreviousPosition = ex.vec(this.pos.x, this.pos.y);
     this.updateControls(engine);
 
     const dt = delta / 1000;
@@ -703,5 +732,24 @@ export class Player extends MovingActor {
     }, isKnockbackActive);
     
     this.updateBlockBreakActionTimer(delta);
+  }
+
+  override onPostUpdate(engine: ex.Engine, delta: number) {
+    this.visuals.updateVisualCorrection(delta);
+    this.updateDamageFeedback(delta);
+    if (this.isPaused) {
+      this.fixedStepElapsedMs = 0;
+      this.updateBlockBreakActionTimer(delta);
+      return;
+    }
+    this.fixedStepElapsedMs = Math.min(
+      this.fixedStepElapsedMs + delta,
+      playerMaxFixedStepAccumulatedMs,
+    );
+    while (this.fixedStepElapsedMs >= playerFixedStepMs) {
+      this.fixedStepElapsedMs -= playerFixedStepMs;
+      this.stepPlayerPhysics(engine, playerFixedStepMs);
+    }
+    this.updateRenderInterpolation();
   }
 }
