@@ -190,6 +190,8 @@ export class Player extends MovingActor {
 
   private onLand() {
     this.jumpHoldTimeRemainingMs = 0;
+    this.pos = ex.vec(Math.round(this.pos.x), Math.round(this.pos.y));
+    this.resetRenderInterpolation();
     this.syncPosition();
   }
 

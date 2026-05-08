@@ -38,7 +38,7 @@ type HealthProvider = () => {
 
 const powerupItemResourceByPowerup = {
   miner: Resources.MinerPowerupItem,
-} satisfies Record<PlayerPowerup, ex.ImageSource>;
+} satisfies Partial<Record<PlayerPowerup, ex.ImageSource>>;
 
 const blockResourceForSlot = (slot: InventorySlot) => {
   if (!slot) {
@@ -88,7 +88,7 @@ export class ToolbarDisplay {
   
   constructor(private pos: ex.Vector, private viewHeight: ex.Vector, private getHealth: HealthProvider) {
     const displayPosition = pos;
-    const inventorySlotScreenMargin = 4;
+    const inventorySlotScreenMargin = 8;
     const buildSlotPosition = ex.vec(
       displayPosition.x,
       viewHeight.y -
@@ -415,7 +415,7 @@ export class ToolbarDisplay {
       -iconSprite.height - toolbarIconSlotGap,
     );
     const slotPosition = this.buildSlotView.slot.pos;
-    const inventorySlotScreenMargin = 4;
+    const inventorySlotScreenMargin = 8;
     const displayPositionY = this.pos.y;
     const viewHeightY = this.viewHeight.y;
 
