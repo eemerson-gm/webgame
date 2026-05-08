@@ -190,8 +190,14 @@ export class Player extends MovingActor {
 
   private onLand() {
     this.jumpHoldTimeRemainingMs = 0;
-    this.pos = ex.vec(Math.round(this.pos.x), Math.round(this.pos.y));
-    this.resetRenderInterpolation();
+    const roundedX = Math.round(this.pos.x);
+    const roundedY = Math.round(this.pos.y);
+    const deltaX = roundedX - this.pos.x;
+    const deltaY = roundedY - this.pos.y;
+    this.pos.x = roundedX;
+    this.pos.y = roundedY;
+    this.fixedStepPreviousPosition.x += deltaX;
+    this.fixedStepPreviousPosition.y += deltaY;
     this.syncPosition();
   }
 
@@ -304,8 +310,9 @@ export class Player extends MovingActor {
     if (this.pos.x === x) {
       return;
     }
+    const deltaX = x - this.pos.x;
     this.pos.x = x;
-    this.resetRenderInterpolation();
+    this.fixedStepPreviousPosition.x += deltaX;
     this.networkSync.markPositionChanged();
     this.networkSync.setShouldBroadcastSeparatedPosition(true);
   }
@@ -694,7 +701,6 @@ export class Player extends MovingActor {
       this.updateBlockBreakActionTimer(delta);
       return;
     }
-    this.fixedStepPreviousPosition = ex.vec(this.pos.x, this.pos.y);
     this.updateControls(engine);
 
     const dt = delta / 1000;
@@ -749,6 +755,7 @@ export class Player extends MovingActor {
       playerMaxFixedStepAccumulatedMs,
     );
     while (this.fixedStepElapsedMs >= playerFixedStepMs) {
+      this.fixedStepPreviousPosition = ex.vec(this.pos.x, this.pos.y);
       this.fixedStepElapsedMs -= playerFixedStepMs;
       this.stepPlayerPhysics(engine, playerFixedStepMs);
     }
