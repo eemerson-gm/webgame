@@ -1,0 +1,49 @@
+{
+  "id": "public",
+  "name": "Public World",
+  "dimensions": {
+    "columns": 128,
+    "rows": 80
+  },
+  "surface": {
+    "noiseScaleX": 0.055,
+    "minGroundDepth": 3,
+    "fractalOctaves": 3,
+    "persistence": 0.34,
+    "lacunarity": 1.85,
+    "warpScale": 0.035,
+    "warpAmplitude": 0.35,
+    "sampleYWobble": 0.25
+  },
+  "biomeBands": [
+    {
+      "biome": "grasslands",
+      "startColumn": 0,
+      "endColumn": 63
+    },
+    {
+      "biome": "stoneDepths",
+      "startColumn": 64,
+      "endColumn": 127
+    }
+  ],
+  "structures": [
+    {
+      "structure": "spawn",
+      "placement": {
+        "kind": "worldCenterSurface",
+        "rowOffset": -4
+      },
+      "protectTiles": true,
+      "setsPlayerSpawn": true
+    }
+  ],
+  "decorations": [
+    {
+      "kind": "tileAboveSurface",
+      "tile": "mushroom",
+      "columns": [18, 34, 50, 66, 82, 98, 114],
+      "skipProtected": true
+    }
+  ]
+}

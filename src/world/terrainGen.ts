@@ -1,7 +1,6 @@
-import { TERRAIN_SEED } from "./worldConfig";
-
 const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
 const lerp = (a: number, b: number, t: number) => a + t * (b - a);
+const defaultTerrainSeed = 42;
 
 const gradDot = (hash: number, x: number, y: number) => {
   const h = hash & 3;
@@ -117,7 +116,7 @@ const defaultGenConfig: Required<
     | "sampleYWobble"
   >
 > = {
-  seed: TERRAIN_SEED,
+  seed: defaultTerrainSeed,
   noiseOffsetY: 0,
   noiseScaleX: 0.055,
   minGroundDepth: 3,

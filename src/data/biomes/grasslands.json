@@ -1,0 +1,52 @@
+{
+  "id": "grasslands",
+  "terrain": {
+    "layers": [
+      {
+        "maxDepth": 0,
+        "kind": "grass"
+      },
+      {
+        "maxDepth": 4,
+        "kind": "dirt"
+      },
+      {
+        "kind": "stone"
+      }
+    ],
+    "caves": {
+      "surfaceBuffer": 11,
+      "bedrockBuffer": 4,
+      "paths": [
+        {
+          "depth": 0.24,
+          "wave": 5.5,
+          "frequency": 0.08,
+          "phase": 0.7,
+          "radius": 1.8,
+          "roughness": 1.3,
+          "seedOffset": 11
+        },
+        {
+          "depth": 0.48,
+          "wave": 7.5,
+          "frequency": 0.06,
+          "phase": 2.4,
+          "radius": 2.4,
+          "roughness": 1.6,
+          "seedOffset": 29
+        },
+        {
+          "depth": 0.72,
+          "wave": 6.4,
+          "frequency": 0.075,
+          "phase": 4.1,
+          "radius": 2.1,
+          "roughness": 1.5,
+          "seedOffset": 47
+        }
+      ]
+    },
+    "bedrockKind": "bedrock"
+  }
+}

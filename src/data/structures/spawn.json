@@ -1,0 +1,23 @@
+{
+  "id": "spawn",
+  "rows": [
+    "O...O",
+    "T...T",
+    "M...M",
+    "B...B",
+    "PPPPP"
+  ],
+  "palette": {
+    ".": null,
+    "B": "pillarBottom",
+    "M": "pillarMiddle",
+    "O": "spawnOrb",
+    "P": "spawn",
+    "S": "stone",
+    "T": "pillarTop"
+  },
+  "spawnOffset": {
+    "column": 2,
+    "row": 3
+  }
+}

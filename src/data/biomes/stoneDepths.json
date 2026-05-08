@@ -1,0 +1,52 @@
+{
+  "id": "stoneDepths",
+  "terrain": {
+    "layers": [
+      {
+        "maxDepth": 0,
+        "kind": "grass"
+      },
+      {
+        "maxDepth": 3,
+        "kind": "dirt"
+      },
+      {
+        "kind": "stone"
+      }
+    ],
+    "caves": {
+      "surfaceBuffer": 10,
+      "bedrockBuffer": 4,
+      "paths": [
+        {
+          "depth": 0.26,
+          "wave": 4.6,
+          "frequency": 0.075,
+          "phase": 1.1,
+          "radius": 1.6,
+          "roughness": 1.2,
+          "seedOffset": 71
+        },
+        {
+          "depth": 0.52,
+          "wave": 8.1,
+          "frequency": 0.055,
+          "phase": 2.9,
+          "radius": 2.6,
+          "roughness": 1.7,
+          "seedOffset": 89
+        },
+        {
+          "depth": 0.76,
+          "wave": 5.8,
+          "frequency": 0.085,
+          "phase": 4.8,
+          "radius": 2.2,
+          "roughness": 1.5,
+          "seedOffset": 107
+        }
+      ]
+    },
+    "bedrockKind": "bedrock"
+  }
+}

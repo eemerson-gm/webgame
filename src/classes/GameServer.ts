@@ -2,25 +2,16 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
-import { buildSurfaceStartByColumn } from "../world/terrainGen";
-import {
-  TILE_PX,
-  WORLD_TILE_COLUMNS,
-  WORLD_TILE_ROWS,
-  minerPowerupSpawnColumns,
-} from "../world/worldConfig";
-import {
-  buildTerrainTilesFromSurface,
-  terrainTileKey,
-} from "../world/terrainTiles";
-import { SpawnStructure } from "../world/SpawnStructure";
+import { TILE_PX } from "../world/worldConfig";
+import { terrainTileKey } from "../world/terrainTiles";
+import { generateWorld } from "../world/worldGeneration";
+import { loadWorldDefinition } from "../world/worldDefinition";
 import {
   isBreakableTerrainTileKind,
   isTerrainTileKind,
   solidTerrainTileKeys,
 } from "./TerrainTileKinds";
 import {
-  createInitialEntitiesData,
   createItemEntityState,
   createSlimeEntityState,
 } from "../simulation/entitySpawns";
@@ -53,6 +44,9 @@ type MessageRouting = Record<string, "all" | "player" | "others">;
 type WorldRoom = {
   id: string;
   name: string;
+  seed: number;
+  columns: number;
+  rows: number;
   nextEntityIndex: number;
   playerSockets: Record<string, WebSocket>;
   playersData: Record<string, PlayerState>;
@@ -94,15 +88,20 @@ const worldNameNouns = [
   "Woods",
 ] as const;
 
+const randomWorldSeed = () => {
+  const seed = Math.floor(Math.random() * 0x7fffffff);
+  return seed === 0 ? 1 : seed;
+};
+
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
 };
 
-const isInsideWorld = (column: number, row: number) => {
-  if (column < 0 || column >= WORLD_TILE_COLUMNS) {
+const isInsideWorld = (room: WorldRoom, column: number, row: number) => {
+  if (column < 0 || column >= room.columns) {
     return false;
   }
-  if (row < 0 || row >= WORLD_TILE_ROWS) {
+  if (row < 0 || row >= room.rows) {
     return false;
   }
   return true;
@@ -172,49 +171,29 @@ export class GameServer {
     this.lobbySockets = {};
     this.socketWorldIds = {};
     this.worlds = {
-      public: this.createWorldRoom("public", "Public World"),
+      public: this.createWorldRoom("public"),
     };
   }
 
-  private createWorldRoom(id: string, name: string): WorldRoom {
-    const worldSurfaceStarts = buildSurfaceStartByColumn({
-      columns: WORLD_TILE_COLUMNS,
-      rows: WORLD_TILE_ROWS,
-    });
-    const worldTerrainTiles = buildTerrainTilesFromSurface(
-      WORLD_TILE_COLUMNS,
-      WORLD_TILE_ROWS,
-      worldSurfaceStarts,
-    );
-    const spawnStructure = new SpawnStructure(
-      WORLD_TILE_COLUMNS,
-      WORLD_TILE_ROWS,
-      worldSurfaceStarts,
-    );
-    const protectedTerrainTiles = new Set(spawnStructure.tileKeys());
-    const terrainTiles = spawnStructure.applyTo(worldTerrainTiles);
-
-    minerPowerupSpawnColumns.forEach((column) => {
-      const surfaceRow = worldSurfaceStarts[column];
-      if (surfaceRow !== undefined) {
-        const key = terrainTileKey(column, surfaceRow - 1);
-        if (!protectedTerrainTiles.has(key)) {
-          terrainTiles[key] = "mushroom";
-        }
-      }
-    });
+  private createWorldRoom(id: string, name?: string): WorldRoom {
+    const definition = loadWorldDefinition("public");
+    const seed = randomWorldSeed();
+    const generatedWorld = generateWorld(definition, seed);
 
     return {
       id,
-      name,
+      name: name ?? definition.name,
+      seed,
+      columns: generatedWorld.columns,
+      rows: generatedWorld.rows,
       nextEntityIndex: 1,
       playerSockets: {},
       playersData: {},
-      entitiesData: createInitialEntitiesData(),
-      worldSurfaceStarts,
-      worldTerrainTiles: terrainTiles,
-      protectedTerrainTiles,
-      playerSpawn: spawnStructure.spawnPosition(TILE_PX),
+      entitiesData: generatedWorld.entitiesData,
+      worldSurfaceStarts: generatedWorld.surfaceStartByColumn,
+      worldTerrainTiles: generatedWorld.terrainTiles,
+      protectedTerrainTiles: generatedWorld.protectedTerrainTiles,
+      playerSpawn: generatedWorld.playerSpawn,
     };
   }
 
@@ -567,8 +546,8 @@ export class GameServer {
 
   private worldPayload(room: WorldRoom): WorldTerrainPayload {
     return {
-      columns: WORLD_TILE_COLUMNS,
-      rows: WORLD_TILE_ROWS,
+      columns: room.columns,
+      rows: room.rows,
       playerSpawn: room.playerSpawn,
       surfaceStartByColumn: room.worldSurfaceStarts,
       solidTiles: solidTerrainTileKeys(room.worldTerrainTiles),
@@ -896,17 +875,17 @@ export class GameServer {
       return this.applyWorldBlockUpdate(room, payload, playerId);
     }
     if (type === messageTypes.updateBlockBreak) {
-      return this.blockBreakPayload(payload, playerId);
+      return this.blockBreakPayload(room, payload, playerId);
     }
     return { ...payload, id: playerId };
   }
 
-  private blockBreakPayload(payload: Data, playerId: string) {
+  private blockBreakPayload(room: WorldRoom, payload: Data, playerId: string) {
     const update = blockBreakUpdateFromPayload(payload);
     if (!update) {
       return null;
     }
-    if (!isInsideWorld(update.column, update.row)) {
+    if (!isInsideWorld(room, update.column, update.row)) {
       return null;
     }
     return { ...update, id: playerId };
@@ -917,7 +896,7 @@ export class GameServer {
     if (!update) {
       return null;
     }
-    if (!isInsideWorld(update.column, update.row)) {
+    if (!isInsideWorld(room, update.column, update.row)) {
       return null;
     }
     const key = terrainTileKey(update.column, update.row);
