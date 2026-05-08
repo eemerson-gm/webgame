@@ -24,18 +24,19 @@ const remoteVisualCorrectionDurationMs = 100;
 export class PlayerVisuals {
   public currentVisual: PlayerVisual = "idle";
   
-  private idleSprite: ex.Sprite = Resources.Player.toSprite();
-  private jumpSprite: ex.Sprite = Resources.PlayerJump.toSprite();
-  private crouchSprite: ex.Sprite = Resources.PlayerCrouch.toSprite();
+  private idleAnimation!: ex.Animation;
+  private jumpAnimation!: ex.Animation;
+  private crouchAnimation!: ex.Animation;
   private walkAnimation!: ex.Animation;
-  private walkAnimationFrameIndex: number = 0;
   private blockBreakAnimation!: AttachedVisualAnimation;
+  private readonly bodyAnimationFrameIndexes: Partial<Record<PlayerVisual, number>> = {};
   
   private activeHat?: PowerupHatVisual;
   
-  public readonly powerupAttachmentActor: ex.Actor;
   public readonly hatActor: ex.Actor;
   public readonly sleepBubbleActor: ex.Actor;
+  private readonly powerupAttachmentActors: ex.Actor[] = [];
+  private isInitialized = false;
   
   private visualCorrectionOffset: ex.Vector = ex.vec(0, 0);
   private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
@@ -43,13 +44,6 @@ export class PlayerVisuals {
   private renderOffset: ex.Vector = ex.vec(0, 0);
   
   constructor(private readonly actor: ex.Actor) {
-    this.powerupAttachmentActor = new ex.Actor({
-      pos: attachedVisualHiddenPosition(),
-      anchor: ex.vec(0, 0),
-      width: TILE_PX,
-      height: TILE_PX,
-      z: -1,
-    });
     this.hatActor = new ex.Actor({
       pos: attachedVisualHiddenPosition(),
       anchor: hatAnchor,
@@ -77,7 +71,7 @@ export class PlayerVisuals {
   }
 
   public initialize() {
-    this.actor.addChild(this.powerupAttachmentActor);
+    this.isInitialized = true;
     this.actor.addChild(this.hatActor);
     this.actor.addChild(this.sleepBubbleActor);
     this.applyPowerup("none", false);
@@ -90,9 +84,10 @@ export class PlayerVisuals {
   }
 
   public applyPowerup(powerup: PlayerPowerup, isBreakingBlock: boolean) {
+    this.hidePowerupAttachmentActors();
     const visuals = powerupVisualsFor(
       powerup,
-      this.powerupAttachmentActor,
+      (layer) => this.createPowerupAttachmentActor(layer),
       TILE_PX,
       () => this.syncHat(),
     );
@@ -105,14 +100,14 @@ export class PlayerVisuals {
       this.blockBreakAnimation.pause();
       this.blockBreakAnimation.hideAttachment();
     }
-    this.idleSprite = visuals.idleSprite;
-    this.jumpSprite = visuals.jumpSprite;
-    this.crouchSprite = visuals.crouchSprite;
+    this.idleAnimation = visuals.idleAnimation;
+    this.jumpAnimation = visuals.jumpAnimation;
+    this.crouchAnimation = visuals.crouchAnimation;
     this.walkAnimation = visuals.walkAnimation;
-    this.walkAnimation.events.on("frame", (frame) => {
-      this.walkAnimationFrameIndex = frame.frameIndex;
-      this.syncHat();
-    });
+    this.watchBodyAnimationFrames("idle", this.idleAnimation);
+    this.watchBodyAnimationFrames("jump", this.jumpAnimation);
+    this.watchBodyAnimationFrames("crouch", this.crouchAnimation);
+    this.watchBodyAnimationFrames("walk", this.walkAnimation);
     this.blockBreakAnimation = visuals.actions.blockBreak;
     this.activeHat = visuals.hat;
     
@@ -135,8 +130,8 @@ export class PlayerVisuals {
     if (this.currentVisual === visual && !force) {
       return;
     }
-    if (this.currentVisual === "walk" && visual !== "walk") {
-      this.walkAnimation?.pause();
+    if (this.currentVisual !== "blockBreakAction") {
+      this.bodyAnimationFor(this.currentVisual)?.pause();
     }
     if (this.currentVisual === "blockBreakAction" && visual !== "blockBreakAction") {
       this.blockBreakAnimation?.pause();
@@ -144,18 +139,16 @@ export class PlayerVisuals {
     }
     
     this.currentVisual = visual;
-    if (visual === "idle") {
-      this.actor.graphics.use(this.idleSprite);
-    } else if (visual === "walk") {
-      this.walkAnimationFrameIndex = 0;
-      this.walkAnimation.reset();
-      this.actor.graphics.use(this.walkAnimation);
-      this.walkAnimation.play();
-    } else if (visual === "jump") {
-      this.actor.graphics.use(this.jumpSprite);
-    } else if (visual === "crouch") {
-      this.actor.graphics.use(this.crouchSprite);
-    } else if (visual === "blockBreakAction") {
+    const bodyAnimation = this.bodyAnimationFor(visual);
+    if (bodyAnimation) {
+      this.bodyAnimationFrameIndexes[visual] = 0;
+      bodyAnimation.reset();
+      this.actor.graphics.use(bodyAnimation);
+      bodyAnimation.play();
+      this.syncHat();
+      return;
+    }
+    if (visual === "blockBreakAction") {
       this.blockBreakAnimation.reset();
       this.actor.graphics.use(this.blockBreakAnimation.graphic);
       this.blockBreakAnimation.play();
@@ -197,6 +190,52 @@ export class PlayerVisuals {
     this.hatActor.graphics.opacity = 0;
   }
 
+  private hidePowerupAttachmentActors() {
+    this.powerupAttachmentActors.forEach((actor) => {
+      actor.pos = attachedVisualHiddenPosition();
+      actor.graphics.visible = false;
+      actor.graphics.opacity = 0;
+    });
+  }
+
+  private createPowerupAttachmentActor(layer: number) {
+    const actor = new ex.Actor({
+      pos: attachedVisualHiddenPosition(),
+      anchor: ex.vec(0, 0),
+      width: TILE_PX,
+      height: TILE_PX,
+      z: layer,
+    });
+    this.powerupAttachmentActors.push(actor);
+    if (this.isInitialized) {
+      this.actor.addChild(actor);
+    }
+    return actor;
+  }
+
+  private bodyAnimationFor(visual: PlayerVisual) {
+    if (visual === "idle") {
+      return this.idleAnimation;
+    }
+    if (visual === "walk") {
+      return this.walkAnimation;
+    }
+    if (visual === "jump") {
+      return this.jumpAnimation;
+    }
+    if (visual === "crouch") {
+      return this.crouchAnimation;
+    }
+    return undefined;
+  }
+
+  private watchBodyAnimationFrames(visual: PlayerVisual, animation: ex.Animation) {
+    animation.events.on("frame", (frame) => {
+      this.bodyAnimationFrameIndexes[visual] = frame.frameIndex;
+      this.syncHat();
+    });
+  }
+
   public syncHat() {
     const hat = this.activeHat;
     const pose = this.currentHatPose();
@@ -219,16 +258,28 @@ export class PlayerVisuals {
       return undefined;
     }
     if (this.currentVisual === "idle") {
-      return poses.idle;
+      return this.hatPoseAt(
+        poses.idle,
+        this.bodyAnimationFrameIndexes.idle ?? 0,
+      );
     }
     if (this.currentVisual === "jump") {
-      return poses.jump;
+      return this.hatPoseAt(
+        poses.jump,
+        this.bodyAnimationFrameIndexes.jump ?? 0,
+      );
     }
     if (this.currentVisual === "crouch") {
-      return poses.crouch;
+      return this.hatPoseAt(
+        poses.crouch,
+        this.bodyAnimationFrameIndexes.crouch ?? 0,
+      );
     }
     if (this.currentVisual === "walk") {
-      return this.hatPoseAt(poses.walk, this.walkAnimationFrameIndex);
+      return this.hatPoseAt(
+        poses.walk,
+        this.bodyAnimationFrameIndexes.walk ?? 0,
+      );
     }
     return this.hatActionPoseAt(
       "blockBreak",
@@ -269,7 +320,9 @@ export class PlayerVisuals {
   private syncOffsets() {
     const offset = this.visualCorrectionOffset.add(this.renderOffset);
     this.actor.graphics.offset = playerGraphicOffset.add(offset);
-    this.powerupAttachmentActor.graphics.offset = offset;
+    this.powerupAttachmentActors.forEach((actor) => {
+      actor.graphics.offset = offset;
+    });
     this.hatActor.graphics.offset = offset;
     this.sleepBubbleActor.graphics.offset = offset;
   }
