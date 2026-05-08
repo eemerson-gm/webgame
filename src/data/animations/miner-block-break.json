@@ -1,0 +1,134 @@
+{
+  "id": "miner.blockBreak",
+  "hat": {
+    "sprite": "MinerHat",
+    "poses": {
+      "idle": {
+        "offset": {
+          "x": 0,
+          "y": 5
+        }
+      },
+      "jump": {
+        "offset": {
+          "x": 0,
+          "y": 5
+        }
+      },
+      "crouch": {
+        "offset": {
+          "x": 0,
+          "y": 7
+        }
+      },
+      "walk": [
+        {
+          "offset": {
+            "x": 0,
+            "y": 5
+          }
+        },
+        {
+          "offset": {
+            "x": 0,
+            "y": 6
+          }
+        }
+      ],
+      "actions": {
+        "blockBreak": [
+          {
+            "offset": {
+              "x": 0,
+              "y": 5
+            }
+          },
+          {
+            "offset": {
+              "x": 0,
+              "y": 5
+            }
+          },
+          {
+            "offset": {
+              "x": 1,
+              "y": 5
+            }
+          },
+          {
+            "offset": {
+              "x": 1,
+              "y": 6
+            }
+          },
+          {
+            "offset": {
+              "x": 0,
+              "y": 6
+            }
+          }
+        ]
+      }
+    }
+  },
+  "action": {
+    "frames": [
+      {
+        "sprite": "PlayerUseTool1"
+      },
+      {
+        "sprite": "PlayerUseTool2"
+      },
+      {
+        "sprite": "PlayerUseTool3"
+      },
+      {
+        "sprite": "PlayerUseTool4"
+      },
+      {
+        "sprite": "PlayerUseTool5"
+      }
+    ],
+    "frameDurationMs": 75,
+    "attachment": {
+      "sprite": "BronzePickaxe",
+      "poses": [
+        {
+          "offset": {
+            "x": 12,
+            "y": 8
+          },
+          "rotation": -0.9
+        },
+        {
+          "offset": {
+            "x": 14,
+            "y": 10
+          },
+          "rotation": -0.45
+        },
+        {
+          "offset": {
+            "x": 14,
+            "y": 12
+          },
+          "rotation": 0.35
+        },
+        {
+          "offset": {
+            "x": 14,
+            "y": 12
+          },
+          "rotation": 0.75
+        },
+        {
+          "offset": {
+            "x": 13,
+            "y": 12
+          },
+          "rotation": 0.75
+        }
+      ]
+    }
+  }
+}

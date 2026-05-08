@@ -1,5 +1,6 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
+import minerBlockBreakAnimationData from "../data/animations/miner-block-break.json";
 import {
   AttachedVisualAnimation,
   type AttachedVisualPose,
@@ -40,6 +41,44 @@ type PowerupActionDefinition = {
   attachment?: {
     sprite: ResourceKey;
     poses: readonly AttachedVisualPose[];
+  };
+};
+
+type JsonVector = {
+  x: number;
+  y: number;
+};
+
+type JsonHatPose = {
+  offset: JsonVector;
+  visible?: boolean;
+};
+
+type JsonAttachedVisualPose = {
+  offset: JsonVector;
+  rotation: number;
+  visible?: boolean;
+};
+
+type MinerBlockBreakAnimationData = {
+  id: string;
+  hat: {
+    sprite: ResourceKey;
+    poses: {
+      idle?: JsonHatPose;
+      jump?: JsonHatPose;
+      crouch?: JsonHatPose;
+      walk?: readonly JsonHatPose[];
+      actions?: Partial<Record<PowerupAction, readonly JsonHatPose[]>>;
+    };
+  };
+  action: {
+    frames: readonly PowerupFrame[];
+    frameDurationMs: number;
+    attachment?: {
+      sprite: ResourceKey;
+      poses: readonly JsonAttachedVisualPose[];
+    };
   };
 };
 
@@ -91,55 +130,57 @@ const defaultWalkFrames = [
   { sprite: "PlayerWalk2" },
 ] as const;
 
-const defaultToolActionFrames = [
-  { sprite: "PlayerUseTool1" },
-  { sprite: "PlayerUseTool2" },
-  { sprite: "PlayerUseTool3" },
-  { sprite: "PlayerUseTool4" },
-  { sprite: "PlayerUseTool5" },
-] as const;
-
-const minerHatWalkPoses = [
-  { offset: ex.vec(0, 5) },
-  { offset: ex.vec(0, 6) },
-] as const satisfies readonly HatPose[];
-
-const minerHatBlockBreakPoses = [
-  { offset: ex.vec(0, 5) },
-  { offset: ex.vec(0, 5) },
-  { offset: ex.vec(1, 5) },
-  { offset: ex.vec(1, 6) },
-  { offset: ex.vec(0, 6) },
-] as const satisfies readonly HatPose[];
-
 const defaultPunchFrames = [
   { sprite: "PlayerPunch1" },
   { sprite: "PlayerPunch2" },
   { sprite: "PlayerPunch3" },
 ] as const;
 
-const toolAttachmentPoses = [
-  {
-    offset: ex.vec(12, 8),
-    rotation: -0.9,
-  },
-  {
-    offset: ex.vec(14, 10),
-    rotation: -0.45,
-  },
-  {
-    offset: ex.vec(14, 12),
-    rotation: 0.35,
-  },
-  {
-    offset: ex.vec(14, 12),
-    rotation: 0.75,
-  },
-  {
-    offset: ex.vec(13, 12),
-    rotation: 0.75,
-  },
-] as const satisfies readonly AttachedVisualPose[];
+const minerBlockBreakAnimation =
+  minerBlockBreakAnimationData as MinerBlockBreakAnimationData;
+
+const vectorFromJson = (vector: JsonVector) => ex.vec(vector.x, vector.y);
+
+const hatPoseFromJson = (pose: JsonHatPose): HatPose => ({
+  offset: vectorFromJson(pose.offset),
+  ...(pose.visible === undefined ? {} : { visible: pose.visible }),
+});
+
+const hatPosesFromJson = (
+  poses: MinerBlockBreakAnimationData["hat"]["poses"],
+): PowerupHatPoses => ({
+  idle: poses.idle ? hatPoseFromJson(poses.idle) : undefined,
+  jump: poses.jump ? hatPoseFromJson(poses.jump) : undefined,
+  crouch: poses.crouch ? hatPoseFromJson(poses.crouch) : undefined,
+  walk: poses.walk?.map((pose) => hatPoseFromJson(pose)),
+  actions: poses.actions
+    ? (Object.fromEntries(
+        Object.entries(poses.actions).map(([action, actionPoses]) => [
+          action,
+          actionPoses.map((pose) => hatPoseFromJson(pose)),
+        ]),
+      ) as Partial<Record<PowerupAction, readonly HatPose[]>>)
+    : undefined,
+});
+
+const actionPoseFromJson = (pose: JsonAttachedVisualPose): AttachedVisualPose => ({
+  offset: vectorFromJson(pose.offset),
+  rotation: pose.rotation,
+  ...(pose.visible === undefined ? {} : { visible: pose.visible }),
+});
+
+const actionDefinitionFromJson = (
+  action: MinerBlockBreakAnimationData["action"],
+): PowerupActionDefinition => ({
+  frames: action.frames,
+  frameDurationMs: action.frameDurationMs,
+  attachment: action.attachment
+    ? {
+        sprite: action.attachment.sprite,
+        poses: action.attachment.poses.map((pose) => actionPoseFromJson(pose)),
+      }
+    : undefined,
+});
 
 const powerupDefinitionsConfig = {
   none: {
@@ -180,26 +221,11 @@ const powerupDefinitionsConfig = {
       },
     },
     hat: {
-      sprite: "MinerHat",
-      poses: {
-        idle: { offset: ex.vec(0, 5) },
-        jump: { offset: ex.vec(0, 5) },
-        crouch: { offset: ex.vec(0, 7) },
-        walk: minerHatWalkPoses,
-        actions: {
-          blockBreak: minerHatBlockBreakPoses,
-        },
-      },
+      sprite: minerBlockBreakAnimation.hat.sprite,
+      poses: hatPosesFromJson(minerBlockBreakAnimation.hat.poses),
     },
     actions: {
-      blockBreak: {
-        frames: defaultToolActionFrames,
-        frameDurationMs: actionFrameDurationMs,
-        attachment: {
-          sprite: "BronzePickaxe",
-          poses: toolAttachmentPoses,
-        },
-      },
+      blockBreak: actionDefinitionFromJson(minerBlockBreakAnimation.action),
     },
   },
 } as const satisfies Record<string, PowerupDefinition>;
