@@ -96,83 +96,86 @@ const fail = (source: string, message: string): never => {
   throw new Error(`${source}: ${message}`);
 };
 
-const expectRecord = (value: unknown, source: string) => {
+const requireRecord = (value: unknown, source: string): JsonObject => {
   if (!isRecord(value)) {
-    fail(source, "expected an object");
+    fail(source, "must be an object");
   }
-  return value;
+  return value as JsonObject;
 };
 
-const expectString = (value: unknown, source: string) => {
+const requireString = (value: unknown, source: string): string => {
   if (typeof value !== "string" || value.length === 0) {
-    fail(source, "expected a non-empty string");
+    fail(source, "must be a non-empty string");
   }
-  return value;
+  return value as string;
 };
 
-const expectNumber = (value: unknown, source: string) => {
+const requireNumber = (value: unknown, source: string): number => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
-    fail(source, "expected a finite number");
+    fail(source, "must be a finite number");
   }
-  return value;
+  return value as number;
 };
 
-const expectInteger = (value: unknown, source: string) => {
-  const number = expectNumber(value, source);
+const requireInteger = (value: unknown, source: string): number => {
+  const number = requireNumber(value, source);
   if (!Number.isInteger(number)) {
-    fail(source, "expected an integer");
+    fail(source, "must be an integer");
   }
   return number;
 };
 
-const expectPositiveInteger = (value: unknown, source: string) => {
-  const number = expectInteger(value, source);
+const requirePositiveInteger = (value: unknown, source: string): number => {
+  const number = requireInteger(value, source);
   if (number <= 0) {
-    fail(source, "expected a positive integer");
+    fail(source, "must be a positive integer");
   }
   return number;
 };
 
-const expectBoolean = (value: unknown, source: string) => {
+const requireBoolean = (value: unknown, source: string): boolean => {
   if (typeof value !== "boolean") {
-    fail(source, "expected a boolean");
+    fail(source, "must be a boolean");
   }
-  return value;
+  return value as boolean;
 };
 
-const expectArray = (value: unknown, source: string) => {
+const requireArray = (value: unknown, source: string): unknown[] => {
   if (!Array.isArray(value)) {
-    fail(source, "expected an array");
+    fail(source, "must be an array");
   }
-  return value;
+  return value as unknown[];
 };
 
-const optionalNumber = (value: unknown, source: string) => {
+const optionalNumber = (value: unknown, source: string): number | undefined => {
   if (value === undefined) {
     return undefined;
   }
-  return expectNumber(value, source);
+  return requireNumber(value, source);
 };
 
-const optionalInteger = (value: unknown, source: string) => {
+const optionalInteger = (value: unknown, source: string): number | undefined => {
   if (value === undefined) {
     return undefined;
   }
-  return expectInteger(value, source);
+  return requireInteger(value, source);
 };
 
-const validateTerrainTileKind = (value: unknown, source: string) => {
+const validateTerrainTileKind = (
+  value: unknown,
+  source: string,
+): TerrainTileKind => {
   if (!isTerrainTileKind(value)) {
-    fail(source, "expected a terrain tile kind");
+    fail(source, "must be a terrain tile kind");
   }
-  return value;
+  return value as TerrainTileKind;
 };
 
 const validateSurface = (value: unknown, source: string): WorldSurfaceDefinition => {
   if (value === undefined) {
     return {};
   }
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
     ...(optionalNumber(record.noiseOffsetY, `${source}.noiseOffsetY`) === undefined
       ? {}
@@ -213,22 +216,22 @@ const validateSurface = (value: unknown, source: string): WorldSurfaceDefinition
 };
 
 const validateDimensions = (value: unknown, source: string): WorldDimensionsDefinition => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
-    columns: expectPositiveInteger(record.columns, `${source}.columns`),
-    rows: expectPositiveInteger(record.rows, `${source}.rows`),
+    columns: requirePositiveInteger(record.columns, `${source}.columns`),
+    rows: requirePositiveInteger(record.rows, `${source}.rows`),
   };
 };
 
 const validateBiomeBand = (value: unknown, source: string): BiomeBandDefinition => {
-  const record = expectRecord(value, source);
-  const startColumn = expectInteger(record.startColumn, `${source}.startColumn`);
-  const endColumn = expectInteger(record.endColumn, `${source}.endColumn`);
+  const record = requireRecord(value, source);
+  const startColumn = requireInteger(record.startColumn, `${source}.startColumn`);
+  const endColumn = requireInteger(record.endColumn, `${source}.endColumn`);
   if (endColumn < startColumn) {
     fail(source, "endColumn must be greater than or equal to startColumn");
   }
   return {
-    biome: expectString(record.biome, `${source}.biome`),
+    biome: requireString(record.biome, `${source}.biome`),
     startColumn,
     endColumn,
   };
@@ -238,13 +241,13 @@ const validatePlacement = (
   value: unknown,
   source: string,
 ): StructurePlacementDefinition => {
-  const record = expectRecord(value, source);
-  const kind = expectString(record.kind, `${source}.kind`);
+  const record = requireRecord(value, source);
+  const kind = requireString(record.kind, `${source}.kind`);
   if (kind !== "worldCenterSurface") {
-    fail(source, "expected worldCenterSurface placement");
+    fail(source, "must use worldCenterSurface placement");
   }
   return {
-    kind,
+    kind: "worldCenterSurface" as const,
     ...(optionalInteger(record.rowOffset, `${source}.rowOffset`) === undefined
       ? {}
       : { rowOffset: optionalInteger(record.rowOffset, `${source}.rowOffset`) }),
@@ -258,12 +261,12 @@ const validateWorldStructure = (
   value: unknown,
   source: string,
 ): WorldStructureDefinition => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
-    structure: expectString(record.structure, `${source}.structure`),
+    structure: requireString(record.structure, `${source}.structure`),
     placement: validatePlacement(record.placement, `${source}.placement`),
-    protectTiles: expectBoolean(record.protectTiles, `${source}.protectTiles`),
-    setsPlayerSpawn: expectBoolean(record.setsPlayerSpawn, `${source}.setsPlayerSpawn`),
+    protectTiles: requireBoolean(record.protectTiles, `${source}.protectTiles`),
+    setsPlayerSpawn: requireBoolean(record.setsPlayerSpawn, `${source}.setsPlayerSpawn`),
   };
 };
 
@@ -271,23 +274,23 @@ const validateDecoration = (
   value: unknown,
   source: string,
 ): WorldDecorationDefinition => {
-  const record = expectRecord(value, source);
-  const kind = expectString(record.kind, `${source}.kind`);
+  const record = requireRecord(value, source);
+  const kind = requireString(record.kind, `${source}.kind`);
   if (kind !== "tileAboveSurface") {
-    fail(source, "expected tileAboveSurface decoration");
+    fail(source, "must use tileAboveSurface decoration");
   }
   return {
-    kind,
+    kind: "tileAboveSurface" as const,
     tile: validateTerrainTileKind(record.tile, `${source}.tile`),
-    columns: expectArray(record.columns, `${source}.columns`).map((column, index) =>
-      expectInteger(column, `${source}.columns[${index}]`),
+    columns: requireArray(record.columns, `${source}.columns`).map((column, index) =>
+      requireInteger(column, `${source}.columns[${index}]`),
     ),
-    skipProtected: expectBoolean(record.skipProtected, `${source}.skipProtected`),
+    skipProtected: requireBoolean(record.skipProtected, `${source}.skipProtected`),
   };
 };
 
 const validateLayer = (value: unknown, source: string): TerrainLayerDefinition => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
     ...(optionalInteger(record.maxDepth, `${source}.maxDepth`) === undefined
       ? {}
@@ -297,36 +300,36 @@ const validateLayer = (value: unknown, source: string): TerrainLayerDefinition =
 };
 
 const validateCavePath = (value: unknown, source: string): CavePath => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
-    depth: expectNumber(record.depth, `${source}.depth`),
-    wave: expectNumber(record.wave, `${source}.wave`),
-    frequency: expectNumber(record.frequency, `${source}.frequency`),
-    phase: expectNumber(record.phase, `${source}.phase`),
-    radius: expectNumber(record.radius, `${source}.radius`),
-    roughness: expectNumber(record.roughness, `${source}.roughness`),
-    seedOffset: expectNumber(record.seedOffset, `${source}.seedOffset`),
+    depth: requireNumber(record.depth, `${source}.depth`),
+    wave: requireNumber(record.wave, `${source}.wave`),
+    frequency: requireNumber(record.frequency, `${source}.frequency`),
+    phase: requireNumber(record.phase, `${source}.phase`),
+    radius: requireNumber(record.radius, `${source}.radius`),
+    roughness: requireNumber(record.roughness, `${source}.roughness`),
+    seedOffset: requireNumber(record.seedOffset, `${source}.seedOffset`),
   };
 };
 
 const validateCaves = (value: unknown, source: string): TerrainCaveConfig => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
-    surfaceBuffer: expectPositiveInteger(record.surfaceBuffer, `${source}.surfaceBuffer`),
-    bedrockBuffer: expectPositiveInteger(record.bedrockBuffer, `${source}.bedrockBuffer`),
-    paths: expectArray(record.paths, `${source}.paths`).map((path, index) =>
+    surfaceBuffer: requirePositiveInteger(record.surfaceBuffer, `${source}.surfaceBuffer`),
+    bedrockBuffer: requirePositiveInteger(record.bedrockBuffer, `${source}.bedrockBuffer`),
+    paths: requireArray(record.paths, `${source}.paths`).map((path, index) =>
       validateCavePath(path, `${source}.paths[${index}]`),
     ),
   };
 };
 
 const validateTerrain = (value: unknown, source: string): TerrainTileBiomeConfig => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
     ...(record.layers === undefined
       ? {}
       : {
-          layers: expectArray(record.layers, `${source}.layers`).map((layer, index) =>
+          layers: requireArray(record.layers, `${source}.layers`).map((layer, index) =>
             validateLayer(layer, `${source}.layers[${index}]`),
           ),
         }),
@@ -343,20 +346,20 @@ const validateTerrain = (value: unknown, source: string): TerrainTileBiomeConfig
 };
 
 const validateWorldDefinition = (value: unknown, source: string): WorldDefinition => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
-    id: expectString(record.id, `${source}.id`),
-    name: expectString(record.name, `${source}.name`),
+    id: requireString(record.id, `${source}.id`),
+    name: requireString(record.name, `${source}.name`),
     dimensions: validateDimensions(record.dimensions, `${source}.dimensions`),
     surface: validateSurface(record.surface, `${source}.surface`),
-    biomeBands: expectArray(record.biomeBands, `${source}.biomeBands`).map((band, index) =>
+    biomeBands: requireArray(record.biomeBands, `${source}.biomeBands`).map((band, index) =>
       validateBiomeBand(band, `${source}.biomeBands[${index}]`),
     ),
-    structures: expectArray(record.structures, `${source}.structures`).map(
+    structures: requireArray(record.structures, `${source}.structures`).map(
       (structure, index) =>
         validateWorldStructure(structure, `${source}.structures[${index}]`),
     ),
-    decorations: expectArray(record.decorations, `${source}.decorations`).map(
+    decorations: requireArray(record.decorations, `${source}.decorations`).map(
       (decoration, index) =>
         validateDecoration(decoration, `${source}.decorations[${index}]`),
     ),
@@ -364,9 +367,9 @@ const validateWorldDefinition = (value: unknown, source: string): WorldDefinitio
 };
 
 const validateBiomeDefinition = (value: unknown, source: string): BiomeDefinition => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   return {
-    id: expectString(record.id, `${source}.id`),
+    id: requireString(record.id, `${source}.id`),
     terrain: validateTerrain(record.terrain, `${source}.terrain`),
   };
 };
@@ -376,7 +379,7 @@ const validatePalette = (
   rows: string[],
   source: string,
 ): Record<string, TerrainTileKind | null> => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   const palette = Object.fromEntries(
     Object.entries(record).map(([symbol, kind]) => [
       symbol,
@@ -393,16 +396,16 @@ const validatePalette = (
 };
 
 const validateStructureRows = (value: unknown, source: string) => {
-  const rows = expectArray(value, source).map((row, index) =>
-    expectString(row, `${source}[${index}]`),
+  const rows = requireArray(value, source).map((row, index) =>
+    requireString(row, `${source}[${index}]`),
   );
   if (rows.length === 0) {
-    fail(source, "expected at least one row");
+    fail(source, "must have at least one row");
   }
   const width = rows[0].length;
   rows.forEach((row, index) => {
     if (row.length !== width) {
-      fail(`${source}[${index}]`, "expected all rows to have the same width");
+      fail(`${source}[${index}]`, "all rows must have the same width");
     }
   });
   return rows;
@@ -412,19 +415,19 @@ const validateStructureDefinition = (
   value: unknown,
   source: string,
 ): StructureDefinition => {
-  const record = expectRecord(value, source);
+  const record = requireRecord(value, source);
   const rows = validateStructureRows(record.rows, `${source}.rows`);
   return {
-    id: expectString(record.id, `${source}.id`),
+    id: requireString(record.id, `${source}.id`),
     rows,
     palette: validatePalette(record.palette, rows, `${source}.palette`),
     spawnOffset: {
-      column: expectInteger(
-        expectRecord(record.spawnOffset, `${source}.spawnOffset`).column,
+      column: requireInteger(
+        requireRecord(record.spawnOffset, `${source}.spawnOffset`).column,
         `${source}.spawnOffset.column`,
       ),
-      row: expectInteger(
-        expectRecord(record.spawnOffset, `${source}.spawnOffset`).row,
+      row: requireInteger(
+        requireRecord(record.spawnOffset, `${source}.spawnOffset`).row,
         `${source}.spawnOffset.row`,
       ),
     },
@@ -452,7 +455,7 @@ export const structureDefinitions = validateRegistry(
   validateStructureDefinition,
 );
 
-const assertWorldReferences = (definition: WorldDefinition) => {
+const validateWorldReferences = (definition: WorldDefinition) => {
   definition.biomeBands.forEach((band) => {
     if (!biomeDefinitions[band.biome]) {
       fail(definition.id, `unknown biome ${band.biome}`);
@@ -470,7 +473,7 @@ export const loadWorldDefinition = (id: string) => {
   if (!definition) {
     fail(id, "unknown world definition");
   }
-  assertWorldReferences(definition);
+  validateWorldReferences(definition);
   return definition;
 };
 

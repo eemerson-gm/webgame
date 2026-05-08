@@ -92,11 +92,6 @@ const buildStructure = (
 export const generateWorld = (
   definition: WorldDefinition,
   seed: number = randomWorldSeed(),
-): GeneratedWorld => generateWorldWithSeed(definition, seed);
-
-export const generateWorldWithSeed = (
-  definition: WorldDefinition,
-  seed: number,
 ): GeneratedWorld => {
   const columns = definition.dimensions.columns;
   const rows = definition.dimensions.rows;
