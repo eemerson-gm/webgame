@@ -6,14 +6,29 @@
     "rows": 240
   },
   "surface": {
-    "noiseScaleX": 0.055,
+    "noiseOffsetY": 0,
+    "noiseScaleX": 0.04,
     "minGroundDepth": 3,
-    "fractalOctaves": 3,
-    "persistence": 0.34,
-    "lacunarity": 1.85,
-    "warpScale": 0.035,
-    "warpAmplitude": 0.35,
-    "sampleYWobble": 0.25
+    "surfaceVariationDepth": 182,
+    "surfaceVariationEpsilon": 0.0001,
+    "fractalOctaves": 2,
+    "persistence": 0.28,
+    "lacunarity": 1.55,
+    "warpScale": 0.028,
+    "warpAmplitude": 0.2,
+    "sampleYWobble": 0.12,
+    "averageSurfaceRadius": 10,
+    "maxSurfaceStep": 1,
+    "fbmSpreadScale": 0.58,
+    "fbmSpreadBaseline": 0.5,
+    "surfaceRemapContrast": 1.12,
+    "surfaceRemapNeutral": 0.5,
+    "warpDomainY0": 7,
+    "warpDomainY1": 2,
+    "warpSecondaryXScaleRatio": 1.15,
+    "warpPermutationSeedOffset": 7919,
+    "surfaceStepRelaxationPasses": 0,
+    "surfaceFloatBlurPasses": 6
   },
   "biomeBands": [
     {

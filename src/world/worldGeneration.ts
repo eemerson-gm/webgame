@@ -1,16 +1,15 @@
 import type { EntityState, TerrainTileKind } from "../classes/GameProtocol";
 import { createInitialEntitiesData } from "../simulation/entitySpawns";
 import { TILE_PX } from "./worldConfig";
+import { Structure } from "./Structure";
 import { buildSurfaceStartByColumn } from "./terrainGen";
 import { buildTerrainTilesFromSurface, terrainTileKey } from "./terrainTiles";
-import { biomeForColumn } from "./biomeGeneration";
-import { structureFromDefinition } from "./structureGeneration";
 import type {
-  TileAboveSurfaceDecorationDefinition,
+  StructurePlacementDefinition,
   WorldDefinition,
   WorldStructureDefinition,
 } from "./worldDefinition";
-import { loadStructureDefinition } from "./worldDefinition";
+import { biomeDefinitions, structureDefinitions } from "./worldDefinition";
 
 export type GeneratedWorld = {
   columns: number;
@@ -32,62 +31,65 @@ const randomWorldSeed = () => {
   return seed === 0 ? 1 : seed;
 };
 
-const isInsideWorld = (definition: WorldDefinition, column: number, row: number) => {
-  if (column < 0 || column >= definition.dimensions.columns) {
-    return false;
-  }
-  if (row < 0 || row >= definition.dimensions.rows) {
-    return false;
-  }
-  return true;
+const biomeIdForColumn = (definition: WorldDefinition, column: number) => {
+  const band =
+    definition.biomeBands.find(
+      (b) => column >= b.startColumn && column <= b.endColumn,
+    ) ?? definition.biomeBands[0];
+  return band?.biome ?? "";
 };
 
-const applyTileAboveSurfaceDecoration = (
-  terrainTiles: Record<string, TerrainTileKind>,
-  protectedTerrainTiles: Set<string>,
-  definition: WorldDefinition,
-  surfaceStartByColumn: number[],
-  decoration: TileAboveSurfaceDecorationDefinition,
-) => {
-  decoration.columns.forEach((column) => {
-    const row = surfaceStartByColumn[column] - 1;
-    const key = terrainTileKey(column, row);
-    if (!isInsideWorld(definition, column, row)) {
-      return;
-    }
-    if (decoration.skipProtected && protectedTerrainTiles.has(key)) {
-      return;
-    }
-    terrainTiles[key] = decoration.tile;
-  });
-};
+const biomeTerrainForColumn = (definition: WorldDefinition, column: number) =>
+  biomeDefinitions[biomeIdForColumn(definition, column)].terrain;
 
-const applyDecoration = (
-  terrainTiles: Record<string, TerrainTileKind>,
-  protectedTerrainTiles: Set<string>,
-  definition: WorldDefinition,
-  surfaceStartByColumn: number[],
-  decoration: TileAboveSurfaceDecorationDefinition,
-) =>
-  applyTileAboveSurfaceDecoration(
-    terrainTiles,
-    protectedTerrainTiles,
-    definition,
-    surfaceStartByColumn,
-    decoration,
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const structureWidth = (structureRows: string[]) => structureRows[0].length;
+const structureHeight = (structureRows: string[]) => structureRows.length;
+
+const worldCenterSurfaceOrigin = (options: {
+  structureRows: string[];
+  dimensions: WorldDefinition["dimensions"];
+  surfaceStartByColumn: number[];
+  placement: StructurePlacementDefinition;
+}) => {
+  const width = structureWidth(options.structureRows);
+  const height = structureHeight(options.structureRows);
+  const centerColumn = Math.floor(options.dimensions.columns / 2);
+  const columnOffset = options.placement.columnOffset ?? 0;
+  const rowOffset = options.placement.rowOffset ?? 0;
+  const originColumn = clamp(
+    centerColumn - Math.floor(width / 2) + columnOffset,
+    0,
+    options.dimensions.columns - width,
   );
+  const surfaceRow =
+    options.surfaceStartByColumn[centerColumn] ?? Math.floor(options.dimensions.rows / 2);
+  return {
+    column: originColumn,
+    row: clamp(surfaceRow + rowOffset, 0, options.dimensions.rows - height),
+  };
+};
 
-const buildStructure = (
+const structureForPlacement = (
   definition: WorldDefinition,
   surfaceStartByColumn: number[],
   placement: WorldStructureDefinition,
-) =>
-  structureFromDefinition({
-    definition: loadStructureDefinition(placement.structure),
-    dimensions: definition.dimensions,
-    surfaceStartByColumn,
-    placement: placement.placement,
+) => {
+  const structDef = structureDefinitions[placement.structure];
+  return new Structure({
+    origin: worldCenterSurfaceOrigin({
+      structureRows: structDef.rows,
+      dimensions: definition.dimensions,
+      surfaceStartByColumn,
+      placement: placement.placement,
+    }),
+    rows: structDef.rows,
+    palette: structDef.palette,
+    spawnOffset: structDef.spawnOffset,
   });
+};
 
 export const generateWorld = (
   definition: WorldDefinition,
@@ -103,12 +105,12 @@ export const generateWorld = (
   });
   const terrainTiles = buildTerrainTilesFromSurface(columns, rows, surfaceStartByColumn, {
     seed,
-    biomeAtColumn: (column) => biomeForColumn(definition, column).terrain,
+    biomeAtColumn: (column) => biomeTerrainForColumn(definition, column),
   });
   const protectedTerrainTiles = new Set<string>();
-  const structureResults = definition.structures.map((placement) => ({
-    placement,
-    structure: buildStructure(definition, surfaceStartByColumn, placement),
+  const structureResults = definition.structures.map((p) => ({
+    placement: p,
+    structure: structureForPlacement(definition, surfaceStartByColumn, p),
   }));
 
   structureResults.forEach(({ placement, structure }) => {
@@ -119,15 +121,16 @@ export const generateWorld = (
     structure.tileKeys().forEach((key) => protectedTerrainTiles.add(key));
   });
 
-  definition.decorations.forEach((decoration) =>
-    applyDecoration(
-      terrainTiles,
-      protectedTerrainTiles,
-      definition,
-      surfaceStartByColumn,
-      decoration,
-    ),
-  );
+  definition.decorations.forEach((decoration) => {
+    decoration.columns.forEach((column) => {
+      const row = surfaceStartByColumn[column] - 1;
+      const key = terrainTileKey(column, row);
+      if (decoration.skipProtected && protectedTerrainTiles.has(key)) {
+        return;
+      }
+      terrainTiles[key] = decoration.tile;
+    });
+  });
 
   return {
     columns,

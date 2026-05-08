@@ -19,6 +19,10 @@ type StructureTile = {
   kind: TerrainTileKind | null;
 };
 
+const unknownPaletteSymbol = (symbol: string): never => {
+  throw new Error(`Unknown structure palette symbol: ${symbol}`);
+};
+
 export class Structure {
   private readonly origin: StructurePosition;
   private readonly rows: string[];
@@ -57,17 +61,15 @@ export class Structure {
 
   private tiles(): StructureTile[] {
     return this.rows.flatMap((rowTiles, rowOffset) =>
-      rowTiles.split("").flatMap((symbol, columnOffset) => {
-        if (!(symbol in this.palette)) {
-          return [];
+      rowTiles.split("").map((symbol, columnOffset) => {
+        if (!Object.hasOwn(this.palette, symbol)) {
+          return unknownPaletteSymbol(symbol);
         }
-        return [
-          {
-            column: this.origin.column + columnOffset,
-            row: this.origin.row + rowOffset,
-            kind: this.palette[symbol],
-          },
-        ];
+        return {
+          column: this.origin.column + columnOffset,
+          row: this.origin.row + rowOffset,
+          kind: this.palette[symbol] as TerrainTileKind | null,
+        };
       }),
     );
   }

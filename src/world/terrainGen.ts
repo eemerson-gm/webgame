@@ -1,6 +1,5 @@
 const fade = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
 const lerp = (a: number, b: number, t: number) => a + t * (b - a);
-const defaultTerrainSeed = 42;
 
 const gradDot = (hash: number, x: number, y: number) => {
   const h = hash & 3;
@@ -63,7 +62,7 @@ const makePermutation = (seed: number) => {
   return indices.concat(indices);
 };
 
-const range = (n: number) => Array.from({ length: n }, (_, i) => i);
+const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
 
 const fbm2d = (
   x: number,
@@ -72,63 +71,48 @@ const fbm2d = (
   octaves: number,
   persistence: number,
   lacunarity: number,
-) => {
-  const count = Math.max(1, octaves);
-  return range(count).reduce((sum, o) => {
+) =>
+  indexes(octaves).reduce((sum, o) => {
     const f = Math.pow(lacunarity, o);
     const a = Math.pow(persistence, o);
     return sum + a * perlin2d(x * f, y * f, perm);
   }, 0);
-};
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-const averageSurfaceRadius = 2;
-const maxSurfaceStep = 1;
+
+export type TerrainSurfaceParams = {
+  noiseOffsetY: number;
+  noiseScaleX: number;
+  minGroundDepth: number;
+  surfaceVariationDepth: number;
+  surfaceVariationEpsilon: number;
+  fractalOctaves: number;
+  persistence: number;
+  lacunarity: number;
+  warpScale: number;
+  warpAmplitude: number;
+  sampleYWobble: number;
+  averageSurfaceRadius: number;
+  maxSurfaceStep: number;
+  fbmSpreadScale: number;
+  fbmSpreadBaseline: number;
+  surfaceRemapContrast: number;
+  surfaceRemapNeutral: number;
+  warpDomainY0: number;
+  warpDomainY1: number;
+  warpSecondaryXScaleRatio: number;
+  warpPermutationSeedOffset: number;
+  surfaceStepRelaxationPasses: number;
+  surfaceFloatBlurPasses: number;
+};
 
 export type TerrainGenConfig = {
   columns: number;
   rows: number;
-  seed?: number;
-  noiseOffsetY?: number;
-  noiseScaleX?: number;
-  minGroundDepth?: number;
-  surfaceVariationDepth?: number;
-  fractalOctaves?: number;
-  persistence?: number;
-  lacunarity?: number;
-  warpScale?: number;
-  warpAmplitude?: number;
-  sampleYWobble?: number;
-};
+  seed: number;
+} & TerrainSurfaceParams;
 
-const defaultGenConfig: Required<
-  Pick<
-    TerrainGenConfig,
-    | "seed"
-    | "noiseOffsetY"
-    | "noiseScaleX"
-    | "minGroundDepth"
-    | "fractalOctaves"
-    | "persistence"
-    | "lacunarity"
-    | "warpScale"
-    | "warpAmplitude"
-    | "sampleYWobble"
-  >
-> = {
-  seed: defaultTerrainSeed,
-  noiseOffsetY: 0,
-  noiseScaleX: 0.055,
-  minGroundDepth: 3,
-  fractalOctaves: 3,
-  persistence: 0.34,
-  lacunarity: 1.85,
-  warpScale: 0.035,
-  warpAmplitude: 0.35,
-  sampleYWobble: 0.25,
-};
-
-const clampSurfaceStep = (previous: number, next: number) => {
+const clampSurfaceStep = (previous: number, next: number, maxSurfaceStep: number) => {
   if (next > previous + maxSurfaceStep) {
     return previous + maxSurfaceStep;
   }
@@ -138,73 +122,114 @@ const clampSurfaceStep = (previous: number, next: number) => {
   return next;
 };
 
-const averageSurfaceAt = (surfaceStarts: number[], col: number) => {
-  const sampleColumns = range(averageSurfaceRadius * 2 + 1)
+const averageFloatAt = (
+  surface: number[],
+  col: number,
+  averageSurfaceRadius: number,
+) => {
+  const sampleColumns = indexes(averageSurfaceRadius * 2 + 1)
     .map((i) => col + i - averageSurfaceRadius)
-    .filter((sampleCol) => sampleCol >= 0 && sampleCol < surfaceStarts.length);
-  const total = sampleColumns.reduce(
-    (sum, sampleCol) => sum + surfaceStarts[sampleCol],
-    0,
+    .filter((sampleCol) => sampleCol >= 0 && sampleCol < surface.length);
+  const total = sampleColumns.reduce((sum, sampleCol) => sum + surface[sampleCol], 0);
+  return total / sampleColumns.length;
+};
+
+const averageFloatSurface = (surface: number[], averageSurfaceRadius: number) =>
+  surface.map((_, col) => averageFloatAt(surface, col, averageSurfaceRadius));
+
+const blurFloatSurfaceRepeatedly = (
+  surface: number[],
+  averageSurfaceRadius: number,
+  surfaceFloatBlurPasses: number,
+) =>
+  indexes(surfaceFloatBlurPasses).reduce(
+    (acc) => averageFloatSurface(acc, averageSurfaceRadius),
+    surface,
   );
-  return Math.round(total / sampleColumns.length);
-};
 
-const averageSurface = (surfaceStarts: number[]) => {
-  return surfaceStarts.map((_, col) => averageSurfaceAt(surfaceStarts, col));
-};
-
-const limitSurfaceSteps = (surfaceStarts: number[]) => {
-  return surfaceStarts.reduce<number[]>((limitedSurface, nextSurfaceStart) => {
+const limitSurfaceSteps = (surfaceStarts: number[], maxSurfaceStep: number) =>
+  surfaceStarts.reduce<number[]>((limitedSurface, nextSurfaceStart) => {
     if (limitedSurface.length === 0) {
       return [nextSurfaceStart];
     }
     const previousSurfaceStart = limitedSurface[limitedSurface.length - 1];
     return [
       ...limitedSurface,
-      clampSurfaceStep(previousSurfaceStart, nextSurfaceStart),
+      clampSurfaceStep(previousSurfaceStart, nextSurfaceStart, maxSurfaceStep),
     ];
   }, []);
+
+const limitSurfaceStepsBackward = (surfaceStarts: number[], maxSurfaceStep: number) => {
+  if (surfaceStarts.length === 0) {
+    return surfaceStarts;
+  }
+  const result = surfaceStarts.slice();
+  let col = result.length - 2;
+  while (col >= 0) {
+    result[col] = clampSurfaceStep(result[col + 1], result[col], maxSurfaceStep);
+    col -= 1;
+  }
+  return result;
+};
+
+const relaxSurfaceSteps = (
+  surfaceStarts: number[],
+  maxSurfaceStep: number,
+  surfaceStepRelaxationPasses: number,
+) => {
+  if (surfaceStepRelaxationPasses <= 0) {
+    return surfaceStarts;
+  }
+  return indexes(surfaceStepRelaxationPasses).reduce((acc) => {
+    const forward = limitSurfaceSteps(acc, maxSurfaceStep);
+    return limitSurfaceStepsBackward(forward, maxSurfaceStep);
+  }, surfaceStarts);
 };
 
 export const buildSurfaceStartByColumn = (options: TerrainGenConfig) => {
   const {
     columns,
     rows,
-    seed = defaultGenConfig.seed,
-    noiseOffsetY = defaultGenConfig.noiseOffsetY,
-    noiseScaleX = defaultGenConfig.noiseScaleX,
-    minGroundDepth = defaultGenConfig.minGroundDepth,
-    surfaceVariationDepth: surfaceOverride,
-    fractalOctaves = defaultGenConfig.fractalOctaves,
-    persistence = defaultGenConfig.persistence,
-    lacunarity = defaultGenConfig.lacunarity,
-    warpScale = defaultGenConfig.warpScale,
-    warpAmplitude = defaultGenConfig.warpAmplitude,
-    sampleYWobble = defaultGenConfig.sampleYWobble,
+    seed,
+    noiseOffsetY,
+    noiseScaleX,
+    minGroundDepth,
+    surfaceVariationDepth,
+    surfaceVariationEpsilon,
+    fractalOctaves,
+    persistence,
+    lacunarity,
+    warpScale,
+    warpAmplitude,
+    sampleYWobble,
+    averageSurfaceRadius,
+    maxSurfaceStep,
+    fbmSpreadScale,
+    fbmSpreadBaseline,
+    surfaceRemapContrast,
+    surfaceRemapNeutral,
+    warpDomainY0,
+    warpDomainY1,
+    warpSecondaryXScaleRatio,
+    warpPermutationSeedOffset,
+    surfaceStepRelaxationPasses,
+    surfaceFloatBlurPasses,
   } = options;
 
   const perm = makePermutation(seed);
-  const permWarp = makePermutation(seed + 7919);
+  const permWarp = makePermutation(seed + warpPermutationSeedOffset);
   const minDepthCapped = Math.max(1, Math.min(minGroundDepth, rows));
   const maxVariation = Math.max(0, rows - minDepthCapped);
-  const defaultSurfaceVariation = Math.max(
-    9,
-    Math.min(maxVariation, Math.floor(rows * 0.76)),
-  );
-  const variationCapped = Math.max(
-    0,
-    Math.min(
-      surfaceOverride !== undefined ? surfaceOverride : defaultSurfaceVariation,
-      maxVariation,
-    ),
-  );
+  const variationCapped = Math.max(0, Math.min(surfaceVariationDepth, maxVariation));
 
   const toSurfaceT = (col: number) => {
     const warpedX =
       col * noiseScaleX +
-      perlin2d(col * warpScale, 7, permWarp) * warpAmplitude;
+      perlin2d(col * warpScale, warpDomainY0, permWarp) * warpAmplitude;
     const sampleY =
-      noiseOffsetY + perlin2d(col * (warpScale * 1.15), 2, permWarp) * sampleYWobble;
+      noiseOffsetY +
+      perlin2d(col * (warpScale * warpSecondaryXScaleRatio), warpDomainY1, permWarp) *
+        sampleYWobble;
     const f = fbm2d(
       warpedX,
       sampleY,
@@ -213,15 +238,28 @@ export const buildSurfaceStartByColumn = (options: TerrainGenConfig) => {
       persistence,
       lacunarity,
     );
-    const spread = f * 0.58 + 0.5;
-    return clamp01(0.5 + (spread - 0.5) * 1.12);
+    const spread = f * fbmSpreadScale + fbmSpreadBaseline;
+    return clamp01(
+      surfaceRemapNeutral + (spread - surfaceRemapNeutral) * surfaceRemapContrast,
+    );
   };
 
-  const roughSurfaceStarts = range(columns).map((col) => {
+  const roughSurfaceFloats = indexes(columns).map((col) => {
     const t = toSurfaceT(col);
-    const numGroundRows =
-      minDepthCapped + Math.floor(t * (variationCapped + 0.0001));
-    return rows - numGroundRows;
+    const groundDepth =
+      minDepthCapped + t * (variationCapped + surfaceVariationEpsilon);
+    return rows - groundDepth;
   });
-  return limitSurfaceSteps(averageSurface(averageSurface(roughSurfaceStarts)));
+  const smoothedFloats = blurFloatSurfaceRepeatedly(
+    roughSurfaceFloats,
+    averageSurfaceRadius,
+    surfaceFloatBlurPasses,
+  );
+  const roundedSurface = smoothedFloats.map((v) => Math.round(v));
+  const clampedSurface = roundedSurface.map((v) => Math.max(0, Math.min(rows - 1, v)));
+  return relaxSurfaceSteps(
+    clampedSurface,
+    maxSurfaceStep,
+    surfaceStepRelaxationPasses,
+  );
 };
