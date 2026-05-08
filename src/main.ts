@@ -751,6 +751,7 @@ const startWorldSession = (
     pos: ex.vec(0, 0),
     tileWidth: TILE_PX,
     tileHeight: TILE_PX,
+    viewSize: ex.vec(viewWidth, viewHeight),
     columns: world.columns,
     rows: world.rows,
     surfaceStartByColumn: world.surfaceStartByColumn,
@@ -762,8 +763,7 @@ const startWorldSession = (
   const lighting = new TileLightingOverlay(terrain, ex.vec(viewWidth, viewHeight));
   worldSession.terrain = terrain;
   worldSession.dynamicLighting = lighting;
-  game.add(tilemap);
-  terrain.borders.forEach((border) => game.add(border));
+  game.add(terrain.renderer);
   game.add(lighting);
 
   const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);

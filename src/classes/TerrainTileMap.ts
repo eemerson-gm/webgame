@@ -10,13 +10,23 @@ import {
 } from "../world/terrainTiles";
 import { solidTerrainTileKeys } from "./TerrainTileKinds";
 import type { TileCollisionWorld } from "../simulation/entityPhysics";
-import { TerrainBorderManager, adjacentTilePositions, adjacentChunkKeysForTile, isInsideTerrain } from "./TerrainBorderManager";
+import {
+  TerrainBorderManager,
+  adjacentTilePositions,
+  adjacentChunkKeysForTile,
+  chunkCount,
+  chunkIndexForTile,
+  chunkKey,
+  chunkStartTile,
+  isInsideTerrain,
+} from "./TerrainBorderManager";
 
 type TerrainTileMapOptions = {
   pos?: ex.Vector;
   tileWidth: number;
   tileHeight: number;
   renderFromTopOfGraphic?: boolean;
+  viewSize?: ex.Vector;
   columns: number;
   rows: number;
   surfaceStartByColumn: number[];
@@ -31,6 +41,20 @@ export type TerrainChange = {
 };
 
 type TerrainChangeHandler = (change: TerrainChange) => void;
+type TerrainChunk = {
+  tilemap: ex.TileMap;
+  border: ex.Actor;
+};
+type TileBounds = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+const visibleChunkPadding = 1;
+const defaultViewSize = ex.vec(320, 180);
+const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
 
 const assertWorldMatchesLayout = (options: TerrainTileMapOptions) => {
   if (options.surfaceStartByColumn.length !== options.columns) {
@@ -69,19 +93,142 @@ const terrainGraphicFor = (
   return terrainBlockForKind(kind).toGraphic();
 };
 
+const tileBoundsForView = (
+  terrain: TerrainTileMap,
+  camera: ex.Camera,
+  viewSize: ex.Vector,
+): TileBounds => ({
+  left: Math.max(
+    Math.floor((camera.pos.x - viewSize.x / 2) / terrain.tileWidthPx()) - 1,
+    0,
+  ),
+  right: Math.min(
+    Math.floor((camera.pos.x + viewSize.x / 2) / terrain.tileWidthPx()) + 1,
+    terrain.columnCount() - 1,
+  ),
+  top: Math.max(
+    Math.floor((camera.pos.y - viewSize.y / 2) / terrain.tileHeightPx()) - 1,
+    0,
+  ),
+  bottom: Math.min(
+    Math.floor((camera.pos.y + viewSize.y / 2) / terrain.tileHeightPx()) + 1,
+    terrain.rowCount() - 1,
+  ),
+});
+
+const chunkKeysForTileBounds = (bounds: TileBounds) => {
+  const left = Math.max(chunkIndexForTile(bounds.left) - visibleChunkPadding, 0);
+  const right = chunkIndexForTile(bounds.right) + visibleChunkPadding;
+  const top = Math.max(chunkIndexForTile(bounds.top) - visibleChunkPadding, 0);
+  const bottom = chunkIndexForTile(bounds.bottom) + visibleChunkPadding;
+  return indexes(right - left + 1).flatMap((columnOffset) =>
+    indexes(bottom - top + 1).map((rowOffset) =>
+      chunkKey(left + columnOffset, top + rowOffset),
+    ),
+  );
+};
+
+const chunkTileCount = (chunkIndex: number, totalTiles: number) =>
+  Math.min(chunkStartTile(chunkIndex + 1) - chunkStartTile(chunkIndex), totalTiles - chunkStartTile(chunkIndex));
+
+const parseChunkKey = (key: string) => key.split(",").map(Number);
+
+class TerrainChunkRenderer extends ex.Actor {
+  private readonly activeChunks = new Map<string, TerrainChunk>();
+
+  constructor(
+    private readonly terrain: TerrainTileMap,
+    private readonly viewSize: ex.Vector,
+  ) {
+    super({ pos: ex.vec(0, 0), anchor: ex.vec(0, 0) });
+  }
+
+  override onPostUpdate(engine: ex.Engine) {
+    this.syncVisibleChunks(engine.currentScene, engine.currentScene.camera);
+  }
+
+  public syncTileNeighborhood(column: number, row: number) {
+    adjacentTilePositions(column, row)
+      .filter(([neighborColumn, neighborRow]) =>
+        isInsideTerrain(
+          neighborColumn,
+          neighborRow,
+          this.terrain.columnCount(),
+          this.terrain.rowCount(),
+        ),
+      )
+      .forEach(([neighborColumn, neighborRow]) =>
+        this.syncTileGraphic(neighborColumn, neighborRow),
+      );
+  }
+
+  public rebuildBorderChunks(keys: string[]) {
+    keys.forEach((key) => {
+      const chunk = this.activeChunks.get(key);
+      if (!chunk) {
+        return;
+      }
+      const [chunkColumn, chunkRow] = parseChunkKey(key);
+      chunk.border.graphics.use(this.terrain.borderGraphicForChunk(chunkColumn, chunkRow));
+    });
+  }
+
+  private syncVisibleChunks(scene: ex.Scene, camera: ex.Camera) {
+    const visibleKeys = new Set(
+      chunkKeysForTileBounds(tileBoundsForView(this.terrain, camera, this.viewSize))
+        .filter((key) => this.terrain.isChunkInside(key)),
+    );
+    this.activeChunks.forEach((chunk, key) => {
+      if (visibleKeys.has(key)) {
+        return;
+      }
+      chunk.tilemap.kill();
+      chunk.border.kill();
+      this.activeChunks.delete(key);
+    });
+    visibleKeys.forEach((key) => {
+      if (this.activeChunks.has(key)) {
+        return;
+      }
+      const chunk = this.terrain.createRenderChunk(key);
+      this.activeChunks.set(key, chunk);
+      scene.add(chunk.tilemap);
+      scene.add(chunk.border);
+    });
+  }
+
+  private syncTileGraphic(column: number, row: number) {
+    const chunk = this.activeChunks.get(
+      chunkKey(chunkIndexForTile(column), chunkIndexForTile(row)),
+    );
+    if (!chunk) {
+      return;
+    }
+    this.terrain.syncRenderTileGraphic(
+      chunk.tilemap,
+      column - chunkStartTile(chunkIndexForTile(column)),
+      row - chunkStartTile(chunkIndexForTile(row)),
+      column,
+      row,
+    );
+  }
+}
+
 export class TerrainTileMap {
   public readonly map: ex.TileMap;
-  public readonly borders: ex.Actor[];
+  public readonly renderer: ex.Actor;
   private readonly pos: ex.Vector;
   private readonly tileWidth: number;
   private readonly tileHeight: number;
   private readonly columns: number;
   private readonly rows: number;
+  private readonly renderFromTopOfGraphic: boolean;
   private readonly solidTiles: Set<string>;
   private readonly protectedTiles: Set<string>;
   private readonly terrainTiles: Record<string, TerrainTileKind>;
   private readonly blockChangeHandlers: TerrainChangeHandler[];
   private readonly borderManager: TerrainBorderManager;
+  private readonly chunkRenderer: TerrainChunkRenderer;
 
   constructor(options: TerrainTileMapOptions) {
     const {
@@ -99,6 +246,7 @@ export class TerrainTileMap {
     this.tileHeight = tileHeight;
     this.columns = columns;
     this.rows = rows;
+    this.renderFromTopOfGraphic = renderFromTopOfGraphic;
     const terrainTiles = initialTerrainTiles(options);
     this.terrainTiles = terrainTiles;
     this.solidTiles = initialSolidTiles(options, terrainTiles);
@@ -124,8 +272,11 @@ export class TerrainTileMap {
       renderFromTopOfGraphic,
     });
 
-    this.map.tiles.forEach((tile) => this.syncTileGraphic(tile.x, tile.y));
-    this.borders = this.borderManager.createAllBorderActors();
+    this.chunkRenderer = new TerrainChunkRenderer(
+      this,
+      options.viewSize ?? defaultViewSize,
+    );
+    this.renderer = this.chunkRenderer;
   }
 
   public removeBlock(column: number, row: number) {
@@ -230,10 +381,70 @@ export class TerrainTileMap {
       delete this.terrainTiles[key];
     }
     this.syncTileNeighborhood(column, row);
-    adjacentChunkKeysForTile(column, row, this.columns, this.rows).forEach((chunk) =>
-      this.borderManager.rebuildBorderChunk(chunk),
+    this.chunkRenderer.rebuildBorderChunks(
+      adjacentChunkKeysForTile(column, row, this.columns, this.rows),
     );
     this.emitBlocksChanged({ column, row });
+  }
+
+  public isChunkInside(key: string) {
+    const [chunkColumn, chunkRow] = parseChunkKey(key);
+    if (chunkColumn < 0 || chunkColumn >= chunkCount(this.columns)) {
+      return false;
+    }
+    return chunkRow >= 0 && chunkRow < chunkCount(this.rows);
+  }
+
+  public createRenderChunk(key: string): TerrainChunk {
+    const [chunkColumn, chunkRow] = parseChunkKey(key);
+    const startColumn = chunkStartTile(chunkColumn);
+    const startRow = chunkStartTile(chunkRow);
+    const tilemap = new ex.TileMap({
+      pos: ex.vec(
+        this.pos.x + startColumn * this.tileWidth,
+        this.pos.y + startRow * this.tileHeight,
+      ),
+      tileWidth: this.tileWidth,
+      tileHeight: this.tileHeight,
+      columns: chunkTileCount(chunkColumn, this.columns),
+      rows: chunkTileCount(chunkRow, this.rows),
+      renderFromTopOfGraphic: this.renderFromTopOfGraphic,
+    });
+    tilemap.tiles.forEach((tile) =>
+      this.syncRenderTileGraphic(
+        tilemap,
+        tile.x,
+        tile.y,
+        startColumn + tile.x,
+        startRow + tile.y,
+      ),
+    );
+    return {
+      tilemap,
+      border: this.borderManager.createBorderActorForChunk(chunkColumn, chunkRow),
+    };
+  }
+
+  public borderGraphicForChunk(chunkColumn: number, chunkRow: number) {
+    return this.borderManager.createBorderGraphicForChunk(chunkColumn, chunkRow);
+  }
+
+  public syncRenderTileGraphic(
+    tilemap: ex.TileMap,
+    localColumn: number,
+    localRow: number,
+    column: number,
+    row: number,
+  ) {
+    const tile = tilemap.getTile(localColumn, localRow);
+    if (!tile) {
+      return;
+    }
+    tile.clearGraphics();
+    if (!this.terrainTiles[terrainTileKey(column, row)]) {
+      return;
+    }
+    tile.addGraphic(terrainGraphicFor(column, row, this.terrainTiles));
   }
 
   private emitBlocksChanged(change: TerrainChange) {
@@ -258,26 +469,6 @@ export class TerrainTileMap {
   }
 
   private syncTileNeighborhood(column: number, row: number) {
-    adjacentTilePositions(column, row)
-      .filter(([neighborColumn, neighborRow]) =>
-        isInsideTerrain(neighborColumn, neighborRow, this.columns, this.rows),
-      )
-      .forEach(([neighborColumn, neighborRow]) =>
-        this.syncTileGraphic(neighborColumn, neighborRow),
-      );
-  }
-
-  private syncTileGraphic(column: number, row: number) {
-    const tile = this.map.getTile(column, row);
-    if (!tile) {
-      return;
-    }
-    tile.clearGraphics();
-    if (!this.terrainTiles[terrainTileKey(column, row)]) {
-      return;
-    }
-    tile.addGraphic(
-      terrainGraphicFor(column, row, this.terrainTiles),
-    );
+    this.chunkRenderer.syncTileNeighborhood(column, row);
   }
 }

@@ -190,7 +190,7 @@ export class TerrainBorderManager {
     );
   }
 
-  private createBorderActorForChunk(chunkColumn: number, chunkRow: number) {
+  public createBorderActorForChunk(chunkColumn: number, chunkRow: number) {
     const key = chunkKey(chunkColumn, chunkRow);
     const actor = createBorderActor(
       this.pos,
@@ -204,7 +204,7 @@ export class TerrainBorderManager {
     return actor;
   }
 
-  private createBorderGraphicForChunk(chunkColumn: number, chunkRow: number) {
+  public createBorderGraphicForChunk(chunkColumn: number, chunkRow: number) {
     return createBorderGraphic(
       this.tileWidth,
       this.tileHeight,

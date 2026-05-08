@@ -2,8 +2,8 @@
   "id": "public",
   "name": "Public World",
   "dimensions": {
-    "columns": 128,
-    "rows": 80
+    "columns": 1280,
+    "rows": 240
   },
   "surface": {
     "noiseScaleX": 0.055,
