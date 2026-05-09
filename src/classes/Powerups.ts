@@ -1,6 +1,6 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-import minerBlockBreakAnimationData from "../data/animations/miner-block-break.json";
+import minerPowerupAnimationData from "../data/animations/miner-powerup.json";
 import {
   AttachedVisualAnimation,
   type AttachedVisualAttachment,
@@ -68,7 +68,7 @@ type JsonAttachedVisualPose = {
   visible?: boolean;
 };
 
-type MinerBlockBreakAnimationData = {
+type MinerPowerupAnimationData = {
   id: string;
   body: {
     idle: PowerupAnimationTrack;
@@ -169,7 +169,7 @@ const defaultBody = {
 } as const satisfies PowerupDefinition["body"];
 
 const minerBlockBreakAnimation =
-  minerBlockBreakAnimationData as MinerBlockBreakAnimationData;
+  minerPowerupAnimationData as MinerPowerupAnimationData;
 
 const vectorFromJson = (vector: JsonVector) => ex.vec(vector.x, vector.y);
 
@@ -179,7 +179,7 @@ const hatPoseFromJson = (pose: JsonHatPose): HatPose => ({
 });
 
 const hatPosesFromJson = (
-  poses: MinerBlockBreakAnimationData["hat"]["poses"],
+  poses: MinerPowerupAnimationData["hat"]["poses"],
 ): PowerupHatPoses => ({
   idle: poses.idle?.map((pose) => hatPoseFromJson(pose)),
   jump: poses.jump?.map((pose) => hatPoseFromJson(pose)),
@@ -195,7 +195,9 @@ const hatPosesFromJson = (
     : undefined,
 });
 
-const actionPoseFromJson = (pose: JsonAttachedVisualPose): AttachedVisualPose => ({
+const actionPoseFromJson = (
+  pose: JsonAttachedVisualPose,
+): AttachedVisualPose => ({
   offset: vectorFromJson(pose.offset),
   rotation: pose.rotation,
   ...(pose.visible === undefined ? {} : { visible: pose.visible }),
@@ -264,9 +266,7 @@ const spriteForFrame = (frame: PowerupFrame) => {
   return sprite;
 };
 
-const animationFor = (
-  track: PowerupAnimationTrack,
-) =>
+const animationFor = (track: PowerupAnimationTrack) =>
   new ex.Animation({
     frames: track.frames.map((frame) => ({
       graphic: spriteForFrame(frame),
