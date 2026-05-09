@@ -2,292 +2,104 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Animation Editor</title>
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: #1a1a2e;
-    color: #e0e0e0;
-    font-family: monospace;
-    font-size: 13px;
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
-  }
-  #asset-browser {
-    width: 220px;
-    min-width: 220px;
-    background: #16213e;
-    border-right: 1px solid #0f3460;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  h2, h3 {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: #8888aa;
-  }
-  #asset-browser h2 {
-    padding: 10px;
-    border-bottom: 1px solid #0f3460;
-    flex-shrink: 0;
-  }
-  #asset-search {
-    margin: 8px;
-    padding: 4px 6px;
-    background: #0f3460;
-    border: 1px solid #1a4a80;
-    color: #e0e0e0;
-    font-family: monospace;
-    font-size: 12px;
-    border-radius: 3px;
-    flex-shrink: 0;
-  }
-  #asset-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px;
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    gap: 4px;
-  }
-  .asset-thumb {
-    width: 40px;
-    height: 40px;
-    background: #0a0a1a;
-    border: 1px solid #0f3460;
-    border-radius: 3px;
-    cursor: grab;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    position: relative;
-  }
-  .asset-thumb:hover { border-color: #e94560; }
-  .asset-thumb.selected { border-color: #53d8fb; }
-  .asset-thumb img {
-    image-rendering: pixelated;
-    max-width: 32px;
-    max-height: 32px;
-  }
-  #selected-asset {
-    padding: 8px;
-    border-top: 1px solid #0f3460;
-    color: #8888aa;
-    font-size: 11px;
-    min-height: 31px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  #main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  #toolbar {
-    background: #16213e;
-    border-bottom: 1px solid #0f3460;
-    padding: 8px 12px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-shrink: 0;
-    flex-wrap: wrap;
-  }
-  label { color: #aaa; font-size: 11px; }
-  select, input[type=number], input[type=text] {
-    background: #0f3460;
-    border: 1px solid #1a4a80;
-    color: #e0e0e0;
-    font-family: monospace;
-    font-size: 12px;
-    padding: 3px 6px;
-    border-radius: 3px;
-  }
-  #anim-select, #track-select { min-width: 180px; }
-  #save-status {
-    margin-left: auto;
-    font-size: 11px;
-    color: #8888aa;
-    min-width: 60px;
-    text-align: right;
-  }
-  #save-status.saved { color: #4caf50; }
-  #save-status.error { color: #e94560; }
-  #canvas-area {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    background: #0a0a1a;
-    position: relative;
-  }
-  #preview {
-    image-rendering: pixelated;
-    cursor: crosshair;
-    position: relative;
-    z-index: 1;
-  }
-  #controls {
-    background: #16213e;
-    border-top: 1px solid #0f3460;
-    padding: 10px 16px;
-    display: flex;
-    gap: 16px;
-    align-items: stretch;
-    flex-shrink: 0;
-    flex-wrap: wrap;
-    max-height: 260px;
-    overflow-y: auto;
-  }
-  .panel {
-    min-width: 170px;
-    background: #101b35;
-    border: 1px solid #0f3460;
-    border-radius: 4px;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .ctrl-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .ctrl-row label { width: 42px; }
-  .ctrl-row input[type=number] { width: 70px; }
-  input[type=range] {
-    width: 140px;
-    accent-color: #e94560;
-  }
-  .val-label {
-    font-size: 11px;
-    color: #aaa;
-    width: 46px;
-  }
-  .btn {
-    background: #0f3460;
-    border: 1px solid #1a4a80;
-    color: #e0e0e0;
-    font-family: monospace;
-    font-size: 12px;
-    padding: 4px 10px;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  .btn:hover { background: #1a4a80; }
-  .btn.active { background: #e94560; border-color: #e94560; }
-  .btn.danger { border-color: #783044; color: #ffb5c2; }
-  #attachment-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 115px;
-    overflow-y: auto;
-  }
-  .attachment-row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    align-items: center;
-    padding: 4px 6px;
-    background: #0f3460;
-    border: 1px solid #1a4a80;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  .attachment-row.selected { border-color: #53d8fb; }
-  .muted {
-    color: #8888aa;
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  ::-webkit-scrollbar { width: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #0f3460; border-radius: 3px; }
-</style>
+<link rel="stylesheet" href="editor-ui/editor-ui.css" />
 </head>
-<body>
-<aside id="asset-browser">
-  <h2>Assets</h2>
-  <input id="asset-search" type="text" placeholder="filter..." />
-  <div id="asset-list"></div>
-  <div id="selected-asset">Selected asset: none</div>
+<body class="editor-root">
+<aside class="editor-sidebar" aria-label="Asset palette">
+  <h2 class="editor-sidebar__title">Sprite palette</h2>
+  <input id="asset-search" class="editor-input editor-input--search" type="search" placeholder="Filter assets…" autocomplete="off" />
+  <div id="asset-list" class="editor-asset-list"></div>
+  <div id="selected-asset" class="editor-sidebar__footer">Selected: none</div>
 </aside>
-<section id="main">
-  <div id="toolbar">
-    <label>Animation</label>
-    <select id="anim-select"><option value="">loading</option></select>
-    <label>Track</label>
-    <select id="track-select"></select>
-    <button class="btn" id="btn-prev">Prev</button>
-    <span id="frame-label" style="min-width:60px;text-align:center;font-size:12px;">Frame 1/1</span>
-    <button class="btn" id="btn-next">Next</button>
-    <button class="btn" id="btn-play">Play</button>
-    <label>Duration</label>
-    <input type="number" id="frame-dur" style="width:60px;" min="1" step="1" value="75" />
-    <span style="font-size:11px;color:#666">ms</span>
-    <button class="btn" id="btn-save">Save</button>
-    <span id="save-status"></span>
+<section class="editor-main" aria-label="Animation editor">
+  <header id="toolbar" class="editor-toolbar">
+    <span class="editor-toolbar__field">
+      <span class="editor-label">Animation</span>
+      <select id="anim-select" class="editor-select editor-select--wide" aria-label="Load animation file">
+        <option value="">Loading…</option>
+      </select>
+      <button type="button" class="editor-btn editor-btn--compact" id="btn-new-anim" aria-label="Create new animation file">New</button>
+    </span>
+    <span class="editor-toolbar__field">
+      <span class="editor-label">Clip</span>
+      <select id="track-select" class="editor-select editor-select--wide" aria-label="Body or action clip"></select>
+      <button type="button" class="editor-btn editor-btn--compact" id="btn-new-body-clip" aria-label="Add body clip" title="Body clip (locomotion)">+ Body</button>
+      <button type="button" class="editor-btn editor-btn--compact" id="btn-new-action-clip" aria-label="Add action clip" title="Action clip (attachments)">+ Action</button>
+    </span>
+    <button type="button" class="editor-btn" id="btn-prev" aria-label="Previous frame">Prev</button>
+    <span id="frame-label" class="editor-frame-label" aria-live="polite">Frame 1/1</span>
+    <button type="button" class="editor-btn" id="btn-next" aria-label="Next frame">Next</button>
+    <button type="button" class="editor-btn" id="btn-play" aria-pressed="false" aria-label="Play or pause">Play</button>
+    <span class="editor-toolbar__field">
+      <span class="editor-label">Duration</span>
+      <input type="number" id="frame-dur" class="editor-input editor-input--narrow" min="1" step="1" value="75" aria-label="Frame duration milliseconds" />
+    </span>
+    <span class="editor-hint">ms</span>
+    <button type="button" class="editor-btn editor-btn--primary" id="btn-save">Save</button>
+    <span id="save-status" class="editor-toolbar__save-status" role="status" aria-live="polite"></span>
+  </header>
+  <div class="editor-scene">
+    <div id="canvas-area" class="editor-canvas-area">
+      <canvas id="preview" class="editor-canvas" role="img" aria-label="Current frame preview: drag attachments from the palette, or move hat and attachments"></canvas>
+    </div>
+    <div class="editor-track-panel" aria-label="Tracks">
+      <div class="editor-track-panel__toolbar">
+        <span class="editor-track-panel__title">Tracks</span>
+        <span id="attachment-hint" class="editor-muted editor-track-panel__hint"></span>
+        <span class="editor-track-panel__actions">
+          <button type="button" class="editor-btn editor-btn--compact" id="add-attachment">Add from palette</button>
+          <button type="button" class="editor-btn editor-btn--compact editor-btn--danger" id="remove-attachment">Remove</button>
+        </span>
+      </div>
+      <div class="editor-track-stack">
+        <div id="track-row-player" class="editor-track-row">
+          <span class="editor-track-row__badge">Player</span>
+          <div class="editor-track-row__body">
+            <span class="editor-muted" id="body-sprite-label">Sprite: none</span>
+            <button type="button" class="editor-btn editor-btn--compact" id="set-body-sprite">Apply palette</button>
+          </div>
+        </div>
+        <div id="track-row-hat" class="editor-track-row">
+          <span class="editor-track-row__badge">Hat</span>
+          <div class="editor-track-row__body">
+            <label class="editor-track-row__check">
+              <input type="checkbox" id="hat-visible" />
+              <span class="editor-muted">Visible</span>
+            </label>
+            <button type="button" class="editor-btn editor-btn--compact" id="select-hat">Focus</button>
+          </div>
+        </div>
+        <div id="attachment-tracks" class="editor-track-stack-attachments" aria-label="Attachment tracks"></div>
+      </div>
+    </div>
   </div>
-  <div id="canvas-area">
-    <canvas id="preview"></canvas>
-  </div>
-  <div id="controls">
-    <div class="panel">
-      <h3>Character Sprite</h3>
-      <button class="btn" id="set-body-sprite">Use Selected Asset</button>
-      <div class="muted" id="body-sprite-label">Sprite: none</div>
-    </div>
-    <div class="panel">
-      <h3>Hat Placement</h3>
-      <label class="ctrl-row" style="width:auto;">
-        <input type="checkbox" id="hat-visible" />
-        Show placeholder hat
-      </label>
-      <button class="btn" id="select-hat">Select Hat</button>
-      <div class="muted">Sprite preview: MinerHat</div>
-    </div>
-    <div class="panel">
-      <h3>Attachments</h3>
-      <button class="btn" id="add-attachment">Add Selected Asset</button>
-      <div id="attachment-list"></div>
-      <button class="btn danger" id="remove-attachment">Remove Selected</button>
-    </div>
-    <div class="panel">
-      <h3>Selected Item</h3>
-      <div class="muted" id="selected-item-label">None</div>
-      <div class="ctrl-row">
-        <label>X</label>
-        <input type="number" id="off-x" step="1" />
-      </div>
-      <div class="ctrl-row">
-        <label>Y</label>
-        <input type="number" id="off-y" step="1" />
-      </div>
-      <div class="ctrl-row">
-        <label>Layer</label>
-        <input type="number" id="layer" step="1" />
-      </div>
-      <div class="ctrl-row">
-        <label>Rot</label>
-        <input type="range" id="rot-slider" min="-3.15" max="3.15" step="0.01" value="0" />
-        <span class="val-label" id="rot-label">0.00</span>
-      </div>
-      <div class="ctrl-row">
-        <label>Exact</label>
-        <input type="number" id="rot-exact" step="0.01" />
-      </div>
+  <div id="controls" class="editor-properties" aria-label="Transform">
+    <span class="editor-properties__label">Transform</span>
+    <span id="selected-item-label" class="editor-properties__target editor-muted">None</span>
+    <div class="editor-properties__fields">
+      <span class="editor-toolbar__field">
+        <span class="editor-label">X</span>
+        <input type="number" id="off-x" class="editor-input" step="1" />
+      </span>
+      <span class="editor-toolbar__field">
+        <span class="editor-label">Y</span>
+        <input type="number" id="off-y" class="editor-input" step="1" />
+      </span>
+      <span class="editor-toolbar__field">
+        <span class="editor-label">Layer</span>
+        <input type="number" id="layer" class="editor-input" step="1" />
+      </span>
+      <span class="editor-toolbar__field editor-toolbar__field--grow">
+        <span class="editor-label">Rot</span>
+        <input type="range" id="rot-slider" class="editor-range" min="-3.15" max="3.15" step="0.01" value="0" />
+        <span class="editor-val-label" id="rot-label">0.00</span>
+      </span>
+      <span class="editor-toolbar__field">
+        <span class="editor-label">Exact</span>
+        <input type="number" id="rot-exact" class="editor-input" step="0.01" />
+      </span>
     </div>
   </div>
 </section>
@@ -354,10 +166,12 @@ const WORKSPACE_TILES = 8;
 const CANVAS_PX = WORKSPACE_TILES * TILE * SCALE;
 const CENTER_OFFSET = (WORKSPACE_TILES * TILE) / 2;
 const canvas = document.getElementById("preview");
+const canvasArea = document.getElementById("canvas-area");
+const ctx = canvas.getContext("2d");
 canvas.width = CANVAS_PX;
 canvas.height = CANVAS_PX;
-const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
+const btnPlay = document.getElementById("btn-play");
 const state = {
   animData: null,
   frameIndex: 0,
@@ -369,6 +183,7 @@ const state = {
   selectedItem: { type: "body" },
   renderItems: [],
   isDragging: false,
+  dragPointerId: null,
   dragStartCanvasX: 0,
   dragStartCanvasY: 0,
   dragStartOffsetX: 0,
@@ -384,7 +199,12 @@ const elements = {
   assetList: document.getElementById("asset-list"),
   assetSearch: document.getElementById("asset-search"),
   selectedAsset: document.getElementById("selected-asset"),
-  attachmentList: document.getElementById("attachment-list"),
+  attachmentTracks: document.getElementById("attachment-tracks"),
+  trackRowPlayer: document.getElementById("track-row-player"),
+  trackRowHat: document.getElementById("track-row-hat"),
+  attachmentHint: document.getElementById("attachment-hint"),
+  addAttachment: document.getElementById("add-attachment"),
+  removeAttachment: document.getElementById("remove-attachment"),
   bodySpriteLabel: document.getElementById("body-sprite-label"),
   hatVisible: document.getElementById("hat-visible"),
   selectedItemLabel: document.getElementById("selected-item-label"),
@@ -395,20 +215,26 @@ const elements = {
   rotExact: document.getElementById("rot-exact"),
   rotLabel: document.getElementById("rot-label"),
 };
+elements.trackRowPlayer.addEventListener("click", (event) => {
+  if (event.target.closest("button")) return;
+  state.selectedItem = { type: "body" };
+  syncControls();
+  render();
+});
+elements.trackRowHat.addEventListener("click", (event) => {
+  if (event.target.closest("button") || event.target.closest("input") || event.target.closest("label")) return;
+  state.selectedItem = { type: "hat" };
+  syncControls();
+  render();
+});
 const spriteUrl = (key) => RESOURCE_MAP[key] ?? key;
 const assetKeyFor = (assetPath) => PATH_TO_KEY[assetPath] ?? assetPath;
-const selectedAttachment = () => {
-  if (state.selectedItem.type !== "attachment") return undefined;
-  return currentAttachments().find((attachment) => attachment.id === state.selectedItem.id);
-};
-const currentTrackEntry = () => trackEntries().find((entry) => entry.id === elements.trackSelect.value) ?? trackEntries()[0];
-const currentTrack = () => currentTrackEntry()?.track;
-const currentFrame = () => currentTrack()?.frames?.[state.frameIndex];
-const currentAttachments = () => currentTrackEntry()?.attachments?.() ?? [];
-const currentHatPoses = () => currentTrackEntry()?.hatPoses?.() ?? [];
-const currentHatPose = () => currentHatPoses()[state.frameIndex];
-const attachmentPose = (attachment) => attachment.poses[state.frameIndex] ?? attachment.poses[0];
 const makePose = () => ({ offset: { x: 0, y: 0 }, rotation: 0 });
+const makeHiddenAttachmentPose = () => ({ offset: { x: 0, y: 0 }, rotation: 0, visible: false });
+const posesForSingleVisibleFrame = (frameCount, visibleFrameIndex, buildVisiblePose) =>
+  Array.from({ length: frameCount }, (_, index) =>
+    index === visibleFrameIndex ? buildVisiblePose() : makeHiddenAttachmentPose(),
+  );
 const makeHatPose = () => ({ offset: { x: 0, y: 5 } });
 const makeTrack = (frames, frameDurationMs) => ({ frames, frameDurationMs });
 const defaultBody = () => ({
@@ -417,7 +243,9 @@ const defaultBody = () => ({
   crouch: makeTrack([{ sprite: "PlayerCrouch" }], 120),
   walk: makeTrack([{ sprite: "PlayerWalk1" }, { sprite: "PlayerWalk2" }], 120),
 });
+const CORE_BODY_CLIPS = ["idle", "walk", "jump", "crouch"];
 const ensurePoseCount = (poses, count, factory) => Array.from({ length: count }, (_, index) => poses?.[index] ?? poses?.[0] ?? factory());
+const uniqueAttachmentId = () => `attachment-${Date.now()}-${Math.round(Math.random() * 10000)}`;
 const ensureAnimationData = (data) => {
   const body = data.body ?? defaultBody();
   const legacyAction = data.action;
@@ -442,9 +270,11 @@ const ensureAnimationData = (data) => {
   delete data.action;
   data.hat = data.hat ?? { poses: {} };
   data.hat.poses = data.hat.poses ?? {};
-  ["idle", "jump", "crouch", "walk"].forEach((trackId) => {
-    data.body[trackId] = data.body[trackId] ?? defaultBody()[trackId];
-    data.body[trackId].frames = data.body[trackId].frames?.length ? data.body[trackId].frames : defaultBody()[trackId].frames;
+  const bodyKeys = [...new Set([...CORE_BODY_CLIPS, ...Object.keys(body)])];
+  bodyKeys.forEach((trackId) => {
+    data.body[trackId] = data.body[trackId] ?? defaultBody()[trackId] ?? makeTrack([{ sprite: "Player" }], 120);
+    const fallbackFrames = defaultBody()[trackId]?.frames ?? [{ sprite: "Player" }];
+    data.body[trackId].frames = data.body[trackId].frames?.length ? data.body[trackId].frames : fallbackFrames;
     data.body[trackId].frameDurationMs = data.body[trackId].frameDurationMs ?? 120;
     data.hat.poses[trackId] = ensurePoseCount(data.hat.poses[trackId], data.body[trackId].frames.length, makeHatPose);
   });
@@ -464,7 +294,10 @@ const ensureAnimationData = (data) => {
 };
 const trackEntries = () => {
   if (!state.animData) return [];
-  const bodyEntries = ["idle", "walk", "jump", "crouch"].map((trackId) => ({
+  const extraBody = Object.keys(state.animData.body).filter((id) => !CORE_BODY_CLIPS.includes(id));
+  extraBody.sort();
+  const bodyTrackIds = [...CORE_BODY_CLIPS, ...extraBody];
+  const bodyEntries = bodyTrackIds.map((trackId) => ({
     id: `body.${trackId}`,
     label: trackId,
     track: state.animData.body[trackId],
@@ -480,18 +313,33 @@ const trackEntries = () => {
   }));
   return [...bodyEntries, ...actionEntries];
 };
-const loadImg = (() => {
-  const cache = {};
-  return (src) => {
-    if (!cache[src]) {
-      const img = new Image();
-      img.src = src;
-      img.onload = render;
-      cache[src] = img;
-    }
-    return cache[src];
-  };
-})();
+const currentTrackEntry = () => trackEntries().find((entry) => entry.id === elements.trackSelect.value) ?? trackEntries()[0];
+const currentTrack = () => currentTrackEntry()?.track;
+const currentFrame = () => currentTrack()?.frames?.[state.frameIndex];
+const currentAttachments = () => currentTrackEntry()?.attachments?.() ?? [];
+const currentHatPoses = () => currentTrackEntry()?.hatPoses?.() ?? [];
+const currentHatPose = () => currentHatPoses()[state.frameIndex];
+const attachmentPose = (attachment) => attachment.poses[state.frameIndex] ?? attachment.poses[0];
+const revealAttachmentPoseIfHidden = (pose) => {
+  if (!pose) return;
+  if (pose.visible === false) delete pose.visible;
+};
+const selectedAttachment = () => {
+  if (state.selectedItem.type !== "attachment") return undefined;
+  return currentAttachments().find((attachment) => attachment.id === state.selectedItem.id);
+};
+const selectedPose = () => {
+  if (state.selectedItem.type === "hat") return currentHatPose();
+  const attachment = selectedAttachment();
+  if (attachment) return attachmentPose(attachment);
+  return undefined;
+};
+const selectedItemLabel = () => {
+  if (state.selectedItem.type === "hat") return "Hat";
+  const attachment = selectedAttachment();
+  if (attachment) return `Attachment: ${attachment.sprite}`;
+  return "Body frame";
+};
 const captureState = () => {
   if (!state.animData) return;
   if (state.undoIndex < state.undoHistory.length - 1) {
@@ -512,28 +360,15 @@ const performUndo = () => {
   syncControls();
   render();
 };
-const setTrack = (trackId) => {
-  elements.trackSelect.value = trackId;
-  state.frameIndex = 0;
-  state.selectedItem = { type: "body" };
-  stopPlay();
-  syncControls();
-  render();
-};
-const goToFrame = (index) => {
-  const count = currentTrack()?.frames?.length ?? 1;
-  state.frameIndex = ((index % count) + count) % count;
-  syncControls();
-  render();
-};
 const stopPlay = () => {
   clearInterval(state.playTimer);
   state.playTimer = null;
-  document.getElementById("btn-play").textContent = "Play";
-  document.getElementById("btn-play").classList.remove("active");
+  btnPlay.textContent = "Play";
+  btnPlay.classList.remove("editor-btn--active");
+  btnPlay.setAttribute("aria-pressed", "false");
 };
-const syncTrackSelect = () => {
-  const previous = elements.trackSelect.value;
+const syncTrackSelect = (preferredClipId) => {
+  const previous = preferredClipId !== undefined && preferredClipId !== null ? preferredClipId : elements.trackSelect.value;
   elements.trackSelect.innerHTML = "";
   trackEntries().forEach((entry) => {
     const option = document.createElement("option");
@@ -542,6 +377,54 @@ const syncTrackSelect = () => {
     elements.trackSelect.appendChild(option);
   });
   elements.trackSelect.value = trackEntries().some((entry) => entry.id === previous) ? previous : trackEntries()[0]?.id ?? "";
+};
+const syncTrackRowHighlight = () => {
+  elements.trackRowPlayer.classList.toggle("editor-track-row--active", state.selectedItem.type === "body");
+  elements.trackRowHat.classList.toggle("editor-track-row--active", state.selectedItem.type === "hat");
+};
+const renderAttachmentTracks = () => {
+  elements.attachmentTracks.innerHTML = "";
+  if (!isActionTrack()) return;
+  currentAttachments().forEach((attachment) => {
+    const row = document.createElement("div");
+    row.className = `editor-track-row editor-track-row--attachment${state.selectedItem.type === "attachment" && state.selectedItem.id === attachment.id ? " editor-track-row--active" : ""}`;
+    row.dataset.attachmentId = attachment.id;
+    const badge = document.createElement("span");
+    badge.className = "editor-track-row__badge";
+    badge.textContent = "Prop";
+    const body = document.createElement("div");
+    body.className = "editor-track-row__body";
+    const name = document.createElement("span");
+    name.className = "editor-muted editor-track-row__name";
+    name.textContent = attachment.sprite;
+    const layer = document.createElement("span");
+    layer.className = "editor-muted editor-track-row__meta";
+    layer.textContent = `layer ${attachment.layer}`;
+    body.appendChild(name);
+    body.appendChild(layer);
+    row.appendChild(badge);
+    row.appendChild(body);
+    row.onclick = () => {
+      state.selectedItem = { type: "attachment", id: attachment.id };
+      syncControls();
+      render();
+    };
+    elements.attachmentTracks.appendChild(row);
+  });
+};
+const syncAttachmentToolbar = () => {
+  if (!state.animData) {
+    elements.addAttachment.disabled = true;
+    elements.removeAttachment.disabled = true;
+    elements.attachmentHint.textContent = "";
+    return;
+  }
+  const action = isActionTrack();
+  elements.addAttachment.disabled = !action;
+  elements.removeAttachment.disabled = !action || state.selectedItem.type !== "attachment";
+  elements.attachmentHint.textContent = action
+    ? "Props: drop palette on canvas or add from palette. New props only on the current frame."
+    : "Switch to an action clip to add prop tracks.";
 };
 const syncControls = () => {
   const track = currentTrack();
@@ -565,111 +448,36 @@ const syncControls = () => {
   elements.rotLabel.textContent = attachment && pose ? rotation.toFixed(2) : "-";
   elements.rotSlider.disabled = !attachment;
   elements.rotExact.disabled = !attachment;
-  renderAttachmentList();
+  renderAttachmentTracks();
+  syncTrackRowHighlight();
+  syncAttachmentToolbar();
 };
-const selectedPose = () => {
-  if (state.selectedItem.type === "hat") return currentHatPose();
-  const attachment = selectedAttachment();
-  if (attachment) return attachmentPose(attachment);
-  return undefined;
-};
-const selectedItemLabel = () => {
-  if (state.selectedItem.type === "hat") return "Hat";
-  const attachment = selectedAttachment();
-  if (attachment) return `Attachment: ${attachment.sprite}`;
-  return "Body frame";
-};
-const renderAttachmentList = () => {
-  elements.attachmentList.innerHTML = "";
-  currentAttachments().forEach((attachment) => {
-    const row = document.createElement("div");
-    const name = document.createElement("span");
-    const layer = document.createElement("span");
-    row.className = `attachment-row${state.selectedItem.type === "attachment" && state.selectedItem.id === attachment.id ? " selected" : ""}`;
-    name.textContent = attachment.sprite;
-    layer.textContent = attachment.layer;
-    row.appendChild(name);
-    row.appendChild(layer);
-    row.onclick = () => {
-      state.selectedItem = { type: "attachment", id: attachment.id };
-      syncControls();
-      render();
-    };
-    elements.attachmentList.appendChild(row);
-  });
-};
-const selectAsset = (assetPath) => {
-  state.selectedAssetPath = assetPath;
-  state.selectedAssetKey = assetKeyFor(assetPath);
-  elements.selectedAsset.textContent = `Selected asset: ${state.selectedAssetKey}`;
-  renderAssets(elements.assetSearch.value);
-};
-const clearSelectedAsset = () => {
-  state.selectedAssetPath = "";
-  state.selectedAssetKey = "";
-  elements.selectedAsset.textContent = "Selected asset: none";
-  renderAssets(elements.assetSearch.value);
-};
-const renderAssets = (filter) => {
-  const query = filter.toLowerCase();
-  elements.assetList.innerHTML = "";
-  state.allAssets
-    .filter((assetPath) => assetPath.toLowerCase().includes(query))
-    .forEach((assetPath) => {
-      const div = document.createElement("div");
-      const img = document.createElement("img");
-      const key = assetKeyFor(assetPath);
-      div.className = `asset-thumb${state.selectedAssetPath === assetPath ? " selected" : ""}`;
-      div.title = key;
-      img.src = `/${assetPath}`;
-      img.alt = key;
-      div.appendChild(img);
-      div.onclick = () => {
-        selectAsset(assetPath);
-      };
-      elements.assetList.appendChild(div);
-    });
-};
-const setBodyFrameSprite = (assetPath) => {
-  const frame = currentFrame();
-  if (!frame) return;
-  captureState();
-  frame.sprite = assetKeyFor(assetPath);
-  syncControls();
-  render();
-};
-const replaceAttachmentSprite = (attachment, assetPath) => {
-  captureState();
-  attachment.sprite = assetKeyFor(assetPath);
-  syncControls();
-  render();
-};
-const uniqueAttachmentId = () => `attachment-${Date.now()}-${Math.round(Math.random() * 10000)}`;
-const addAttachmentFromAsset = (assetPath) => {
-  const trackEntry = currentTrackEntry();
-  if (!trackEntry?.id.startsWith("actions.")) return;
-  captureState();
-  const attachment = {
-    id: uniqueAttachmentId(),
-    sprite: assetKeyFor(assetPath),
-    layer: 1,
-    poses: ensurePoseCount([], currentTrack().frames.length, makePose),
-  };
-  currentAttachments().push(attachment);
-  state.selectedItem = { type: "attachment", id: attachment.id };
-  syncControls();
-  render();
-};
-const removeSelectedAttachment = () => {
-  const attachment = selectedAttachment();
-  const action = currentTrack();
-  if (!attachment || !action?.attachments) return;
-  captureState();
-  action.attachments = action.attachments.filter((item) => item.id !== attachment.id);
+const setTrack = (trackId) => {
+  elements.trackSelect.value = trackId;
+  state.frameIndex = 0;
   state.selectedItem = { type: "body" };
+  stopPlay();
   syncControls();
   render();
 };
+const goToFrame = (index) => {
+  const count = currentTrack()?.frames?.length ?? 1;
+  state.frameIndex = ((index % count) + count) % count;
+  syncControls();
+  render();
+};
+const loadImg = (() => {
+  const cache = {};
+  return (src) => {
+    if (!cache[src]) {
+      const img = new Image();
+      img.src = src;
+      img.onload = render;
+      cache[src] = img;
+    }
+    return cache[src];
+  };
+})();
 const canvasToPixel = (clientX, clientY) => {
   const rect = canvas.getBoundingClientRect();
   const scaleX = canvas.width / rect.width;
@@ -692,23 +500,38 @@ const drawWorkspace = () => {
     });
   });
 };
-const drawBody = () => {
+const bodyFrameMetrics = () => {
   const frame = currentFrame();
-  if (!frame?.sprite) return;
+  if (!frame?.sprite) return null;
   const img = loadImg(spriteUrl(frame.sprite));
-  if (!img.complete || img.naturalWidth <= 0) return;
+  if (!img.complete || img.naturalWidth <= 0) return null;
+  return {
+    img,
+    offsetX: img.naturalWidth / 2,
+    offsetY: img.naturalHeight / 2,
+  };
+};
+const drawBody = () => {
+  const metrics = bodyFrameMetrics();
+  if (!metrics) return;
+  const { img } = metrics;
   const centerX = CENTER_OFFSET * SCALE;
   const centerY = CENTER_OFFSET * SCALE;
-  ctx.drawImage(img, centerX, centerY, img.naturalWidth * SCALE, img.naturalHeight * SCALE);
+  const width = img.naturalWidth * SCALE;
+  const height = img.naturalHeight * SCALE;
+  ctx.drawImage(img, centerX - width / 2, centerY - height / 2, width, height);
 };
 const sortedAttachments = () => [...currentAttachments()].sort((a, b) => a.layer - b.layer);
 const drawAttachment = (attachment) => {
   const pose = attachmentPose(attachment);
   if (!pose || pose.visible === false) return;
+  const metrics = bodyFrameMetrics();
   const img = loadImg(spriteUrl(attachment.sprite));
   if (!img.complete || img.naturalWidth <= 0) return;
-  const x = (CENTER_OFFSET + pose.offset.x) * SCALE;
-  const y = (CENTER_OFFSET + pose.offset.y) * SCALE;
+  const bodyOffsetX = metrics?.offsetX ?? 0;
+  const bodyOffsetY = metrics?.offsetY ?? 0;
+  const x = (CENTER_OFFSET - bodyOffsetX + pose.offset.x) * SCALE;
+  const y = (CENTER_OFFSET - bodyOffsetY + pose.offset.y) * SCALE;
   const width = img.naturalWidth * SCALE;
   const height = img.naturalHeight * SCALE;
   ctx.save();
@@ -719,8 +542,8 @@ const drawAttachment = (attachment) => {
   state.renderItems.push({
     type: "attachment",
     id: attachment.id,
-    x: pose.offset.x,
-    y: pose.offset.y,
+    x: -bodyOffsetX + pose.offset.x,
+    y: -bodyOffsetY + pose.offset.y,
     width: img.naturalWidth,
     height: img.naturalHeight,
     rotation: pose.rotation ?? 0,
@@ -730,17 +553,20 @@ const drawAttachment = (attachment) => {
 const drawHat = () => {
   const pose = currentHatPose();
   if (!pose || pose.visible === false) return;
+  const metrics = bodyFrameMetrics();
   const img = loadImg(spriteUrl("MinerHat"));
   if (!img.complete || img.naturalWidth <= 0) return;
-  const x = (CENTER_OFFSET + TILE / 2 + pose.offset.x) * SCALE;
-  const y = (CENTER_OFFSET + pose.offset.y) * SCALE;
+  const bodyOffsetX = metrics?.offsetX ?? 0;
+  const bodyOffsetY = metrics?.offsetY ?? 0;
+  const x = (CENTER_OFFSET - bodyOffsetX + TILE / 2 + pose.offset.x) * SCALE;
+  const y = (CENTER_OFFSET - bodyOffsetY + pose.offset.y) * SCALE;
   const width = img.naturalWidth * SCALE;
   const height = img.naturalHeight * SCALE;
   ctx.drawImage(img, x - width / 2, y - height, width, height);
   state.renderItems.push({
     type: "hat",
-    x: TILE / 2 + pose.offset.x,
-    y: pose.offset.y,
+    x: -bodyOffsetX + TILE / 2 + pose.offset.x,
+    y: -bodyOffsetY + pose.offset.y,
     width: img.naturalWidth,
     height: img.naturalHeight,
     rotation: 0,
@@ -810,7 +636,125 @@ const hitTestItem = (item, px, py) => {
   return localX >= 0 && localX <= item.width && localY >= -item.height && localY <= 0;
 };
 const hitTestScene = (px, py) => [...state.renderItems].reverse().find((item) => hitTestItem(item, px, py));
-canvas.addEventListener("mousedown", (event) => {
+const selectAsset = (assetPath) => {
+  state.selectedAssetPath = assetPath;
+  state.selectedAssetKey = assetKeyFor(assetPath);
+  elements.selectedAsset.textContent = `Selected: ${state.selectedAssetKey}`;
+  renderAssets(elements.assetSearch.value);
+};
+const clearSelectedAsset = () => {
+  state.selectedAssetPath = "";
+  state.selectedAssetKey = "";
+  elements.selectedAsset.textContent = "Selected: none";
+  renderAssets(elements.assetSearch.value);
+};
+const renderAssets = (filter) => {
+  const query = filter.toLowerCase();
+  elements.assetList.innerHTML = "";
+  state.allAssets
+    .filter((assetPath) => assetPath.toLowerCase().includes(query))
+    .forEach((assetPath) => {
+      const div = document.createElement("div");
+      const img = document.createElement("img");
+      const key = assetKeyFor(assetPath);
+      div.className = `editor-thumb${state.selectedAssetPath === assetPath ? " editor-thumb--selected" : ""}`;
+      div.title = key;
+      div.draggable = true;
+      img.draggable = false;
+      img.src = `/${assetPath}`;
+      img.alt = key;
+      div.appendChild(img);
+      div.onclick = () => {
+        selectAsset(assetPath);
+      };
+      div.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", assetPath);
+        event.dataTransfer.setData("application/x-asset-path", assetPath);
+        event.dataTransfer.effectAllowed = "copy";
+      });
+      elements.assetList.appendChild(div);
+    });
+};
+const setBodyFrameSprite = (assetPath) => {
+  const frame = currentFrame();
+  if (!frame) return;
+  captureState();
+  frame.sprite = assetKeyFor(assetPath);
+  syncControls();
+  render();
+};
+const isActionTrack = () => {
+  const entry = currentTrackEntry();
+  return !!entry?.id.startsWith("actions.");
+};
+const addAttachmentFromAsset = (assetPath) => {
+  if (!isActionTrack()) return;
+  captureState();
+  const frameCount = currentTrack().frames.length;
+  const attachment = {
+    id: uniqueAttachmentId(),
+    sprite: assetKeyFor(assetPath),
+    layer: 1,
+    poses: posesForSingleVisibleFrame(frameCount, state.frameIndex, makePose),
+  };
+  currentAttachments().push(attachment);
+  state.selectedItem = { type: "attachment", id: attachment.id };
+  syncControls();
+  render();
+};
+const addAttachmentFromAssetAt = (assetPath, px, py) => {
+  if (!isActionTrack()) return;
+  captureState();
+  const frameCount = currentTrack().frames.length;
+  const ox = Math.round(px);
+  const oy = Math.round(py);
+  const attachment = {
+    id: uniqueAttachmentId(),
+    sprite: assetKeyFor(assetPath),
+    layer: 1,
+    poses: posesForSingleVisibleFrame(frameCount, state.frameIndex, () => ({
+      offset: { x: ox, y: oy },
+      rotation: 0,
+    })),
+  };
+  currentAttachments().push(attachment);
+  state.selectedItem = { type: "attachment", id: attachment.id };
+  syncControls();
+  render();
+};
+const removeSelectedAttachment = () => {
+  const attachment = selectedAttachment();
+  const action = currentTrack();
+  if (!attachment || !action?.attachments) return;
+  captureState();
+  action.attachments = action.attachments.filter((item) => item.id !== attachment.id);
+  state.selectedItem = { type: "body" };
+  syncControls();
+  render();
+};
+const endCanvasDrag = () => {
+  state.isDragging = false;
+  state.dragPointerId = null;
+};
+const applySelectedPoseChange = () => {
+  const pose = selectedPose();
+  if (!pose) return;
+  pose.offset.x = parseFloat(elements.offX.value) || 0;
+  pose.offset.y = parseFloat(elements.offY.value) || 0;
+  const attachment = selectedAttachment();
+  if (attachment) {
+    revealAttachmentPoseIfHidden(pose);
+    const rotation = parseFloat(elements.rotExact.value) || 0;
+    attachment.layer = parseInt(elements.layer.value, 10) || 0;
+    pose.rotation = rotation;
+    elements.rotSlider.value = rotation;
+    elements.rotLabel.textContent = rotation.toFixed(2);
+  }
+  syncControls();
+  render();
+};
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0) return;
   const { px, py } = canvasToPixel(event.clientX, event.clientY);
   const hit = hitTestScene(px, py);
   if (!hit) {
@@ -829,43 +773,74 @@ canvas.addEventListener("mousedown", (event) => {
   }
   captureState();
   state.isDragging = true;
+  state.dragPointerId = event.pointerId;
   state.dragStartCanvasX = px;
   state.dragStartCanvasY = py;
   state.dragStartOffsetX = pose.offset.x;
   state.dragStartOffsetY = pose.offset.y;
+  canvas.setPointerCapture(event.pointerId);
   syncControls();
   render();
   event.preventDefault();
 });
-window.addEventListener("mousemove", (event) => {
-  if (!state.isDragging) return;
+canvas.addEventListener("pointermove", (event) => {
+  if (!state.isDragging || event.pointerId !== state.dragPointerId) return;
   const pose = selectedPose();
   if (!pose) return;
   const { px, py } = canvasToPixel(event.clientX, event.clientY);
   pose.offset.x = Math.round(state.dragStartOffsetX + px - state.dragStartCanvasX);
   pose.offset.y = Math.round(state.dragStartOffsetY + py - state.dragStartCanvasY);
+  if (state.selectedItem.type === "attachment") revealAttachmentPoseIfHidden(pose);
   syncControls();
   render();
 });
-window.addEventListener("mouseup", () => {
-  state.isDragging = false;
+canvas.addEventListener("pointerup", (event) => {
+  if (event.pointerId !== state.dragPointerId) return;
+  canvas.releasePointerCapture(event.pointerId);
+  endCanvasDrag();
 });
-const applySelectedPoseChange = () => {
-  const pose = selectedPose();
-  if (!pose) return;
-  pose.offset.x = parseFloat(elements.offX.value) || 0;
-  pose.offset.y = parseFloat(elements.offY.value) || 0;
-  const attachment = selectedAttachment();
-  if (attachment) {
-    const rotation = parseFloat(elements.rotExact.value) || 0;
-    attachment.layer = parseInt(elements.layer.value) || 0;
-    pose.rotation = rotation;
-    elements.rotSlider.value = rotation;
-    elements.rotLabel.textContent = rotation.toFixed(2);
+canvas.addEventListener("pointercancel", (event) => {
+  if (event.pointerId !== state.dragPointerId) return;
+  canvas.releasePointerCapture(event.pointerId);
+  endCanvasDrag();
+});
+const readDroppedAssetPath = (event) => {
+  const custom = event.dataTransfer.getData("application/x-asset-path");
+  if (custom) return custom;
+  const plain = event.dataTransfer.getData("text/plain");
+  if (!plain) return "";
+  if (plain.startsWith("http://") || plain.startsWith("https://")) {
+    try {
+      return new URL(plain).pathname.replace(/^\//, "");
+    } catch {
+      return plain;
+    }
   }
-  render();
-  renderAttachmentList();
+  return plain;
 };
+canvasArea.addEventListener("dragenter", (event) => {
+  event.preventDefault();
+});
+canvasArea.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+});
+canvasArea.addEventListener("drop", (event) => {
+  event.preventDefault();
+  const assetPath = readDroppedAssetPath(event);
+  if (!assetPath || !state.animData) return;
+  if (!isActionTrack()) {
+    elements.saveStatus.textContent = "Choose an action clip to drop props";
+    elements.saveStatus.classList.add("editor-save-status--error");
+    setTimeout(() => {
+      elements.saveStatus.textContent = "";
+      elements.saveStatus.classList.remove("editor-save-status--error");
+    }, 2800);
+    return;
+  }
+  const { px, py } = canvasToPixel(event.clientX, event.clientY);
+  addAttachmentFromAssetAt(assetPath, px, py);
+});
 ["offX", "offY", "layer", "rotExact"].forEach((key) => {
   elements[key].onfocus = captureState;
   elements[key].oninput = applySelectedPoseChange;
@@ -875,10 +850,12 @@ elements.rotSlider.oninput = () => {
   const attachment = selectedAttachment();
   const pose = selectedPose();
   if (!attachment || !pose) return;
+  revealAttachmentPoseIfHidden(pose);
   const rotation = parseFloat(elements.rotSlider.value);
   pose.rotation = rotation;
   elements.rotExact.value = rotation.toFixed(3);
   elements.rotLabel.textContent = rotation.toFixed(2);
+  syncControls();
   render();
 };
 elements.hatVisible.onchange = () => {
@@ -901,20 +878,21 @@ elements.frameDur.onfocus = captureState;
 elements.frameDur.oninput = () => {
   const track = currentTrack();
   if (!track) return;
-  track.frameDurationMs = parseInt(elements.frameDur.value) || 75;
+  track.frameDurationMs = parseInt(elements.frameDur.value, 10) || 75;
   if (!state.playTimer) return;
   stopPlay();
-  document.getElementById("btn-play").click();
+  btnPlay.click();
 };
 document.getElementById("btn-prev").onclick = () => goToFrame(state.frameIndex - 1);
 document.getElementById("btn-next").onclick = () => goToFrame(state.frameIndex + 1);
-document.getElementById("btn-play").onclick = () => {
+btnPlay.onclick = () => {
   if (state.playTimer) {
     stopPlay();
     return;
   }
-  document.getElementById("btn-play").textContent = "Pause";
-  document.getElementById("btn-play").classList.add("active");
+  btnPlay.textContent = "Pause";
+  btnPlay.classList.add("editor-btn--active");
+  btnPlay.setAttribute("aria-pressed", "true");
   state.playTimer = setInterval(() => goToFrame(state.frameIndex + 1), currentTrack()?.frameDurationMs ?? 75);
 };
 elements.trackSelect.onchange = () => setTrack(elements.trackSelect.value);
@@ -923,15 +901,134 @@ document.getElementById("set-body-sprite").onclick = () => {
   if (!state.selectedAssetPath) return;
   setBodyFrameSprite(state.selectedAssetPath);
 };
-document.getElementById("add-attachment").onclick = () => {
+elements.addAttachment.onclick = () => {
   if (!state.selectedAssetPath) return;
   addAttachmentFromAsset(state.selectedAssetPath);
 };
-document.getElementById("remove-attachment").onclick = removeSelectedAttachment;
+elements.removeAttachment.onclick = removeSelectedAttachment;
+const fetchAnimList = () => fetch("/api/animations").then((response) => response.json());
+const flashError = (msg) => {
+  elements.saveStatus.textContent = msg;
+  elements.saveStatus.classList.remove("editor-save-status--saved");
+  elements.saveStatus.classList.add("editor-save-status--error");
+  setTimeout(() => {
+    elements.saveStatus.textContent = "";
+    elements.saveStatus.classList.remove("editor-save-status--error");
+  }, 3800);
+};
+const sanitizeAnimationId = (raw) => {
+  const t = raw.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(t)) return "";
+  return t;
+};
+const sanitizeBodyClipId = (raw) => {
+  const t = raw.trim().toLowerCase().replace(/\s+/g, "");
+  if (!/^[a-z][a-z0-9]*$/.test(t)) return "";
+  return t;
+};
+const sanitizeActionClipId = (raw) => {
+  const t = raw.trim().replace(/\s+/g, "");
+  if (!/^[a-zA-Z][a-zA-Z0-9]*$/.test(t)) return "";
+  return t;
+};
+const populateAnimSelectKeeping = async (selectId) => {
+  const list = await fetchAnimList();
+  elements.animSelect.innerHTML = '<option value="">Select…</option>';
+  list.forEach(({ id }) => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    elements.animSelect.appendChild(option);
+  });
+  if (selectId && list.some((item) => item.id === selectId)) {
+    elements.animSelect.value = selectId;
+  }
+};
+const createNewAnimation = async () => {
+  const raw = window.prompt("New animation id (file name, e.g. my-powerup)", "");
+  if (raw === null) return;
+  const id = sanitizeAnimationId(raw);
+  if (!id) {
+    flashError("Invalid id: use lowercase letters, numbers, and hyphens");
+    return;
+  }
+  const list = await fetchAnimList();
+  if (list.some((item) => item.id === id) && !window.confirm(`Overwrite existing animation "${id}"?`)) return;
+  const fresh = {
+    id,
+    body: {},
+    hat: { poses: {} },
+    actions: { main: makeTrack([{ sprite: "Player" }], 120) },
+  };
+  state.animData = ensureAnimationData(fresh);
+  state.animData.id = id;
+  state.frameIndex = 0;
+  state.selectedItem = { type: "body" };
+  stopPlay();
+  state.undoHistory = [JSON.parse(JSON.stringify(state.animData))];
+  state.undoIndex = 0;
+  syncTrackSelect("actions.main");
+  syncControls();
+  render();
+  await doSave();
+  await populateAnimSelectKeeping(id);
+};
+const addNewBodyClip = () => {
+  if (!state.animData) return;
+  const raw = window.prompt("New body clip id (e.g. swim). Not idle, walk, jump, or crouch.", "");
+  if (raw === null) return;
+  const clipId = sanitizeBodyClipId(raw);
+  if (!clipId) {
+    flashError("Invalid body clip id");
+    return;
+  }
+  if (CORE_BODY_CLIPS.includes(clipId)) {
+    flashError("That name is reserved for the default body clips");
+    return;
+  }
+  if (state.animData.body[clipId]) {
+    flashError("A body clip with that id already exists");
+    return;
+  }
+  captureState();
+  state.animData.body[clipId] = makeTrack([{ sprite: "Player" }], 120);
+  ensureAnimationData(state.animData);
+  syncTrackSelect(`body.${clipId}`);
+  state.frameIndex = 0;
+  state.selectedItem = { type: "body" };
+  stopPlay();
+  syncControls();
+  render();
+};
+const addNewActionClip = () => {
+  if (!state.animData) return;
+  const raw = window.prompt("New action clip id (e.g. blockBreak)", "");
+  if (raw === null) return;
+  const clipId = sanitizeActionClipId(raw);
+  if (!clipId) {
+    flashError("Invalid action clip id (start with a letter, then letters/digits)");
+    return;
+  }
+  if (state.animData.actions[clipId]) {
+    flashError("An action clip with that id already exists");
+    return;
+  }
+  captureState();
+  state.animData.actions[clipId] = makeTrack([{ sprite: "PlayerPunch1" }], 75);
+  state.animData.hat.poses.actions = state.animData.hat.poses.actions ?? {};
+  state.animData.hat.poses.actions[clipId] = ensurePoseCount([], 1, makeHatPose);
+  ensureAnimationData(state.animData);
+  syncTrackSelect(`actions.${clipId}`);
+  state.frameIndex = 0;
+  state.selectedItem = { type: "body" };
+  stopPlay();
+  syncControls();
+  render();
+};
 const doSave = async () => {
   if (!state.animData) return;
-  elements.saveStatus.className = "";
-  elements.saveStatus.textContent = "Saving...";
+  elements.saveStatus.classList.remove("editor-save-status--saved", "editor-save-status--error");
+  elements.saveStatus.textContent = "Saving…";
   try {
     const res = await fetch("/api/save", {
       method: "POST",
@@ -939,13 +1036,14 @@ const doSave = async () => {
       body: JSON.stringify({ id: state.animData.id, data: state.animData }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    elements.saveStatus.className = "saved";
+    elements.saveStatus.classList.add("editor-save-status--saved");
     elements.saveStatus.textContent = "Saved";
     setTimeout(() => {
       elements.saveStatus.textContent = "";
+      elements.saveStatus.classList.remove("editor-save-status--saved");
     }, 2000);
   } catch (error) {
-    elements.saveStatus.className = "error";
+    elements.saveStatus.classList.add("editor-save-status--error");
     elements.saveStatus.textContent = "Error";
     console.error(error);
   }
@@ -960,6 +1058,10 @@ const loadAnimation = async (id) => {
     return;
   }
   const response = await fetch(`/api/animations/${id}`);
+  if (!response.ok) {
+    flashError(`Could not load "${id}"`);
+    return;
+  }
   state.animData = ensureAnimationData(await response.json());
   state.frameIndex = 0;
   state.selectedItem = { type: "body" };
@@ -970,22 +1072,25 @@ const loadAnimation = async (id) => {
   syncControls();
   render();
 };
+document.getElementById("btn-new-anim").onclick = createNewAnimation;
+document.getElementById("btn-new-body-clip").onclick = addNewBodyClip;
+document.getElementById("btn-new-action-clip").onclick = addNewActionClip;
 elements.animSelect.onchange = () => loadAnimation(elements.animSelect.value);
-fetch("/api/animations")
-  .then((response) => response.json())
-  .then((list) => {
-    elements.animSelect.innerHTML = '<option value="">select</option>';
-    list.forEach(({ id }) => {
-      const option = document.createElement("option");
-      option.value = id;
-      option.textContent = id;
-      elements.animSelect.appendChild(option);
-    });
-    if (list.length === 1) {
-      elements.animSelect.value = list[0].id;
-      loadAnimation(list[0].id);
-    }
+const bootstrapAnimList = async () => {
+  const list = await fetchAnimList();
+  elements.animSelect.innerHTML = '<option value="">Select…</option>';
+  list.forEach(({ id }) => {
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = id;
+    elements.animSelect.appendChild(option);
   });
+  if (list.length === 1) {
+    elements.animSelect.value = list[0].id;
+    await loadAnimation(list[0].id);
+  }
+};
+bootstrapAnimList();
 fetch("/api/assets")
   .then((response) => response.json())
   .then((list) => {
