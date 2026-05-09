@@ -330,6 +330,22 @@ export class Player extends MovingActor {
     return powerupHasBehavior(this.activePowerup, behavior);
   }
 
+  public currentBlockBreakHitboxes() {
+    return this.visuals.blockBreakHitboxes;
+  }
+
+  public currentBlockBreakBaseDamage() {
+    return this.visuals.blockBreakBaseDamage;
+  }
+
+  public currentBlockBreakFrameIndex() {
+    return this.visuals.blockBreakFrameIndex;
+  }
+
+  public isFacingLeft() {
+    return this.facingLeft;
+  }
+
   public syncPowerupState(powerup: unknown) {
     if (!isPlayerPowerup(powerup)) {
       return;

@@ -138,6 +138,9 @@ const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | n
   const column = Number(payload.column);
   const row = Number(payload.row);
   const breakDurationMs = Number(payload.breakDurationMs);
+  const health = Number(payload.health);
+  const maxHealth = Number(payload.maxHealth);
+  const isDamaging = payload.isDamaging;
   if (!Number.isInteger(column) || !Number.isInteger(row)) {
     return null;
   }
@@ -150,11 +153,26 @@ const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | n
   ) {
     return null;
   }
+  if (payload.health !== undefined && (!Number.isFinite(health) || health < 0)) {
+    return null;
+  }
+  if (
+    payload.maxHealth !== undefined &&
+    (!Number.isFinite(maxHealth) || maxHealth <= 0)
+  ) {
+    return null;
+  }
+  if (isDamaging !== undefined && typeof isDamaging !== "boolean") {
+    return null;
+  }
   return {
     column,
     row,
     isBreaking: payload.isBreaking,
     ...(payload.breakDurationMs === undefined ? {} : { breakDurationMs }),
+    ...(payload.health === undefined ? {} : { health }),
+    ...(payload.maxHealth === undefined ? {} : { maxHealth }),
+    ...(isDamaging === undefined ? {} : { isDamaging }),
   };
 };
 

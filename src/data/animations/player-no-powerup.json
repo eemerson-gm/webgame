@@ -1,0 +1,43 @@
+{
+  "id": "player-no-powerup",
+  "actions": {
+    "blockBreak": {
+      "baseDamage": 1,
+      "frames": [
+        {
+          "sprite": "PlayerPunch1"
+        },
+        {
+          "sprite": "PlayerPunch2"
+        },
+        {
+          "sprite": "PlayerPunch3"
+        }
+      ],
+      "frameDurationMs": 75,
+      "hitboxes": [
+        [],
+        [
+          {
+            "offset": {
+              "x": 10,
+              "y": 4
+            },
+            "width": 16,
+            "height": 14
+          }
+        ],
+        [
+          {
+            "offset": {
+              "x": 12,
+              "y": 5
+            },
+            "width": 18,
+            "height": 14
+          }
+        ]
+      ]
+    }
+  }
+}

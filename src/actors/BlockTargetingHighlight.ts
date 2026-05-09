@@ -21,6 +21,10 @@ const blockBreakFrameCount = 4;
 const blockHighlightGradientDurationMs = 2200;
 const blockBreakAnimationZ = 9;
 const blockHighlightZ = 10;
+const blockBreakHitboxZ = 15;
+const blockBreakHitboxColor = ex.Color.fromHex("#ff3333");
+const blockBreakHitboxOpacity = 0.35;
+const blockBreakRegenDelayMs = 1000;
 const blockHighlightGradient = [
   [255, 214, 36],
   [255, 255, 255],
@@ -40,9 +44,35 @@ type RemotePlayerEntry = {
   player: Player;
 };
 type RemoteBreakAnimationEntry = {
-  animation: ex.Animation;
-  durationMs: number;
-  targetKey: string;
+  target: TargetBlockPosition;
+  actor: ex.Actor;
+  particleState: BlockBreakParticleState | null;
+  health: number;
+};
+
+type BlockBreakVisualEntry = {
+  target: TargetBlockPosition;
+  actor: ex.Actor;
+  particleState: BlockBreakParticleState | null;
+};
+
+type BreakingTargetEntry = {
+  target: TargetBlockPosition;
+  powerup: PlayerPowerup;
+  health: number;
+  maxHealth: number;
+  regenPerSecond: number;
+  regenDelayRemainingMs: number;
+  actor: ex.Actor;
+  particleState: BlockBreakParticleState | null;
+  isTouched: boolean;
+};
+
+type WorldBounds = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
 };
 
 type LocalPlayerProvider = () => Player | null;
@@ -106,31 +136,19 @@ export class BlockTargetingHighlight extends ex.Actor {
   private readonly getRemotePlayers: RemotePlayersProvider;
   private readonly onUsePowerup: PowerupUseHandler;
   private readonly highlightGraphic: BlockHighlightRaster;
-  private breakAnimation: ex.Animation;
-  private readonly breakAnimationActor: ex.Actor;
   private readonly remoteBreakAnimationsByPlayerId: Record<
     string,
-    RemoteBreakAnimationEntry
+    Record<string, RemoteBreakAnimationEntry>
   >;
-  private readonly remoteBreakAnimationActorsByPlayerId: Record<
-    string,
-    ex.Actor
-  >;
-  private readonly remoteBreakParticleStatesByPlayerId: Record<
-    string,
-    BlockBreakParticleState
-  >;
-  private readonly remoteBreakTargetKeysByPlayerId: Record<string, string>;
+  private readonly breakingTargetsByKey: Record<string, BreakingTargetEntry>;
+  private readonly hitboxActors: ex.Actor[];
   private readonly breakParticleEmitter: BlockBreakParticleEmitter;
   private engine?: ex.Engine;
   private highlightElapsedMs: number = 0;
   private isPointerHeld: boolean = false;
   private isPlacePointerHeld: boolean = false;
   private lastPlacedTargetKey: string | null = null;
-  private breakingTarget: TargetBlockPosition | null = null;
-  private breakingPowerup: PlayerPowerup | null = null;
-  private breakParticleState: BlockBreakParticleState | null = null;
-  private breakProgressMs: number = 0;
+  private lastAppliedBlockBreakFrameIndex: number | null = null;
 
   constructor(
     terrain: TerrainTileMap,
@@ -159,26 +177,14 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.graphics.use(this.highlightGraphic);
     this.graphics.visible = false;
     this.graphics.opacity = 0;
-    this.breakAnimation = this.createBlockBreakAnimation(null);
-    this.breakAnimationActor = new ex.Actor({
-      pos: hiddenActorPosition(),
-      anchor: ex.vec(0, 0),
-      width: TILE_PX,
-      height: TILE_PX,
-      z: blockBreakAnimationZ,
-    });
-    this.breakAnimationActor.graphics.anchor = ex.vec(0, 0);
-    this.breakAnimationActor.graphics.use(this.breakAnimation);
     this.remoteBreakAnimationsByPlayerId = {};
-    this.remoteBreakAnimationActorsByPlayerId = {};
-    this.remoteBreakParticleStatesByPlayerId = {};
-    this.remoteBreakTargetKeysByPlayerId = {};
+    this.breakingTargetsByKey = {};
+    this.hitboxActors = [];
   }
 
   override onInitialize(engine: ex.Engine) {
     this.engine = engine;
     this.breakParticleEmitter.initialize(engine);
-    engine.add(this.breakAnimationActor);
     engine.canvas.addEventListener("contextmenu", (event) => {
       event.preventDefault();
     });
@@ -187,7 +193,7 @@ export class BlockTargetingHighlight extends ex.Actor {
         return;
       }
       this.isPointerHeld = true;
-      this.startToolUseAt(this.targetAt(event.worldPos));
+      this.startToolUse();
     });
     engine.input.pointers.primary.on("down", (event) => {
       if (event.button !== ex.PointerButton.Right) {
@@ -204,7 +210,7 @@ export class BlockTargetingHighlight extends ex.Actor {
         return;
       }
       this.isPointerHeld = false;
-      this.cancelBreakingTarget();
+      this.stopToolUse();
     });
     engine.input.pointers.primary.on("up", (event) => {
       if (event.button !== ex.PointerButton.Right) {
@@ -217,7 +223,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       this.isPointerHeld = false;
       this.isPlacePointerHeld = false;
       this.lastPlacedTargetKey = null;
-      this.cancelBreakingTarget();
+      this.stopToolUse();
     });
   }
 
@@ -225,13 +231,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     const mouseWorldPos = this.currentMouseWorldPosition(engine);
     const target = this.targetAt(mouseWorldPos);
     const placeTarget = this.placeTargetAt(mouseWorldPos);
-    const highlightTarget = this.highlightTargetFor(target, placeTarget);
+    const highlightTarget = this.highlightTargetFor(placeTarget);
     this.moveToTarget(highlightTarget);
     this.syncHighlightVisibility(highlightTarget);
     this.updateHighlightColor(delta);
     this.updatePlacingTarget(placeTarget);
-    this.updateBreakingTarget(target, delta);
-    this.updateRemoteBreakParticles(delta);
+    this.updateBreakingTargets(delta);
   }
 
   public applyRemoteBreakUpdate(update: TerrainBlockBreakUpdate) {
@@ -240,12 +245,14 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     const remotePlayer = this.getRemotePlayer(update.id);
     if (remotePlayer?.isPaused) {
-      this.hideRemoteBreakAnimation(update.id);
+      this.hideRemoteBreakAnimationsForPlayer(update.id);
       return;
     }
     if (!update.isBreaking) {
-      this.hideRemoteBreakAnimation(update.id);
-      remotePlayer?.syncBlockBreakActionState(false);
+      this.hideRemoteBreakAnimation(update.id, {
+        column: update.column,
+        row: update.row,
+      });
       return;
     }
     const target = {
@@ -255,19 +262,14 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.showRemoteBreakAnimation(
       update.id,
       target,
-      update.breakDurationMs ?? this.breakDurationFor(target),
+      update.health ?? 0,
+      update.maxHealth ?? this.blockMaxHealthFor(target),
+      update.isDamaging === true,
     );
-    if (!remotePlayer) {
-      return;
-    }
-    const powerup = remotePlayer.currentPowerupCan("mine")
-      ? remotePlayer.currentPowerup()
-      : "none";
-    remotePlayer.syncBlockBreakActionState(true, Number.POSITIVE_INFINITY, powerup);
   }
 
   public removeRemoteBreakAnimation(playerId: string) {
-    this.hideRemoteBreakAnimation(playerId);
+    this.hideRemoteBreakAnimationsForPlayer(playerId);
   }
 
   private currentMouseWorldPosition(engine: ex.Engine) {
@@ -415,13 +417,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     this.graphics.opacity = target ? 1 : 0;
   }
 
-  private highlightTargetFor(
-    breakTarget: TargetBlockPosition | null,
-    placeTarget: TargetBlockPosition | null,
-  ) {
-    if (breakTarget) {
-      return breakTarget;
-    }
+  private highlightTargetFor(placeTarget: TargetBlockPosition | null) {
     return placeTarget;
   }
 
@@ -483,17 +479,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     return true;
   }
 
-  private startToolUseAt(target: TargetBlockPosition | null) {
-    if (!target) {
-      return;
-    }
-    this.startBreakingTarget(target);
-  }
-
-  private startBreakingTarget(target: TargetBlockPosition | null) {
-    if (!target) {
-      return;
-    }
+  private startToolUse() {
     const localPlayer = this.getLocalPlayer();
     if (!localPlayer) {
       return;
@@ -501,43 +487,12 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (localPlayer.isPaused) {
       return;
     }
-    const breakingPowerup = toolbarSelection.powerup();
-    const breakDurationMs = this.breakDurationFor(target, breakingPowerup);
-    if (!Number.isFinite(breakDurationMs)) {
+    const powerup = toolbarSelection.selectedPowerupCan("mine")
+      ? toolbarSelection.powerup()
+      : "none";
+    if (!localPlayer.keepBreakingBlock(Number.POSITIVE_INFINITY, powerup)) {
       return;
     }
-    if (localPlayer.isFlying) {
-      this.breakTargetInstantly(target, breakingPowerup);
-      return;
-    }
-    if (toolbarSelection.selectedPowerupCan("mine")) {
-      if (
-        !localPlayer.keepBreakingBlock(
-          Number.POSITIVE_INFINITY,
-          toolbarSelection.powerup(),
-        )
-      ) {
-        return;
-      }
-    }
-    if (!toolbarSelection.selectedPowerupCan("mine")) {
-      if (!localPlayer.keepBreakingBlock(Number.POSITIVE_INFINITY, "none")) {
-        return;
-      }
-    }
-    this.sendBlockBreakUpdate(target, true, breakDurationMs);
-    this.breakingTarget = target;
-    this.breakingPowerup = breakingPowerup;
-    this.breakProgressMs = 0;
-    this.breakParticleState = this.breakParticleEmitter.createState(
-      target,
-      breakDurationMs,
-    );
-    this.moveBreakAnimationToTarget(target);
-    this.breakAnimation = this.createBlockBreakAnimation(target, breakDurationMs);
-    this.breakAnimationActor.graphics.use(this.breakAnimation);
-    this.breakAnimation.reset();
-    this.breakAnimation.play();
   }
 
   private breakTargetInstantly(
@@ -553,113 +508,364 @@ export class BlockTargetingHighlight extends ex.Actor {
     });
   }
 
-  private updateBreakingTarget(
-    target: TargetBlockPosition | null,
-    delta: number,
-  ) {
+  private updateBreakingTargets(delta: number) {
     if (!this.isPointerHeld) {
-      this.cancelBreakingTarget();
+      this.hideHitboxActors();
+      this.markBreakingTargetsUntouched();
+      this.regenerateBreakingTargets(delta);
       return;
     }
-    if (!target) {
-      if (this.breakingTarget) {
-        this.cancelBreakingTarget();
+    const localPlayer = this.getLocalPlayer();
+    if (!localPlayer || localPlayer.isPaused) {
+      this.hideHitboxActors();
+      this.stopToolUse();
+      this.markBreakingTargetsUntouched();
+      this.regenerateBreakingTargets(delta);
+      return;
+    }
+    this.startToolUse();
+    this.syncHitboxActors(localPlayer);
+    this.markBreakingTargetsUntouched();
+    this.damageTargetsInHitboxes(localPlayer);
+    this.regenerateBreakingTargets(delta);
+    this.removeMissingBreakingTargets();
+  }
+
+  private markBreakingTargetsUntouched() {
+    Object.values(this.breakingTargetsByKey).forEach((entry) => {
+      entry.isTouched = false;
+    });
+  }
+
+  private damageTargetsInHitboxes(localPlayer: Player) {
+    const frameIndex = localPlayer.currentBlockBreakFrameIndex();
+    const hitboxes = localPlayer.currentBlockBreakHitboxes();
+    const baseDamage = localPlayer.currentBlockBreakBaseDamage();
+    const shouldApplyDamage = this.lastAppliedBlockBreakFrameIndex !== frameIndex;
+    this.lastAppliedBlockBreakFrameIndex = frameIndex;
+    const touchedTargets = hitboxes.flatMap((hitbox) =>
+      this.targetsOverlappingBounds(
+        this.hitboxWorldBounds(localPlayer, hitbox),
+      ),
+    );
+    this.uniqueTargets(touchedTargets).forEach((target) => {
+      if (localPlayer.isFlying) {
+        this.breakTargetInstantly(target, toolbarSelection.powerup());
+        return;
       }
+      this.touchBreakingTarget(
+        target,
+        shouldApplyDamage ? baseDamage : 0,
+        toolbarSelection.powerup(),
+      );
+    });
+  }
+
+  private touchBreakingTarget(
+    target: TargetBlockPosition,
+    damage: number,
+    powerup: PlayerPowerup,
+  ) {
+    const entry = this.breakingTargetEntryFor(target, powerup);
+    if (!entry) {
       return;
     }
-    if (
-      !this.breakingTarget ||
-      !this.isSameTarget(target, this.breakingTarget)
-    ) {
-      this.startBreakingTarget(target);
+    entry.isTouched = true;
+    if (damage <= 0) {
       return;
     }
-    this.breakProgressMs += delta;
-    this.breakParticleEmitter.updateState(this.breakParticleState, delta);
-    this.moveBreakAnimationToTarget(this.breakingTarget);
-    const brokenWith = this.breakingPowerup ?? toolbarSelection.powerup();
-    if (
-      this.breakProgressMs < this.breakDurationFor(this.breakingTarget, brokenWith)
-    ) {
+    entry.regenDelayRemainingMs = blockBreakRegenDelayMs;
+    entry.health = Math.max(entry.health - damage, 0);
+    this.syncBlockBreakVisual(entry, entry.health, entry.maxHealth, true);
+    this.sendBlockBreakUpdate(
+      entry.target,
+      true,
+      entry.health,
+      entry.maxHealth,
+      true,
+    );
+    if (entry.health > 0) {
       return;
     }
     this.client.send(messageTypes.updateBlock, {
-      column: this.breakingTarget.column,
-      row: this.breakingTarget.row,
+      column: entry.target.column,
+      row: entry.target.row,
       solid: false,
-      brokenWith,
+      brokenWith: entry.powerup,
     });
-    this.cancelBreakingTarget();
+    this.removeBreakingTarget(entry);
   }
 
-  private cancelBreakingTarget() {
-    const target = this.breakingTarget;
-    const wasBreakingTarget = !!target;
-    if (target) {
-      this.sendBlockBreakUpdate(target, false);
+  private regenerateBreakingTargets(delta: number) {
+    Object.values(this.breakingTargetsByKey).forEach((entry) => {
+      if (entry.isTouched) {
+        return;
+      }
+      if (entry.regenDelayRemainingMs > 0) {
+        entry.regenDelayRemainingMs = Math.max(
+          entry.regenDelayRemainingMs - delta,
+          0,
+        );
+        return;
+      }
+      entry.health = Math.min(
+        entry.health + entry.regenPerSecond * (delta / 1000),
+        entry.maxHealth,
+      );
+      this.syncBlockBreakVisual(entry, entry.health, entry.maxHealth, false);
+      this.sendBlockBreakUpdate(
+        entry.target,
+        true,
+        entry.health,
+        entry.maxHealth,
+        false,
+      );
+      if (entry.health < entry.maxHealth) {
+        return;
+      }
+      this.removeBreakingTarget(entry);
+    });
+  }
+
+  private removeMissingBreakingTargets() {
+    Object.values(this.breakingTargetsByKey).forEach((entry) => {
+      if (this.terrain.isSolidAt(entry.target.column, entry.target.row)) {
+        return;
+      }
+      this.removeBreakingTarget(entry);
+    });
+  }
+
+  private stopToolUse() {
+    this.lastAppliedBlockBreakFrameIndex = null;
+    this.hideHitboxActors();
+    this.getLocalPlayer()?.stopBlockBreakAction();
+  }
+
+  private syncHitboxActors(localPlayer: Player) {
+    const hitboxes = localPlayer.currentBlockBreakHitboxes();
+    hitboxes.forEach((hitbox, index) => {
+      const bounds = this.hitboxWorldBounds(localPlayer, hitbox);
+      const actor = this.hitboxActorAt(index);
+      actor.pos = ex.vec(bounds.left, bounds.top);
+      actor.graphics.use(
+        new ex.Rectangle({
+          width: bounds.right - bounds.left,
+          height: bounds.bottom - bounds.top,
+          color: blockBreakHitboxColor,
+        }),
+      );
+      actor.graphics.visible = true;
+      actor.graphics.opacity = blockBreakHitboxOpacity;
+    });
+    this.hitboxActors.slice(hitboxes.length).forEach((actor) => {
+      actor.graphics.visible = false;
+      actor.graphics.opacity = 0;
+    });
+  }
+
+  private hitboxActorAt(index: number) {
+    const actor = this.hitboxActors[index];
+    if (actor) {
+      return actor;
     }
-    this.breakingTarget = null;
-    this.breakingPowerup = null;
-    this.breakProgressMs = 0;
-    this.breakParticleState = null;
-    this.breakAnimationActor.pos = hiddenActorPosition();
-    if (wasBreakingTarget) {
-      this.getLocalPlayer()?.stopBlockBreakAction();
+    const createdActor = new ex.Actor({
+      pos: hiddenActorPosition(),
+      anchor: ex.vec(0, 0),
+      width: 1,
+      height: 1,
+      z: blockBreakHitboxZ,
+    });
+    createdActor.graphics.anchor = ex.vec(0, 0);
+    createdActor.graphics.visible = false;
+    createdActor.graphics.opacity = 0;
+    this.hitboxActors[index] = createdActor;
+    this.engine?.add(createdActor);
+    return createdActor;
+  }
+
+  private hideHitboxActors() {
+    this.hitboxActors.forEach((actor) => {
+      actor.pos = hiddenActorPosition();
+      actor.graphics.visible = false;
+      actor.graphics.opacity = 0;
+    });
+  }
+
+  private breakingTargetEntryFor(
+    target: TargetBlockPosition,
+    powerup: PlayerPowerup,
+  ) {
+    const key = this.targetKey(target);
+    const existingEntry = this.breakingTargetsByKey[key];
+    if (existingEntry) {
+      return existingEntry;
     }
+    const block = this.terrain.blockAt(target.column, target.row);
+    if (!block || !Number.isFinite(block.health)) {
+      return null;
+    }
+    const actor = this.createBreakActor();
+    const entry = {
+      target,
+      powerup,
+      health: block.health,
+      maxHealth: block.health,
+      regenPerSecond: block.regenPerSecond,
+      regenDelayRemainingMs: blockBreakRegenDelayMs,
+      actor,
+      particleState: null,
+      isTouched: true,
+    };
+    this.breakingTargetsByKey[key] = entry;
+    this.engine?.add(actor);
+    this.moveBreakActorToTarget(actor, target);
+    this.syncBlockBreakVisual(entry, entry.health, entry.maxHealth, false);
+    return entry;
+  }
+
+  private removeBreakingTarget(entry: BreakingTargetEntry) {
+    const key = this.targetKey(entry.target);
+    this.sendBlockBreakUpdate(
+      entry.target,
+      false,
+      entry.health,
+      entry.maxHealth,
+      false,
+    );
+    this.hideBlockBreakVisual(entry);
+    entry.actor.kill();
+    delete this.breakingTargetsByKey[key];
+  }
+
+  private syncBlockBreakVisual(
+    entry: BlockBreakVisualEntry,
+    health: number,
+    maxHealth: number,
+    isDamaging: boolean,
+  ) {
+    const frame = this.blockBreakGraphicFor(
+      entry.target,
+      this.damageRatioFor(health, maxHealth),
+    );
+    if (!frame) {
+      this.hideBlockBreakVisual(entry);
+      return;
+    }
+    this.moveBreakActorToTarget(entry.actor, entry.target);
+    entry.actor.graphics.use(frame);
+    entry.actor.graphics.visible = true;
+    entry.actor.graphics.opacity = 1;
+    this.syncBlockBreakVisualParticles(entry, isDamaging);
+  }
+
+  private hideBlockBreakVisual(entry: BlockBreakVisualEntry) {
+    entry.actor.pos = hiddenActorPosition();
+    entry.actor.graphics.visible = false;
+    entry.actor.graphics.opacity = 0;
+    entry.particleState = null;
+  }
+
+  private syncBlockBreakVisualParticles(
+    entry: BlockBreakVisualEntry,
+    isDamaging: boolean,
+  ) {
+    if (!isDamaging) {
+      entry.particleState = null;
+      return;
+    }
+    const particleState =
+      entry.particleState ??
+      this.breakParticleEmitter.createState(
+        entry.target,
+        Number.POSITIVE_INFINITY,
+      );
+    entry.particleState = particleState;
+    this.breakParticleEmitter.updateState(particleState, blockBreakFrameDurationMs);
   }
 
   private sendBlockBreakUpdate(
     target: TargetBlockPosition,
     isBreaking: boolean,
-    breakDurationMs?: number,
+    health?: number,
+    maxHealth?: number,
+    isDamaging?: boolean,
   ) {
     this.client.send(messageTypes.updateBlockBreak, {
       column: target.column,
       row: target.row,
       isBreaking,
-      ...(breakDurationMs === undefined ? {} : { breakDurationMs }),
+      ...(health === undefined ? {} : { health }),
+      ...(maxHealth === undefined ? {} : { maxHealth }),
+      ...(isDamaging === undefined ? {} : { isDamaging }),
     });
   }
 
   private showRemoteBreakAnimation(
     playerId: string,
     target: TargetBlockPosition,
-    breakDurationMs: number,
+    health: number,
+    maxHealth: number,
+    isDamaging: boolean,
   ) {
-    const actor = this.remoteBreakAnimationActorFor(playerId);
-    const animation = this.remoteBreakAnimationFor(playerId, target, breakDurationMs);
-    actor.pos.x =
-      this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth;
-    actor.pos.y =
-      this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight;
-    this.remoteBreakParticleStatesByPlayerId[playerId] =
-      this.breakParticleEmitter.createState(target, breakDurationMs);
-    this.remoteBreakTargetKeysByPlayerId[playerId] = this.targetKey(target);
-    actor.graphics.use(animation);
-    animation.reset();
-    animation.play();
-    actor.graphics.visible = true;
-    actor.graphics.opacity = 1;
+    const entry = this.remoteBreakAnimationFor(playerId, target, maxHealth);
+    this.syncBlockBreakVisual(entry, health, maxHealth, isDamaging);
+    entry.health = health;
   }
 
-  private hideRemoteBreakAnimation(playerId: string) {
-    const actor = this.remoteBreakAnimationActorsByPlayerId[playerId];
-    if (!actor) {
+  private hideRemoteBreakAnimation(playerId: string, target: TargetBlockPosition) {
+    const targetKey = this.targetKey(target);
+    const entry = this.remoteBreakAnimationsByPlayerId[playerId]?.[targetKey];
+    if (!entry) {
       return;
     }
-    actor.pos = hiddenActorPosition();
-    actor.graphics.visible = false;
-    actor.graphics.opacity = 0;
-    this.remoteBreakAnimationsByPlayerId[playerId]?.animation.pause();
-    delete this.remoteBreakParticleStatesByPlayerId[playerId];
-    delete this.remoteBreakTargetKeysByPlayerId[playerId];
+    this.hideBlockBreakVisual(entry);
+    entry.actor.kill();
+    delete this.remoteBreakAnimationsByPlayerId[playerId][targetKey];
   }
 
-  private remoteBreakAnimationActorFor(playerId: string) {
-    const existingActor = this.remoteBreakAnimationActorsByPlayerId[playerId];
-    if (existingActor) {
-      return existingActor;
+  private hideRemoteBreakAnimationsForPlayer(playerId: string) {
+    Object.values(this.remoteBreakAnimationsByPlayerId[playerId] ?? {}).forEach(
+      (entry) => {
+        this.hideBlockBreakVisual(entry);
+        entry.actor.kill();
+      },
+    );
+    delete this.remoteBreakAnimationsByPlayerId[playerId];
+  }
+
+  private remoteBreakAnimationFor(
+    playerId: string,
+    target: TargetBlockPosition,
+    maxHealth: number,
+  ) {
+    const targetKey = this.targetKey(target);
+    const entries = this.remoteBreakAnimationsFor(playerId);
+    const existingEntry = entries[targetKey];
+    if (existingEntry) {
+      return existingEntry;
     }
+    const entry = {
+      target,
+      actor: this.createBreakActor(),
+      particleState: null,
+      health: maxHealth,
+    };
+    entries[targetKey] = entry;
+    this.engine?.add(entry.actor);
+    return entry;
+  }
+
+  private remoteBreakAnimationsFor(playerId: string) {
+    const entries = this.remoteBreakAnimationsByPlayerId[playerId];
+    if (entries) {
+      return entries;
+    }
+    this.remoteBreakAnimationsByPlayerId[playerId] = {};
+    return this.remoteBreakAnimationsByPlayerId[playerId];
+  }
+
+  private createBreakActor() {
     const actor = new ex.Actor({
       pos: hiddenActorPosition(),
       anchor: ex.vec(0, 0),
@@ -670,55 +876,103 @@ export class BlockTargetingHighlight extends ex.Actor {
     actor.graphics.anchor = ex.vec(0, 0);
     actor.graphics.visible = false;
     actor.graphics.opacity = 0;
-    this.remoteBreakAnimationActorsByPlayerId[playerId] = actor;
-    this.engine?.add(actor);
     return actor;
   }
 
-  private remoteBreakAnimationFor(
-    playerId: string,
-    target: TargetBlockPosition,
-    breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
-  ) {
-    const existingEntry = this.remoteBreakAnimationsByPlayerId[playerId];
-    const targetKey = this.targetKey(target);
-    if (
-      existingEntry?.durationMs === breakDurationMs &&
-      existingEntry.targetKey === targetKey
-    ) {
-      return existingEntry.animation;
-    }
-    existingEntry?.animation.pause();
-    const animation = this.createBlockBreakAnimation(target, breakDurationMs);
-    this.remoteBreakAnimationsByPlayerId[playerId] = {
-      animation,
-      durationMs: breakDurationMs,
-      targetKey,
+  private hitboxWorldBounds(
+    player: Player,
+    hitbox: { offset: ex.Vector; width: number; height: number },
+  ): WorldBounds {
+    const left = player.isFacingLeft()
+      ? player.pos.x + TILE_PX - hitbox.offset.x - hitbox.width
+      : player.pos.x + hitbox.offset.x;
+    return {
+      left,
+      right: left + hitbox.width,
+      top: player.pos.y + hitbox.offset.y,
+      bottom: player.pos.y + hitbox.offset.y + hitbox.height,
     };
-    return animation;
   }
 
-  private updateRemoteBreakParticles(delta: number) {
-    Object.entries(this.remoteBreakParticleStatesByPlayerId).forEach(
-      ([playerId, state]) => {
-        this.breakParticleEmitter.updateState(state, delta);
-        if (state.elapsedMs < state.durationMs) {
-          return;
-        }
-        delete this.remoteBreakParticleStatesByPlayerId[playerId];
-      },
+  private targetsOverlappingBounds(bounds: WorldBounds) {
+    const startColumn = Math.floor(
+      (bounds.left - this.terrain.map.pos.x) / this.terrain.map.tileWidth,
     );
+    const endColumn = Math.floor(
+      (bounds.right - this.terrain.map.pos.x) / this.terrain.map.tileWidth,
+    );
+    const startRow = Math.floor(
+      (bounds.top - this.terrain.map.pos.y) / this.terrain.map.tileHeight,
+    );
+    const endRow = Math.floor(
+      (bounds.bottom - this.terrain.map.pos.y) / this.terrain.map.tileHeight,
+    );
+    const columnCount = Math.max(endColumn - startColumn + 1, 0);
+    const rowCount = Math.max(endRow - startRow + 1, 0);
+    return Array.from({ length: columnCount }, (_, columnOffset) =>
+      Array.from({ length: rowCount }, (_, rowOffset) => ({
+        column: startColumn + columnOffset,
+        row: startRow + rowOffset,
+      })),
+    )
+      .flat()
+      .filter((target) => this.isBreakableTarget(target))
+      .filter((target) => this.boundsOverlap(bounds, this.tileBounds(target)));
   }
 
-  private createBlockBreakAnimation(
-    target: TargetBlockPosition | null,
-    breakDurationMs = blockBreakFrameDurationMs * blockBreakFrameCount,
-  ) {
-    return new ex.Animation({
-      frames: this.blockBreakFramesFor(target),
-      frameDuration: breakDurationMs / blockBreakFrameCount,
-      strategy: ex.AnimationStrategy.End,
-    });
+  private uniqueTargets(targets: TargetBlockPosition[]) {
+    return Object.values(
+      Object.fromEntries(targets.map((target) => [this.targetKey(target), target])),
+    ) as TargetBlockPosition[];
+  }
+
+  private isBreakableTarget(target: TargetBlockPosition) {
+    if (!this.terrain.isInside(target.column, target.row)) {
+      return false;
+    }
+    if (!this.terrain.isSolidAt(target.column, target.row)) {
+      return false;
+    }
+    const block = this.terrain.blockAt(target.column, target.row);
+    return !!block && Number.isFinite(block.health);
+  }
+
+  private boundsOverlap(a: WorldBounds, b: WorldBounds) {
+    if (a.right <= b.left || a.left >= b.right) {
+      return false;
+    }
+    if (a.bottom <= b.top || a.top >= b.bottom) {
+      return false;
+    }
+    return true;
+  }
+
+  private moveBreakActorToTarget(actor: ex.Actor, target: TargetBlockPosition) {
+    const topLeft = this.tileTopLeft(target);
+    actor.pos.x = topLeft.x;
+    actor.pos.y = topLeft.y;
+  }
+
+  private blockMaxHealthFor(target: TargetBlockPosition) {
+    return this.terrain.blockAt(target.column, target.row)?.health ?? 1;
+  }
+
+  private damageRatioFor(health: number, maxHealth: number) {
+    if (!Number.isFinite(maxHealth) || maxHealth <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(1, 1 - health / maxHealth));
+  }
+
+  private blockBreakGraphicFor(target: TargetBlockPosition, damageRatio: number) {
+    if (damageRatio <= 0) {
+      return null;
+    }
+    const frameIndex = Math.min(
+      Math.floor(damageRatio * blockBreakFrameCount),
+      blockBreakFrameCount - 1,
+    );
+    return this.blockBreakFramesFor(target)[frameIndex]?.graphic ?? null;
   }
 
   private blockBreakFramesFor(target: TargetBlockPosition | null) {
@@ -732,36 +986,10 @@ export class BlockTargetingHighlight extends ex.Actor {
     }));
   }
 
-  private moveBreakAnimationToTarget(target: TargetBlockPosition) {
-    const topLeft = this.tileTopLeft(target);
-    this.breakAnimationActor.pos.x = topLeft.x;
-    this.breakAnimationActor.pos.y = topLeft.y;
-  }
-
   private tileTopLeft(target: TargetBlockPosition) {
     return ex.vec(
       this.terrain.map.pos.x + target.column * this.terrain.map.tileWidth,
       this.terrain.map.pos.y + target.row * this.terrain.map.tileHeight,
     );
-  }
-
-  private breakDurationFor(
-    target: TargetBlockPosition,
-    brokenWith: PlayerPowerup = toolbarSelection.powerup(),
-  ) {
-    const baseDuration =
-      this.terrain.blockAt(target.column, target.row)?.breakDurationMs ??
-      Number.POSITIVE_INFINITY;
-    if (!Number.isFinite(baseDuration)) {
-      return baseDuration;
-    }
-    return baseDuration * toolbarSelection.breakDurationMultiplier(brokenWith);
-  }
-
-  private isSameTarget(a: TargetBlockPosition, b: TargetBlockPosition) {
-    if (a.column !== b.column) {
-      return false;
-    }
-    return a.row === b.row;
   }
 }

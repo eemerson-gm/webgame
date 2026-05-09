@@ -139,6 +139,9 @@ export type TerrainBlockBreakUpdate = {
   row: number;
   isBreaking: boolean;
   breakDurationMs?: number;
+  health?: number;
+  maxHealth?: number;
+  isDamaging?: boolean;
 };
 
 export type PlayerKnockbackUpdate = {

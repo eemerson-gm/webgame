@@ -6,7 +6,8 @@ import { terrainBlockDropsForKind } from "./TerrainBlockDrops";
 
 type TerrainBlockOptions = {
   kind: TerrainTileKind;
-  breakDurationMs: number;
+  health: number;
+  regenPerSecond?: number;
   sprite: ex.ImageSource;
   animationFrames?: ex.ImageSource[];
   animationFrameDurationMs?: number;
@@ -14,14 +15,16 @@ type TerrainBlockOptions = {
 
 export class TerrainBlock {
   public readonly kind: TerrainTileKind;
-  public readonly breakDurationMs: number;
+  public readonly health: number;
+  public readonly regenPerSecond: number;
   private readonly sprite: ex.ImageSource;
   private readonly animationFrames: ex.ImageSource[];
   private readonly animationFrameDurationMs: number;
 
   constructor(options: TerrainBlockOptions) {
     this.kind = options.kind;
-    this.breakDurationMs = options.breakDurationMs;
+    this.health = options.health;
+    this.regenPerSecond = options.regenPerSecond ?? options.health;
     this.sprite = options.sprite;
     this.animationFrames = options.animationFrames ?? [];
     this.animationFrameDurationMs = options.animationFrameDurationMs ?? 120;
@@ -70,52 +73,52 @@ export class TerrainBlock {
 const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
   bedrock: new TerrainBlock({
     kind: "bedrock",
-    breakDurationMs: Number.POSITIVE_INFINITY,
+    health: Number.POSITIVE_INFINITY,
     sprite: Resources.Bedrock,
   }),
   dirt: new TerrainBlock({
     kind: "dirt",
-    breakDurationMs: 270,
+    health: 4,
     sprite: Resources.Dirt,
   }),
   grass: new TerrainBlock({
     kind: "grass",
-    breakDurationMs: 270,
+    health: 4,
     sprite: Resources.Grass,
   }),
   lamp: new TerrainBlock({
     kind: "lamp",
-    breakDurationMs: 360,
+    health: 5,
     sprite: Resources.Lamp,
   }),
   mushroom: new TerrainBlock({
     kind: "mushroom",
-    breakDurationMs: 270,
+    health: 4,
     sprite: Resources.MinerPowerup,
   }),
   pillarBottom: new TerrainBlock({
     kind: "pillarBottom",
-    breakDurationMs: Number.POSITIVE_INFINITY,
+    health: Number.POSITIVE_INFINITY,
     sprite: Resources.PillarBottom,
   }),
   pillarMiddle: new TerrainBlock({
     kind: "pillarMiddle",
-    breakDurationMs: Number.POSITIVE_INFINITY,
+    health: Number.POSITIVE_INFINITY,
     sprite: Resources.PillarMiddle,
   }),
   pillarTop: new TerrainBlock({
     kind: "pillarTop",
-    breakDurationMs: Number.POSITIVE_INFINITY,
+    health: Number.POSITIVE_INFINITY,
     sprite: Resources.PillarTop,
   }),
   spawn: new TerrainBlock({
     kind: "spawn",
-    breakDurationMs: Number.POSITIVE_INFINITY,
+    health: Number.POSITIVE_INFINITY,
     sprite: Resources.Spawn,
   }),
   spawnOrb: new TerrainBlock({
     kind: "spawnOrb",
-    breakDurationMs: Number.POSITIVE_INFINITY,
+    health: Number.POSITIVE_INFINITY,
     sprite: Resources.SpawnOrb,
     animationFrames: [
       Resources.SpawnOrb1,
@@ -131,12 +134,12 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
   }),
   stone: new TerrainBlock({
     kind: "stone",
-    breakDurationMs: 720,
+    health: 10,
     sprite: Resources.Stone,
   }),
   whiteWool: new TerrainBlock({
     kind: "whiteWool",
-    breakDurationMs: 270,
+    health: 4,
     sprite: Resources.WhiteWool,
   }),
 };

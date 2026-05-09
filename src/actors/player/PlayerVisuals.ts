@@ -4,6 +4,7 @@ import { TILE_PX } from "../../world/worldConfig";
 import {
   attachedVisualHiddenPosition,
   type AttachedVisualAnimation,
+  type AttachedVisualHitbox,
 } from "../../classes/AttachedVisualAnimation";
 import {
   powerupVisualsFor,
@@ -124,6 +125,18 @@ export class PlayerVisuals {
   
   public get blockBreakAnimationRef() {
     return this.blockBreakAnimation;
+  }
+
+  public get blockBreakBaseDamage() {
+    return this.blockBreakAnimation?.baseDamage ?? 0;
+  }
+
+  public get blockBreakHitboxes(): readonly AttachedVisualHitbox[] {
+    return this.blockBreakAnimation?.currentHitboxes ?? [];
+  }
+
+  public get blockBreakFrameIndex() {
+    return this.blockBreakAnimation?.currentFrameIndex ?? 0;
   }
   
   public setVisual(visual: PlayerVisual, force: boolean = false) {

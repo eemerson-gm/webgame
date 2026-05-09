@@ -8,12 +8,20 @@ export type AttachedVisualPose = {
   visible?: boolean;
 };
 
+export type AttachedVisualHitbox = {
+  offset: ex.Vector;
+  width: number;
+  height: number;
+};
+
 type AttachedVisualAnimationOptions = {
   frames: Array<{
     graphic: ex.Graphic;
   }>;
   frameDurationMs: number;
   attachments?: readonly AttachedVisualAttachment[];
+  hitboxes?: readonly (readonly AttachedVisualHitbox[])[];
+  baseDamage?: number;
   mirrorWidth: number;
   strategy?: ex.AnimationStrategy;
   onFrame?: (frameIndex: number) => void;
@@ -34,6 +42,8 @@ export class AttachedVisualAnimation {
   private readonly frameDurationMs: number;
   private readonly frameCount: number;
   private readonly mirrorWidth: number;
+  private readonly hitboxes: readonly (readonly AttachedVisualHitbox[])[];
+  public readonly baseDamage: number;
   private currentAnimationFrameIndex = 0;
   private lastFacingLeft = false;
   private isPlaying = false;
@@ -48,6 +58,8 @@ export class AttachedVisualAnimation {
     this.frameDurationMs = options.frameDurationMs;
     this.frameCount = options.frames.length;
     this.mirrorWidth = options.mirrorWidth;
+    this.hitboxes = options.hitboxes ?? [];
+    this.baseDamage = options.baseDamage ?? 0;
     this.animation.events.on("frame", (frame) => {
       this.currentAnimationFrameIndex = frame.frameIndex;
       this.syncAttachment(this.lastFacingLeft);
@@ -104,6 +116,10 @@ export class AttachedVisualAnimation {
 
   get currentFrameIndex() {
     return this.currentAnimationFrameIndex;
+  }
+
+  get currentHitboxes() {
+    return this.hitboxes[this.currentFrameIndex] ?? [];
   }
 
   private frameDataFor(attachment: AttachedVisualAttachment) {

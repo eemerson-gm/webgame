@@ -1,14 +1,15 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
 import minerPowerupAnimationData from "../data/animations/miner-powerup.json";
+import playerNoPowerupAnimationData from "../data/animations/player-no-powerup.json";
 import {
   AttachedVisualAnimation,
   type AttachedVisualAttachment,
+  type AttachedVisualHitbox,
   type AttachedVisualPose,
 } from "./AttachedVisualAnimation";
 
 const walkFrameDurationMs = 120;
-const actionFrameDurationMs = 75;
 const minerPowerupDurationMs = 30000;
 
 type ResourceKey = Exclude<keyof typeof Resources, "GameFont">;
@@ -44,6 +45,8 @@ export type PowerupHatVisual = {
 type PowerupActionDefinition = {
   frames: readonly PowerupFrame[];
   frameDurationMs: number;
+  baseDamage: number;
+  hitboxes?: readonly (readonly AttachedVisualHitbox[])[];
   attachments?: readonly {
     id: string;
     sprite: ResourceKey;
@@ -68,6 +71,12 @@ type JsonAttachedVisualPose = {
   visible?: boolean;
 };
 
+type JsonAttachedVisualHitbox = {
+  offset: JsonVector;
+  width: number;
+  height: number;
+};
+
 type MinerPowerupAnimationData = {
   id: string;
   body: {
@@ -90,7 +99,16 @@ type MinerPowerupAnimationData = {
   };
 };
 
+type PlayerNoPowerupAnimationData = {
+  id: string;
+  actions: {
+    blockBreak: JsonPowerupActionDefinition;
+  };
+};
+
 type JsonPowerupActionDefinition = PowerupAnimationTrack & {
+  baseDamage?: number;
+  hitboxes?: readonly (readonly JsonAttachedVisualHitbox[])[];
   attachments?: readonly {
     id: string;
     sprite: ResourceKey;
@@ -143,12 +161,6 @@ const defaultWalkFrames = [
   { sprite: "PlayerWalk2" },
 ] as const;
 
-const defaultPunchFrames = [
-  { sprite: "PlayerPunch1" },
-  { sprite: "PlayerPunch2" },
-  { sprite: "PlayerPunch3" },
-] as const;
-
 const defaultBody = {
   idle: {
     frames: [{ sprite: "Player" }],
@@ -170,6 +182,8 @@ const defaultBody = {
 
 const minerBlockBreakAnimation =
   minerPowerupAnimationData as MinerPowerupAnimationData;
+const playerNoPowerupAnimation =
+  playerNoPowerupAnimationData as PlayerNoPowerupAnimationData;
 
 const vectorFromJson = (vector: JsonVector) => ex.vec(vector.x, vector.y);
 
@@ -203,11 +217,23 @@ const actionPoseFromJson = (
   ...(pose.visible === undefined ? {} : { visible: pose.visible }),
 });
 
+const actionHitboxFromJson = (
+  hitbox: JsonAttachedVisualHitbox,
+): AttachedVisualHitbox => ({
+  offset: vectorFromJson(hitbox.offset),
+  width: hitbox.width,
+  height: hitbox.height,
+});
+
 const actionDefinitionFromJson = (
   action: JsonPowerupActionDefinition,
 ): PowerupActionDefinition => ({
   frames: action.frames,
   frameDurationMs: action.frameDurationMs,
+  baseDamage: action.baseDamage ?? 0,
+  hitboxes: action.hitboxes?.map((frameHitboxes) =>
+    frameHitboxes.map((hitbox) => actionHitboxFromJson(hitbox)),
+  ),
   attachments: action.attachments?.map((attachment) => ({
     id: attachment.id,
     sprite: attachment.sprite,
@@ -225,10 +251,9 @@ const powerupDefinitionsConfig = {
     breakDurationMultiplier: 3,
     body: defaultBody,
     actions: {
-      blockBreak: {
-        frames: defaultPunchFrames,
-        frameDurationMs: actionFrameDurationMs,
-      },
+      blockBreak: actionDefinitionFromJson(
+        playerNoPowerupAnimation.actions.blockBreak,
+      ),
     },
   },
   miner: {
@@ -288,6 +313,8 @@ const actionAnimationFor = (
       graphic: spriteForFrame(frame),
     })),
     frameDurationMs: action.frameDurationMs,
+    baseDamage: action.baseDamage,
+    hitboxes: action.hitboxes,
     attachments: action.attachments?.map(
       (attachment): AttachedVisualAttachment => ({
         actor: createAttachmentActor(attachment.layer),
