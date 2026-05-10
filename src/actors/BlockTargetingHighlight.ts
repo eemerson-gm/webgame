@@ -509,24 +509,40 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private updateBreakingTargets(delta: number) {
-    if (!this.isPointerHeld) {
-      this.hideHitboxActors();
-      this.markBreakingTargetsUntouched();
-      this.regenerateBreakingTargets(delta);
-      return;
-    }
     const localPlayer = this.getLocalPlayer();
-    if (!localPlayer || localPlayer.isPaused) {
+    const activeLocal =
+      localPlayer && !localPlayer.isPaused ? localPlayer : null;
+
+    if (this.isPointerHeld && !activeLocal) {
       this.hideHitboxActors();
       this.stopToolUse();
       this.markBreakingTargetsUntouched();
       this.regenerateBreakingTargets(delta);
       return;
     }
-    this.startToolUse();
-    this.syncHitboxActors(localPlayer);
+
+    const pointerBreaks = this.isPointerHeld && activeLocal;
+    const visualOnlyBreak =
+      !this.isPointerHeld &&
+      !!activeLocal &&
+      activeLocal.isBreakingBlock;
+
+    if (!pointerBreaks && !visualOnlyBreak) {
+      this.hideHitboxActors();
+      this.markBreakingTargetsUntouched();
+      this.regenerateBreakingTargets(delta);
+      return;
+    }
+
+    if (pointerBreaks) {
+      this.startToolUse();
+    }
+
+    this.syncHitboxActors(activeLocal);
     this.markBreakingTargetsUntouched();
-    this.damageTargetsInHitboxes(localPlayer);
+    if (pointerBreaks) {
+      this.damageTargetsInHitboxes(activeLocal);
+    }
     this.regenerateBreakingTargets(delta);
     this.removeMissingBreakingTargets();
   }
@@ -638,8 +654,17 @@ export class BlockTargetingHighlight extends ex.Actor {
 
   private stopToolUse() {
     this.lastAppliedBlockBreakFrameIndex = null;
-    this.hideHitboxActors();
-    this.getLocalPlayer()?.stopBlockBreakAction();
+    const localPlayer = this.getLocalPlayer();
+    if (!localPlayer) {
+      this.hideHitboxActors();
+      return;
+    }
+    if (localPlayer.isPaused) {
+      localPlayer.stopBlockBreakAction();
+      this.hideHitboxActors();
+      return;
+    }
+    localPlayer.releaseBlockBreakHold();
   }
 
   private syncHitboxActors(localPlayer: Player) {
@@ -883,14 +908,21 @@ export class BlockTargetingHighlight extends ex.Actor {
     player: Player,
     hitbox: { offset: ex.Vector; width: number; height: number },
   ): WorldBounds {
+    const { width: frameW, height: frameH } = player.blockBreakFramePixelSize();
+    const drawOffset = player.bodyGraphicsDrawOffset();
+    const spriteTopLeft = ex.vec(
+      player.pos.x + drawOffset.x - frameW / 2,
+      player.pos.y + drawOffset.y - frameH / 2,
+    );
     const left = player.isFacingLeft()
-      ? player.pos.x + TILE_PX - hitbox.offset.x - hitbox.width
-      : player.pos.x + hitbox.offset.x;
+      ? spriteTopLeft.x + (frameW - hitbox.offset.x - hitbox.width)
+      : spriteTopLeft.x + hitbox.offset.x;
+    const top = spriteTopLeft.y + hitbox.offset.y;
     return {
       left,
       right: left + hitbox.width,
-      top: player.pos.y + hitbox.offset.y,
-      bottom: player.pos.y + hitbox.offset.y + hitbox.height,
+      top,
+      bottom: top + hitbox.height,
     };
   }
 

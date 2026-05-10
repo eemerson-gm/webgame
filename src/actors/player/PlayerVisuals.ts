@@ -44,7 +44,10 @@ export class PlayerVisuals {
   private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
   private renderOffset: ex.Vector = ex.vec(0, 0);
   
-  constructor(private readonly actor: ex.Actor) {
+  constructor(
+    private readonly actor: ex.Actor,
+    private readonly blockBreakHeldIndefinitely: () => boolean,
+  ) {
     this.hatActor = new ex.Actor({
       pos: attachedVisualHiddenPosition(),
       anchor: hatAnchor,
@@ -91,6 +94,7 @@ export class PlayerVisuals {
       (layer) => this.createPowerupAttachmentActor(layer),
       TILE_PX,
       () => this.syncHat(),
+      () => this.blockBreakHeldIndefinitely(),
     );
     const isWalking = this.currentVisual === "walk";
 
@@ -122,6 +126,18 @@ export class PlayerVisuals {
   public get blockBreakDurationMs() {
     return this.blockBreakAnimation?.durationMs ?? 0;
   }
+
+  public remainingBlockBreakCycleMs() {
+    const anim = this.blockBreakAnimation;
+    if (!anim) {
+      return 0;
+    }
+    const framesLeft = Math.max(
+      anim.totalFrames - anim.currentFrameIndex,
+      1,
+    );
+    return framesLeft * anim.msPerFrame;
+  }
   
   public get blockBreakAnimationRef() {
     return this.blockBreakAnimation;
@@ -138,7 +154,22 @@ export class PlayerVisuals {
   public get blockBreakFrameIndex() {
     return this.blockBreakAnimation?.currentFrameIndex ?? 0;
   }
-  
+
+  public bodyGraphicsDrawOffset() {
+    return playerGraphicOffset
+      .add(this.visualCorrectionOffset)
+      .add(this.renderOffset);
+  }
+
+  public blockBreakFramePixelSize() {
+    return (
+      this.blockBreakAnimation?.currentFrameGraphicSize() ?? {
+        width: TILE_PX,
+        height: TILE_PX,
+      }
+    );
+  }
+
   public setVisual(visual: PlayerVisual, force: boolean = false) {
     if (this.currentVisual === visual && !force) {
       return;
@@ -182,6 +213,10 @@ export class PlayerVisuals {
     this.syncHat();
   }
   
+  public resumeBlockBreakGraphicPlayback() {
+    this.blockBreakAnimation?.resumeGraphicPlaybackIfPaused();
+  }
+
   public updateFacing(facingLeft: boolean) {
     this.actor.graphics.flipHorizontal = facingLeft;
     this.syncHat();

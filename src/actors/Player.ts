@@ -106,7 +106,9 @@ export class Player extends MovingActor {
     this.spawnPosition = ex.vec(pos.x, pos.y);
     this.fixedStepPreviousPosition = ex.vec(pos.x, pos.y);
     
-    this.visuals = new PlayerVisuals(this);
+    this.visuals = new PlayerVisuals(this, () =>
+      !Number.isFinite(this.blockBreakActionTimeRemainingMs),
+    );
     this.networkSync = new PlayerNetworkSync(client);
     
     this.damageFlash = new DamageFlash(this, {
@@ -202,12 +204,10 @@ export class Player extends MovingActor {
   }
 
   private sendBlockBreakActionState(isBreakingBlock: boolean) {
-    const position = this.currentPosition();
     const activePowerup = this.activePowerup;
     this.sendClient(messageTypes.updatePlayer, {
       isUsingPowerup: isBreakingBlock,
       activePowerup,
-      ...position,
     });
   }
 
@@ -231,6 +231,7 @@ export class Player extends MovingActor {
     if (powerup !== this.activePowerup) {
       this.syncPowerupState(powerup);
     }
+    const previousRemaining = this.blockBreakActionTimeRemainingMs;
     if (!this.isBreakingBlock) {
       return this.beginBlockBreakAction(durationMs);
     }
@@ -238,7 +239,12 @@ export class Player extends MovingActor {
       this.blockBreakActionTimeRemainingMs,
       durationMs,
     );
-    this.sendBlockBreakActionState(true);
+    if (
+      Number.isFinite(previousRemaining) &&
+      !Number.isFinite(this.blockBreakActionTimeRemainingMs)
+    ) {
+      this.visuals.resumeBlockBreakGraphicPlayback();
+    }
     return true;
   }
 
@@ -342,6 +348,14 @@ export class Player extends MovingActor {
     return this.visuals.blockBreakFrameIndex;
   }
 
+  public blockBreakFramePixelSize() {
+    return this.visuals.blockBreakFramePixelSize();
+  }
+
+  public bodyGraphicsDrawOffset() {
+    return this.visuals.bodyGraphicsDrawOffset();
+  }
+
   public isFacingLeft() {
     return this.facingLeft;
   }
@@ -421,6 +435,13 @@ export class Player extends MovingActor {
     }
     this.stopBlockBreakActionVisual();
     this.sendBlockBreakActionState(false);
+  }
+
+  public releaseBlockBreakHold() {
+    if (!this.isBreakingBlock) {
+      return;
+    }
+    this.blockBreakActionTimeRemainingMs = this.visuals.remainingBlockBreakCycleMs();
   }
 
   public syncPauseState(isPaused: boolean) {

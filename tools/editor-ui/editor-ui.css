@@ -1,23 +1,25 @@
 :root {
-  --editor-bg: #1a1a2e;
-  --editor-surface: #16213e;
-  --editor-surface-deep: #101b35;
-  --editor-border: #0f3460;
-  --editor-border-strong: #1a4a80;
-  --editor-text: #e0e0e0;
-  --editor-text-muted: #8888aa;
-  --editor-text-soft: #9aa3b5;
-  --editor-accent: #e94560;
-  --editor-accent-focus: #53d8fb;
-  --editor-success: #4caf50;
-  --editor-danger-border: #783044;
-  --editor-danger-text: #ffb5c2;
-  --editor-input-bg: #0f3460;
-  --editor-thumb-bg: #0a0a1a;
-  --editor-radius: 4px;
-  --editor-radius-sm: 3px;
+  --editor-bg: #1e1e1e;
+  --editor-surface: #2d2d2d;
+  --editor-surface-raised: #363636;
+  --editor-border: #404040;
+  --editor-border-strong: #555555;
+  --editor-text: #ececec;
+  --editor-text-muted: #9e9e9e;
+  --editor-text-soft: #b0b0b0;
+  --editor-accent: #d32f2f;
+  --editor-accent-hover: #b71c1c;
+  --editor-accent-focus: #29b6f6;
+  --editor-success: #66bb6a;
+  --editor-danger-bg: #3e2723;
+  --editor-danger-border: #5d4037;
+  --editor-danger-text: #ffab91;
+  --editor-input-bg: #252525;
+  --editor-canvas-bg: #121212;
+  --editor-radius: 0;
+  --editor-radius-sm: 0;
   --editor-font: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
-  --editor-font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --editor-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --editor-space-xs: 4px;
   --editor-space-sm: 8px;
   --editor-space-md: 12px;
@@ -35,7 +37,7 @@
 .editor-root {
   background: var(--editor-bg);
   color: var(--editor-text);
-  font-family: var(--editor-font);
+  font-family: var(--editor-font-ui);
   font-size: 13px;
   display: flex;
   height: 100vh;
@@ -53,19 +55,18 @@
 }
 
 .editor-sidebar__title {
-  font-family: var(--editor-font-ui);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--editor-text-muted);
-  padding: 10px;
+  padding: 10px var(--editor-space-md);
   border-bottom: 1px solid var(--editor-border);
   flex-shrink: 0;
 }
 
 .editor-sidebar__footer {
-  padding: var(--editor-space-sm);
+  padding: var(--editor-space-sm) var(--editor-space-md);
   border-top: 1px solid var(--editor-border);
   color: var(--editor-text-muted);
   font-size: 11px;
@@ -97,14 +98,14 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: var(--editor-thumb-bg);
+  background: var(--editor-canvas-bg);
   position: relative;
   min-height: 0;
 }
 
 .editor-track-panel {
   flex-shrink: 0;
-  background: var(--editor-surface-deep);
+  background: var(--editor-surface);
   border-top: 1px solid var(--editor-border);
   max-height: min(280px, 38vh);
   display: flex;
@@ -123,11 +124,10 @@
 }
 
 .editor-track-panel__title {
-  font-family: var(--editor-font-ui);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--editor-text-muted);
 }
 
@@ -157,23 +157,23 @@
   gap: var(--editor-space-md);
   padding: var(--editor-space-sm) var(--editor-space-md);
   border-bottom: 1px solid var(--editor-border);
-  background: var(--editor-surface);
+  background: var(--editor-surface-raised);
   cursor: pointer;
 }
 
 .editor-track-row--active {
-  box-shadow: inset 3px 0 0 var(--editor-accent-focus);
-  background: rgba(83, 216, 251, 0.06);
+  border-left: 4px solid var(--editor-accent-focus);
+  padding-left: calc(var(--editor-space-md) - 4px);
+  background: var(--editor-surface);
 }
 
 .editor-track-row__badge {
   flex-shrink: 0;
   width: 48px;
-  font-family: var(--editor-font-ui);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--editor-text-muted);
 }
 
@@ -219,11 +219,10 @@
 }
 
 .editor-properties__label {
-  font-family: var(--editor-font-ui);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--editor-text-muted);
 }
 
@@ -290,7 +289,6 @@
 }
 
 .editor-label {
-  font-family: var(--editor-font-ui);
   color: var(--editor-text-soft);
   font-size: 11px;
 }
@@ -298,11 +296,11 @@
 .editor-input,
 .editor-select {
   background: var(--editor-input-bg);
-  border: 1px solid var(--editor-border-strong);
+  border: 1px solid var(--editor-border);
   color: var(--editor-text);
   font-family: var(--editor-font);
   font-size: 12px;
-  padding: 3px 6px;
+  padding: 4px 8px;
   border-radius: var(--editor-radius-sm);
 }
 
@@ -336,13 +334,14 @@
 }
 
 .editor-properties .editor-val-label {
+  font-family: var(--editor-font);
   font-size: 11px;
   color: var(--editor-text-soft);
   width: 46px;
 }
 
 .editor-properties .editor-range {
-  accent-color: var(--editor-accent);
+  accent-color: var(--editor-accent-focus);
 }
 
 .editor-muted {
@@ -357,18 +356,26 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--editor-input-bg);
-  border: 1px solid var(--editor-border-strong);
+  background: var(--editor-surface-raised);
+  border: 1px solid var(--editor-border);
   color: var(--editor-text);
-  font-family: var(--editor-font);
+  font-family: var(--editor-font-ui);
   font-size: 12px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: var(--editor-radius-sm);
   cursor: pointer;
 }
 
 .editor-btn:hover {
   background: var(--editor-border-strong);
+  border-color: var(--editor-border-strong);
+}
+
+.editor-btn:focus-visible,
+.editor-input:focus-visible,
+.editor-select:focus-visible {
+  outline: 2px solid var(--editor-accent-focus);
+  outline-offset: 1px;
 }
 
 .editor-btn--primary {
@@ -378,17 +385,30 @@
 }
 
 .editor-btn--primary:hover {
-  filter: brightness(1.08);
+  background: var(--editor-accent-hover);
+  border-color: var(--editor-accent-hover);
 }
 
 .editor-btn--danger {
+  background: var(--editor-danger-bg);
   border-color: var(--editor-danger-border);
   color: var(--editor-danger-text);
+}
+
+.editor-btn--danger:hover {
+  background: #4e342e;
+  border-color: #6d4c41;
 }
 
 .editor-btn--active {
   background: var(--editor-accent);
   border-color: var(--editor-accent);
+  color: #fff;
+}
+
+.editor-btn--active:hover {
+  background: var(--editor-accent-hover);
+  border-color: var(--editor-accent-hover);
 }
 
 .editor-asset-list {
@@ -404,7 +424,7 @@
 .editor-thumb {
   width: 40px;
   height: 40px;
-  background: var(--editor-thumb-bg);
+  background: var(--editor-input-bg);
   border: 1px solid var(--editor-border);
   border-radius: var(--editor-radius-sm);
   cursor: grab;
@@ -416,7 +436,7 @@
 }
 
 .editor-thumb:hover {
-  border-color: var(--editor-accent);
+  border-color: var(--editor-accent-focus);
 }
 
 .editor-thumb.editor-thumb--selected {
@@ -434,6 +454,7 @@
   min-width: 60px;
   text-align: center;
   font-size: 12px;
+  font-family: var(--editor-font);
 }
 
 .editor-hint {
@@ -442,14 +463,14 @@
 }
 
 .editor-root ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .editor-root ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--editor-bg);
 }
 
 .editor-root ::-webkit-scrollbar-thumb {
-  background: var(--editor-border);
+  background: var(--editor-border-strong);
   border-radius: var(--editor-radius-sm);
 }

@@ -6,10 +6,12 @@ export type NetworkedEntityProviders = {
 };
 
 const ownerStateSyncIntervalMs = 200;
+const unsettledFramesBeforeResumingSync = 4;
 
 export class NetworkedEntityBehavior<TState extends EntityState> {
   private ownerStateSyncElapsedMs = 0;
   private hasSentSettledState = false;
+  private unsettledFrameStreak = 0;
 
   constructor(private providers: NetworkedEntityProviders) {}
 
@@ -30,12 +32,24 @@ export class NetworkedEntityBehavior<TState extends EntityState> {
       return;
     }
     if (isSettled) {
+      this.unsettledFrameStreak = 0;
       if (this.hasSentSettledState) {
         return;
       }
       this.hasSentSettledState = true;
       this.ownerStateSyncElapsedMs = 0;
       this.providers.sendState(state);
+      return;
+    }
+    if (!this.hasSentSettledState) {
+      this.unsettledFrameStreak = 0;
+    } else {
+      this.unsettledFrameStreak += 1;
+    }
+    if (
+      this.hasSentSettledState &&
+      this.unsettledFrameStreak < unsettledFramesBeforeResumingSync
+    ) {
       return;
     }
     this.hasSentSettledState = false;
@@ -50,5 +64,6 @@ export class NetworkedEntityBehavior<TState extends EntityState> {
   
   public resetSettledState() {
     this.hasSentSettledState = false;
+    this.unsettledFrameStreak = 0;
   }
 }

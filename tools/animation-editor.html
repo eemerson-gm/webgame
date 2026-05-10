@@ -37,6 +37,10 @@
       <input type="number" id="frame-dur" class="editor-input editor-input--narrow" min="1" step="1" value="75" aria-label="Frame duration milliseconds" />
     </span>
     <span class="editor-hint">ms</span>
+    <span class="editor-toolbar__field" id="damage-field">
+      <span class="editor-label">Damage</span>
+      <input type="number" id="base-damage" class="editor-input editor-input--narrow" min="0" step="0.1" value="1" aria-label="Base damage" />
+    </span>
     <button type="button" class="editor-btn editor-btn--primary" id="btn-save">Save</button>
     <span id="save-status" class="editor-toolbar__save-status" role="status" aria-live="polite"></span>
   </header>
@@ -51,6 +55,16 @@
         <span class="editor-track-panel__actions">
           <button type="button" class="editor-btn editor-btn--compact" id="add-attachment">Add from palette</button>
           <button type="button" class="editor-btn editor-btn--compact editor-btn--danger" id="remove-attachment">Remove</button>
+        </span>
+      </div>
+      <div class="editor-track-panel__toolbar" id="hitbox-toolbar">
+        <span class="editor-track-panel__title">Hitboxes</span>
+        <span id="hitbox-hint" class="editor-muted editor-track-panel__hint"></span>
+        <span class="editor-track-panel__actions">
+          <button type="button" class="editor-btn editor-btn--compact" id="add-hitbox">Add hitbox</button>
+          <button type="button" class="editor-btn editor-btn--compact" id="copy-hitbox">Copy</button>
+          <button type="button" class="editor-btn editor-btn--compact" id="paste-hitbox">Paste</button>
+          <button type="button" class="editor-btn editor-btn--compact editor-btn--danger" id="remove-hitbox">Remove</button>
         </span>
       </div>
       <div class="editor-track-stack">
@@ -72,6 +86,7 @@
           </div>
         </div>
         <div id="attachment-tracks" class="editor-track-stack-attachments" aria-label="Attachment tracks"></div>
+        <div id="hitbox-tracks" class="editor-track-stack-attachments" aria-label="Hitbox tracks"></div>
       </div>
     </div>
   </div>
@@ -86,6 +101,14 @@
       <span class="editor-toolbar__field">
         <span class="editor-label">Y</span>
         <input type="number" id="off-y" class="editor-input" step="1" />
+      </span>
+      <span class="editor-toolbar__field" id="width-field">
+        <span class="editor-label">Width</span>
+        <input type="number" id="hitbox-width" class="editor-input" step="1" min="1" />
+      </span>
+      <span class="editor-toolbar__field" id="height-field">
+        <span class="editor-label">Height</span>
+        <input type="number" id="hitbox-height" class="editor-input" step="1" min="1" />
       </span>
       <span class="editor-toolbar__field">
         <span class="editor-label">Layer</span>
@@ -189,17 +212,27 @@ const state = {
   dragStartOffsetX: 0,
   dragStartOffsetY: 0,
   allAssets: [],
+  copiedHitbox: null,
 };
 const elements = {
   animSelect: document.getElementById("anim-select"),
   trackSelect: document.getElementById("track-select"),
   frameLabel: document.getElementById("frame-label"),
   frameDur: document.getElementById("frame-dur"),
+  baseDamage: document.getElementById("base-damage"),
+  damageField: document.getElementById("damage-field"),
   saveStatus: document.getElementById("save-status"),
   assetList: document.getElementById("asset-list"),
   assetSearch: document.getElementById("asset-search"),
   selectedAsset: document.getElementById("selected-asset"),
   attachmentTracks: document.getElementById("attachment-tracks"),
+  hitboxTracks: document.getElementById("hitbox-tracks"),
+  hitboxToolbar: document.getElementById("hitbox-toolbar"),
+  hitboxHint: document.getElementById("hitbox-hint"),
+  addHitbox: document.getElementById("add-hitbox"),
+  copyHitbox: document.getElementById("copy-hitbox"),
+  pasteHitbox: document.getElementById("paste-hitbox"),
+  removeHitbox: document.getElementById("remove-hitbox"),
   trackRowPlayer: document.getElementById("track-row-player"),
   trackRowHat: document.getElementById("track-row-hat"),
   attachmentHint: document.getElementById("attachment-hint"),
@@ -210,6 +243,10 @@ const elements = {
   selectedItemLabel: document.getElementById("selected-item-label"),
   offX: document.getElementById("off-x"),
   offY: document.getElementById("off-y"),
+  hitboxWidth: document.getElementById("hitbox-width"),
+  hitboxHeight: document.getElementById("hitbox-height"),
+  widthField: document.getElementById("width-field"),
+  heightField: document.getElementById("height-field"),
   layer: document.getElementById("layer"),
   rotSlider: document.getElementById("rot-slider"),
   rotExact: document.getElementById("rot-exact"),
@@ -246,6 +283,7 @@ const defaultBody = () => ({
 const CORE_BODY_CLIPS = ["idle", "walk", "jump", "crouch"];
 const ensurePoseCount = (poses, count, factory) => Array.from({ length: count }, (_, index) => poses?.[index] ?? poses?.[0] ?? factory());
 const uniqueAttachmentId = () => `attachment-${Date.now()}-${Math.round(Math.random() * 10000)}`;
+const uniqueHitboxId = () => `hitbox-${Date.now()}-${Math.round(Math.random() * 10000)}`;
 const ensureAnimationData = (data) => {
   const body = data.body ?? defaultBody();
   const legacyAction = data.action;
@@ -282,6 +320,20 @@ const ensureAnimationData = (data) => {
   Object.entries(data.actions).forEach(([actionId, action]) => {
     action.frames = action.frames?.length ? action.frames : [{ sprite: "PlayerPunch1" }];
     action.frameDurationMs = action.frameDurationMs ?? 75;
+    action.baseDamage = Number.isFinite(Number(action.baseDamage)) ? Number(action.baseDamage) : 1;
+    action.hitboxes = action.hitboxes ?? [];
+    while (action.hitboxes.length < action.frames.length) {
+      action.hitboxes.push([]);
+    }
+    action.hitboxes = action.hitboxes.slice(0, action.frames.length);
+    action.hitboxes.forEach((frameHitboxes) => {
+      frameHitboxes.forEach((hitbox) => {
+        hitbox.id = hitbox.id || uniqueHitboxId();
+        hitbox.offset = hitbox.offset ?? { x: 0, y: 0 };
+        hitbox.width = Number.isFinite(Number(hitbox.width)) ? Number(hitbox.width) : 16;
+        hitbox.height = Number.isFinite(Number(hitbox.height)) ? Number(hitbox.height) : 16;
+      });
+    });
     action.attachments = action.attachments ?? [];
     action.attachments.forEach((attachment) => {
       attachment.id = attachment.id || uniqueAttachmentId();
@@ -317,6 +369,11 @@ const currentTrackEntry = () => trackEntries().find((entry) => entry.id === elem
 const currentTrack = () => currentTrackEntry()?.track;
 const currentFrame = () => currentTrack()?.frames?.[state.frameIndex];
 const currentAttachments = () => currentTrackEntry()?.attachments?.() ?? [];
+const currentHitboxes = () => {
+  const track = currentTrack();
+  if (!track || !isActionTrack() || !track.hitboxes) return [];
+  return track.hitboxes[state.frameIndex] ?? [];
+};
 const currentHatPoses = () => currentTrackEntry()?.hatPoses?.() ?? [];
 const currentHatPose = () => currentHatPoses()[state.frameIndex];
 const attachmentPose = (attachment) => attachment.poses[state.frameIndex] ?? attachment.poses[0];
@@ -328,16 +385,24 @@ const selectedAttachment = () => {
   if (state.selectedItem.type !== "attachment") return undefined;
   return currentAttachments().find((attachment) => attachment.id === state.selectedItem.id);
 };
+const selectedHitbox = () => {
+  if (state.selectedItem.type !== "hitbox") return undefined;
+  return currentHitboxes().find((hitbox) => hitbox.id === state.selectedItem.id);
+};
 const selectedPose = () => {
   if (state.selectedItem.type === "hat") return currentHatPose();
   const attachment = selectedAttachment();
   if (attachment) return attachmentPose(attachment);
+  const hitbox = selectedHitbox();
+  if (hitbox) return hitbox;
   return undefined;
 };
 const selectedItemLabel = () => {
   if (state.selectedItem.type === "hat") return "Hat";
   const attachment = selectedAttachment();
   if (attachment) return `Attachment: ${attachment.sprite}`;
+  const hitbox = selectedHitbox();
+  if (hitbox) return `Hitbox: ${hitbox.width}x${hitbox.height}`;
   return "Body frame";
 };
 const captureState = () => {
@@ -426,20 +491,76 @@ const syncAttachmentToolbar = () => {
     ? "Props: drop palette on canvas or add from palette. New props only on the current frame."
     : "Switch to an action clip to add prop tracks.";
 };
+const renderHitboxTracks = () => {
+  elements.hitboxTracks.innerHTML = "";
+  if (!isActionTrack()) return;
+  currentHitboxes().forEach((hitbox) => {
+    const row = document.createElement("div");
+    row.className = `editor-track-row editor-track-row--attachment${state.selectedItem.type === "hitbox" && state.selectedItem.id === hitbox.id ? " editor-track-row--active" : ""}`;
+    row.dataset.hitboxId = hitbox.id;
+    const badge = document.createElement("span");
+    badge.className = "editor-track-row__badge";
+    badge.textContent = "Hit";
+    const body = document.createElement("div");
+    body.className = "editor-track-row__body";
+    const name = document.createElement("span");
+    name.className = "editor-muted editor-track-row__name";
+    name.textContent = `${hitbox.width}x${hitbox.height}`;
+    const pos = document.createElement("span");
+    pos.className = "editor-muted editor-track-row__meta";
+    pos.textContent = `offset ${hitbox.offset.x},${hitbox.offset.y}`;
+    body.appendChild(name);
+    body.appendChild(pos);
+    row.appendChild(badge);
+    row.appendChild(body);
+    row.onclick = () => {
+      state.selectedItem = { type: "hitbox", id: hitbox.id };
+      syncControls();
+      render();
+    };
+    elements.hitboxTracks.appendChild(row);
+  });
+};
+const syncHitboxToolbar = () => {
+  if (!state.animData) {
+    elements.addHitbox.disabled = true;
+    elements.copyHitbox.disabled = true;
+    elements.pasteHitbox.disabled = true;
+    elements.removeHitbox.disabled = true;
+    elements.hitboxHint.textContent = "";
+    return;
+  }
+  const action = isActionTrack();
+  elements.addHitbox.disabled = !action;
+  elements.copyHitbox.disabled = !action || state.selectedItem.type !== "hitbox";
+  elements.pasteHitbox.disabled = !action || !state.copiedHitbox;
+  elements.removeHitbox.disabled = !action || state.selectedItem.type !== "hitbox";
+  elements.hitboxHint.textContent = action
+    ? "Hitboxes only appear on the current frame. Use Ctrl+C/Ctrl+V to copy/paste."
+    : "Switch to an action clip to add hitboxes.";
+};
 const syncControls = () => {
   const track = currentTrack();
   const frame = currentFrame();
   const frameCount = track?.frames?.length ?? 0;
   elements.frameLabel.textContent = `Frame ${Math.min(state.frameIndex + 1, frameCount)}/${frameCount || 1}`;
   elements.frameDur.value = track?.frameDurationMs ?? 75;
+  elements.baseDamage.value = track?.baseDamage ?? 1;
+  elements.damageField.style.display = isActionTrack() ? "" : "none";
+  elements.hitboxToolbar.style.display = isActionTrack() ? "" : "none";
   elements.bodySpriteLabel.textContent = `Sprite: ${frame?.sprite ?? "none"}`;
   const hatPose = currentHatPose();
   elements.hatVisible.checked = !!hatPose && hatPose.visible !== false;
   const attachment = selectedAttachment();
+  const hitbox = selectedHitbox();
   const pose = selectedPose();
   elements.selectedItemLabel.textContent = selectedItemLabel();
   elements.offX.value = pose ? pose.offset.x : "";
   elements.offY.value = pose ? pose.offset.y : "";
+  elements.hitboxWidth.value = hitbox ? hitbox.width : "";
+  elements.hitboxHeight.value = hitbox ? hitbox.height : "";
+  elements.widthField.style.display = hitbox ? "" : "none";
+  elements.heightField.style.display = hitbox ? "" : "none";
   elements.layer.value = attachment ? attachment.layer : "";
   elements.layer.disabled = !attachment;
   const rotation = attachment && pose ? pose.rotation ?? 0 : 0;
@@ -449,8 +570,10 @@ const syncControls = () => {
   elements.rotSlider.disabled = !attachment;
   elements.rotExact.disabled = !attachment;
   renderAttachmentTracks();
+  renderHitboxTracks();
   syncTrackRowHighlight();
   syncAttachmentToolbar();
+  syncHitboxToolbar();
 };
 const setTrack = (trackId) => {
   elements.trackSelect.value = trackId;
@@ -576,9 +699,11 @@ const drawHat = () => {
 const drawSelection = () => {
   const item = state.renderItems.find((renderItem) => {
     if (state.selectedItem.type === "hat") return renderItem.type === "hat";
-    return renderItem.type === "attachment" && renderItem.id === state.selectedItem.id;
+    if (state.selectedItem.type === "attachment") return renderItem.type === "attachment" && renderItem.id === state.selectedItem.id;
+    if (state.selectedItem.type === "hitbox") return renderItem.type === "hitbox" && renderItem.id === state.selectedItem.id;
+    return false;
   });
-  if (!item) return;
+  if (!item || item.type === "hitbox") return;
   const x = (CENTER_OFFSET + item.x) * SCALE;
   const y = (CENTER_OFFSET + item.y) * SCALE;
   ctx.save();
@@ -597,6 +722,33 @@ const drawSelection = () => {
   ctx.arc(0, 0, 4, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+};
+const drawHitboxes = () => {
+  const metrics = bodyFrameMetrics();
+  const bodyOffsetX = metrics?.offsetX ?? 0;
+  const bodyOffsetY = metrics?.offsetY ?? 0;
+  currentHitboxes().forEach((hitbox) => {
+    const x = (CENTER_OFFSET - bodyOffsetX + hitbox.offset.x) * SCALE;
+    const y = (CENTER_OFFSET - bodyOffsetY + hitbox.offset.y) * SCALE;
+    const width = hitbox.width * SCALE;
+    const height = hitbox.height * SCALE;
+    const isSelected = state.selectedItem.type === "hitbox" && state.selectedItem.id === hitbox.id;
+    ctx.fillStyle = isSelected ? "rgba(255, 100, 100, 0.3)" : "rgba(255, 200, 100, 0.25)";
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = isSelected ? "rgba(255, 100, 100, 0.8)" : "rgba(255, 200, 100, 0.6)";
+    ctx.lineWidth = isSelected ? 3 : 2;
+    ctx.strokeRect(x, y, width, height);
+    state.renderItems.push({
+      type: "hitbox",
+      id: hitbox.id,
+      x: -bodyOffsetX + hitbox.offset.x,
+      y: -bodyOffsetY + hitbox.offset.y,
+      width: hitbox.width,
+      height: hitbox.height,
+      rotation: 0,
+      anchor: "top-left",
+    });
+  });
 };
 const drawCrosshair = () => {
   const centerX = CENTER_OFFSET * SCALE;
@@ -620,6 +772,7 @@ const render = () => {
   drawBody();
   sortedAttachments().filter((attachment) => attachment.layer >= 0).forEach(drawAttachment);
   drawHat();
+  drawHitboxes();
   drawSelection();
   drawCrosshair();
 };
@@ -632,6 +785,9 @@ const hitTestItem = (item, px, py) => {
   const localY = dx * sin + dy * cos;
   if (item.anchor === "bottom-center") {
     return localX >= -item.width / 2 && localX <= item.width / 2 && localY >= -item.height && localY <= 0;
+  }
+  if (item.anchor === "top-left") {
+    return localX >= 0 && localX <= item.width && localY >= 0 && localY <= item.height;
   }
   return localX >= 0 && localX <= item.width && localY >= -item.height && localY <= 0;
 };
@@ -732,6 +888,72 @@ const removeSelectedAttachment = () => {
   syncControls();
   render();
 };
+const addHitbox = () => {
+  if (!isActionTrack()) return;
+  const track = currentTrack();
+  if (!track.hitboxes) return;
+  captureState();
+  const id = uniqueHitboxId();
+  const template = { x: 10, y: 4, width: 16, height: 16 };
+  track.hitboxes.forEach((frameList) => {
+    frameList.push({
+      id,
+      offset: { x: template.x, y: template.y },
+      width: template.width,
+      height: template.height,
+    });
+  });
+  state.selectedItem = { type: "hitbox", id };
+  syncControls();
+  render();
+};
+const removeSelectedHitbox = () => {
+  const hitbox = selectedHitbox();
+  const track = currentTrack();
+  if (!hitbox || !track?.hitboxes) return;
+  captureState();
+  const id = hitbox.id;
+  track.hitboxes.forEach((frameList, index) => {
+    track.hitboxes[index] = frameList.filter((item) => item.id !== id);
+  });
+  state.selectedItem = { type: "body" };
+  syncControls();
+  render();
+};
+const copySelectedHitbox = () => {
+  const hitbox = selectedHitbox();
+  if (!hitbox) return;
+  state.copiedHitbox = {
+    offset: { x: hitbox.offset.x, y: hitbox.offset.y },
+    width: hitbox.width,
+    height: hitbox.height,
+  };
+  elements.saveStatus.textContent = "Hitbox copied";
+  elements.saveStatus.classList.add("editor-save-status--saved");
+  setTimeout(() => {
+    elements.saveStatus.textContent = "";
+    elements.saveStatus.classList.remove("editor-save-status--saved");
+  }, 1500);
+};
+const pasteHitbox = () => {
+  if (!state.copiedHitbox || !isActionTrack()) return;
+  const track = currentTrack();
+  if (!track?.hitboxes) return;
+  captureState();
+  const id = uniqueHitboxId();
+  const { offset, width, height } = state.copiedHitbox;
+  track.hitboxes.forEach((frameList) => {
+    frameList.push({
+      id,
+      offset: { x: offset.x, y: offset.y },
+      width,
+      height,
+    });
+  });
+  state.selectedItem = { type: "hitbox", id };
+  syncControls();
+  render();
+};
 const endCanvasDrag = () => {
   state.isDragging = false;
   state.dragPointerId = null;
@@ -742,6 +964,7 @@ const applySelectedPoseChange = () => {
   pose.offset.x = parseFloat(elements.offX.value) || 0;
   pose.offset.y = parseFloat(elements.offY.value) || 0;
   const attachment = selectedAttachment();
+  const hitbox = selectedHitbox();
   if (attachment) {
     revealAttachmentPoseIfHidden(pose);
     const rotation = parseFloat(elements.rotExact.value) || 0;
@@ -749,6 +972,21 @@ const applySelectedPoseChange = () => {
     pose.rotation = rotation;
     elements.rotSlider.value = rotation;
     elements.rotLabel.textContent = rotation.toFixed(2);
+  }
+  if (hitbox) {
+    const w = Math.max(1, parseInt(elements.hitboxWidth.value, 10) || 16);
+    const h = Math.max(1, parseInt(elements.hitboxHeight.value, 10) || 16);
+    const track = currentTrack();
+    if (track?.hitboxes) {
+      track.hitboxes.forEach((frameList) => {
+        frameList.forEach((hb) => {
+          if (hb.id === hitbox.id) {
+            hb.width = w;
+            hb.height = h;
+          }
+        });
+      });
+    }
   }
   syncControls();
   render();
@@ -764,7 +1002,13 @@ canvas.addEventListener("pointerdown", (event) => {
     render();
     return;
   }
-  state.selectedItem = hit.type === "attachment" ? { type: "attachment", id: hit.id } : { type: "hat" };
+  if (hit.type === "attachment") {
+    state.selectedItem = { type: "attachment", id: hit.id };
+  } else if (hit.type === "hitbox") {
+    state.selectedItem = { type: "hitbox", id: hit.id };
+  } else {
+    state.selectedItem = { type: "hat" };
+  }
   const pose = selectedPose();
   if (!pose) {
     syncControls();
@@ -790,7 +1034,9 @@ canvas.addEventListener("pointermove", (event) => {
   const { px, py } = canvasToPixel(event.clientX, event.clientY);
   pose.offset.x = Math.round(state.dragStartOffsetX + px - state.dragStartCanvasX);
   pose.offset.y = Math.round(state.dragStartOffsetY + py - state.dragStartCanvasY);
-  if (state.selectedItem.type === "attachment") revealAttachmentPoseIfHidden(pose);
+  if (state.selectedItem.type === "attachment") {
+    revealAttachmentPoseIfHidden(pose);
+  }
   syncControls();
   render();
 });
@@ -841,7 +1087,7 @@ canvasArea.addEventListener("drop", (event) => {
   const { px, py } = canvasToPixel(event.clientX, event.clientY);
   addAttachmentFromAssetAt(assetPath, px, py);
 });
-["offX", "offY", "layer", "rotExact"].forEach((key) => {
+["offX", "offY", "layer", "rotExact", "hitboxWidth", "hitboxHeight"].forEach((key) => {
   elements[key].onfocus = captureState;
   elements[key].oninput = applySelectedPoseChange;
 });
@@ -883,6 +1129,12 @@ elements.frameDur.oninput = () => {
   stopPlay();
   btnPlay.click();
 };
+elements.baseDamage.onfocus = captureState;
+elements.baseDamage.oninput = () => {
+  const track = currentTrack();
+  if (!track || !isActionTrack()) return;
+  track.baseDamage = Math.max(0, parseFloat(elements.baseDamage.value) || 1);
+};
 document.getElementById("btn-prev").onclick = () => goToFrame(state.frameIndex - 1);
 document.getElementById("btn-next").onclick = () => goToFrame(state.frameIndex + 1);
 btnPlay.onclick = () => {
@@ -906,6 +1158,10 @@ elements.addAttachment.onclick = () => {
   addAttachmentFromAsset(state.selectedAssetPath);
 };
 elements.removeAttachment.onclick = removeSelectedAttachment;
+elements.addHitbox.onclick = addHitbox;
+elements.copyHitbox.onclick = copySelectedHitbox;
+elements.pasteHitbox.onclick = pasteHitbox;
+elements.removeHitbox.onclick = removeSelectedHitbox;
 const fetchAnimList = () => fetch("/api/animations").then((response) => response.json());
 const flashError = (msg) => {
   elements.saveStatus.textContent = msg;
@@ -1098,9 +1354,22 @@ fetch("/api/assets")
     renderAssets("");
   });
 window.addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+  const isInputField = event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA" || event.target.tagName === "SELECT";
+  if ((event.ctrlKey || event.metaKey) && event.key === "z" && !isInputField) {
     event.preventDefault();
     performUndo();
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === "c" && !isInputField) {
+    if (state.selectedItem.type === "hitbox") {
+      event.preventDefault();
+      copySelectedHitbox();
+    }
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === "v" && !isInputField) {
+    if (state.copiedHitbox) {
+      event.preventDefault();
+      pasteHitbox();
+    }
   }
 });
 </script>

@@ -307,6 +307,7 @@ const actionAnimationFor = (
   createAttachmentActor: CreateAttachmentActor,
   mirrorWidth: number,
   onFrame: () => void,
+  shouldLoop?: () => boolean,
 ) =>
   new AttachedVisualAnimation({
     frames: action.frames.map((frame) => ({
@@ -323,7 +324,7 @@ const actionAnimationFor = (
       }),
     ),
     mirrorWidth,
-    strategy: ex.AnimationStrategy.Loop,
+    shouldLoop,
     onFrame,
   });
 
@@ -355,6 +356,7 @@ export const powerupVisualsFor = (
   createAttachmentActor: CreateAttachmentActor,
   mirrorWidth: number,
   onActionFrame: () => void,
+  shouldLoopBlockBreak?: () => boolean,
 ): PowerupVisuals => {
   const definition = powerupDefinitionFor(powerup);
   const activeUse = definition.actions.activeUse;
@@ -378,6 +380,7 @@ export const powerupVisualsFor = (
         createAttachmentActor,
         mirrorWidth,
         onActionFrame,
+        shouldLoopBlockBreak,
       ),
       ...(activeUse
         ? {

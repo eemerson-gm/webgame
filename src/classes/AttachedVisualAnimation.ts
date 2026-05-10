@@ -24,7 +24,8 @@ type AttachedVisualAnimationOptions = {
   baseDamage?: number;
   mirrorWidth: number;
   strategy?: ex.AnimationStrategy;
-  onFrame?: (frameIndex: number) => void;
+  shouldLoop?: () => boolean;
+  onFrame?: () => void;
 };
 
 export type AttachedVisualAttachment = {
@@ -39,20 +40,28 @@ const mirroredAttachmentAnchor = ex.vec(1, 1);
 export class AttachedVisualAnimation {
   public readonly animation: ex.Animation;
   private readonly attachments: readonly AttachedVisualAttachment[];
+  private readonly frameGraphics: readonly ex.Graphic[];
   private readonly frameDurationMs: number;
   private readonly frameCount: number;
   private readonly mirrorWidth: number;
   private readonly hitboxes: readonly (readonly AttachedVisualHitbox[])[];
   public readonly baseDamage: number;
+  private readonly shouldLoopCheck?: () => boolean;
   private currentAnimationFrameIndex = 0;
   private lastFacingLeft = false;
   private isPlaying = false;
 
   constructor(options: AttachedVisualAnimationOptions) {
+    this.frameGraphics = options.frames.map(({ graphic }) => graphic);
+    const strategy =
+      options.shouldLoop !== undefined
+        ? ex.AnimationStrategy.Loop
+        : (options.strategy ?? ex.AnimationStrategy.Freeze);
+    this.shouldLoopCheck = options.shouldLoop;
     this.animation = new ex.Animation({
       frames: options.frames.map(({ graphic }) => ({ graphic })),
       frameDuration: options.frameDurationMs,
-      strategy: options.strategy ?? ex.AnimationStrategy.Loop,
+      strategy,
     });
     this.attachments = options.attachments ?? [];
     this.frameDurationMs = options.frameDurationMs;
@@ -61,9 +70,7 @@ export class AttachedVisualAnimation {
     this.hitboxes = options.hitboxes ?? [];
     this.baseDamage = options.baseDamage ?? 0;
     this.animation.events.on("frame", (frame) => {
-      this.currentAnimationFrameIndex = frame.frameIndex;
-      this.syncAttachment(this.lastFacingLeft);
-      options.onFrame?.(frame.frameIndex);
+      this.applyFrameFromEngine(frame.frameIndex, options.onFrame);
     });
     this.attachments.forEach((attachment) => {
       attachment.actor.graphics.use(attachment.sprite);
@@ -79,6 +86,14 @@ export class AttachedVisualAnimation {
     return this.frameCount * this.frameDurationMs;
   }
 
+  get msPerFrame() {
+    return this.frameDurationMs;
+  }
+
+  get totalFrames() {
+    return this.frameCount;
+  }
+
   play() {
     this.isPlaying = true;
     this.animation.play();
@@ -87,6 +102,13 @@ export class AttachedVisualAnimation {
   pause() {
     this.isPlaying = false;
     this.animation.pause();
+  }
+
+  public resumeGraphicPlaybackIfPaused() {
+    if (this.animation.isPlaying) {
+      return;
+    }
+    this.animation.play();
   }
 
   reset() {
@@ -122,8 +144,36 @@ export class AttachedVisualAnimation {
     return this.hitboxes[this.currentFrameIndex] ?? [];
   }
 
+  public currentFrameGraphicSize() {
+    const graphic = this.frameGraphics[this.currentFrameIndex];
+    const width = graphic?.width ?? this.mirrorWidth;
+    const height = graphic?.height ?? this.mirrorWidth;
+    return { width, height };
+  }
+
   private frameDataFor(attachment: AttachedVisualAttachment) {
     return attachment.poses[this.currentFrameIndex] ?? attachment.poses[0];
+  }
+
+  private applyFrameFromEngine(nextIndex: number, onFrame?: () => void) {
+    if (
+      this.shouldLoopCheck &&
+      this.frameCount > 1 &&
+      this.currentAnimationFrameIndex === this.frameCount - 1 &&
+      nextIndex === 0 &&
+      !this.shouldLoopCheck()
+    ) {
+      const last = this.frameCount - 1;
+      this.animation.goToFrame(last);
+      this.animation.pause();
+      this.currentAnimationFrameIndex = last;
+      this.syncAttachment(this.lastFacingLeft);
+      onFrame?.();
+      return;
+    }
+    this.currentAnimationFrameIndex = nextIndex;
+    this.syncAttachment(this.lastFacingLeft);
+    onFrame?.();
   }
 
   private syncAttachment(facingLeft: boolean) {

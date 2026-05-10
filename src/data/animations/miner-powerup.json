@@ -135,38 +135,61 @@
       ],
       "frameDurationMs": 75,
       "hitboxes": [
-        [],
         [
           {
+            "id": "hitbox-1778369753800-3577",
             "offset": {
-              "x": 12,
+              "x": 10,
               "y": 2
             },
-            "width": 18,
-            "height": 16
+            "width": 16,
+            "height": 13
           }
         ],
         [
           {
             "offset": {
-              "x": 14,
-              "y": 6
+              "x": 10,
+              "y": 2
             },
-            "width": 20,
-            "height": 18
+            "width": 16,
+            "height": 13,
+            "id": "hitbox-1778364876288-3947"
           }
         ],
         [
           {
+            "id": "hitbox-1778364893925-4189",
             "offset": {
-              "x": 13,
-              "y": 8
+              "x": 10,
+              "y": 2
             },
-            "width": 20,
-            "height": 18
+            "width": 16,
+            "height": 13
           }
         ],
-        []
+        [
+          {
+            "id": "hitbox-1778364904176-9513",
+            "offset": {
+              "x": 10,
+              "y": 2
+            },
+            "width": 16,
+            "height": 13
+          }
+        ],
+        [
+          {
+            "id": "hitbox-1778424840453-5742",
+            "offset": {
+              "x": 10,
+              "y": 2
+            },
+            "width": 16,
+            "height": 13
+          }
+        ]
       ],
       "attachments": [
         {
