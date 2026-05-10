@@ -75,6 +75,11 @@ type WorldBounds = {
   bottom: number;
 };
 
+type BlockBreakHitTarget = {
+  hitboxId: string;
+  target: TargetBlockPosition;
+};
+
 type LocalPlayerProvider = () => Player | null;
 type RemotePlayerProvider = (playerId: string) => Player | null;
 type RemotePlayersProvider = () => RemotePlayerEntry[];
@@ -148,7 +153,8 @@ export class BlockTargetingHighlight extends ex.Actor {
   private isPointerHeld: boolean = false;
   private isPlacePointerHeld: boolean = false;
   private lastPlacedTargetKey: string | null = null;
-  private lastAppliedBlockBreakFrameIndex: number | null = null;
+  private activeBlockBreakActionInstanceId: string | null = null;
+  private spentBlockBreakHitKeys: Record<string, true> = {};
 
   constructor(
     terrain: TerrainTileMap,
@@ -516,32 +522,36 @@ export class BlockTargetingHighlight extends ex.Actor {
     if (this.isPointerHeld && !activeLocal) {
       this.hideHitboxActors();
       this.stopToolUse();
+      this.clearSpentBlockBreakHits();
       this.markBreakingTargetsUntouched();
       this.regenerateBreakingTargets(delta);
       return;
     }
 
-    const pointerBreaks = this.isPointerHeld && activeLocal;
-    const visualOnlyBreak =
-      !this.isPointerHeld &&
-      !!activeLocal &&
-      activeLocal.isBreakingBlock;
-
-    if (!pointerBreaks && !visualOnlyBreak) {
-      this.hideHitboxActors();
-      this.markBreakingTargetsUntouched();
-      this.regenerateBreakingTargets(delta);
-      return;
-    }
-
-    if (pointerBreaks) {
+    if (this.isPointerHeld && activeLocal) {
       this.startToolUse();
     }
 
-    this.syncHitboxActors(activeLocal);
+    const breakingLocal =
+      activeLocal && activeLocal.isBreakingBlock ? activeLocal : null;
+    const pointerBreaks = this.isPointerHeld && !!breakingLocal;
+    const visualOnlyBreak =
+      !this.isPointerHeld &&
+      !!breakingLocal;
+
+    if (!pointerBreaks && !visualOnlyBreak) {
+      this.hideHitboxActors();
+      this.clearSpentBlockBreakHits();
+      this.markBreakingTargetsUntouched();
+      this.regenerateBreakingTargets(delta);
+      return;
+    }
+
+    this.syncBlockBreakHitTracking(breakingLocal);
+    this.syncHitboxActors(breakingLocal);
     this.markBreakingTargetsUntouched();
-    if (pointerBreaks) {
-      this.damageTargetsInHitboxes(activeLocal);
+    if (pointerBreaks && breakingLocal) {
+      this.damageTargetsInHitboxes(breakingLocal);
     }
     this.regenerateBreakingTargets(delta);
     this.removeMissingBreakingTargets();
@@ -554,26 +564,43 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private damageTargetsInHitboxes(localPlayer: Player) {
-    const frameIndex = localPlayer.currentBlockBreakFrameIndex();
     const hitboxes = localPlayer.currentBlockBreakHitboxes();
     const baseDamage = localPlayer.currentBlockBreakBaseDamage();
-    const shouldApplyDamage = this.lastAppliedBlockBreakFrameIndex !== frameIndex;
-    this.lastAppliedBlockBreakFrameIndex = frameIndex;
-    const touchedTargets = hitboxes.flatMap((hitbox) =>
-      this.targetsOverlappingBounds(
-        this.hitboxWorldBounds(localPlayer, hitbox),
+    const hitTargets = this.uniqueHitTargets(
+      hitboxes.flatMap((hitbox) =>
+        this.targetsOverlappingBounds(
+          this.hitboxWorldBounds(localPlayer, hitbox),
+        ).map((target) => ({
+          hitboxId: hitbox.id,
+          target,
+        })),
       ),
     );
-    this.uniqueTargets(touchedTargets).forEach((target) => {
-      if (localPlayer.isFlying) {
+    if (localPlayer.isFlying) {
+      this.uniqueTargets(hitTargets.map(({ target }) => target)).forEach((target) => {
         this.breakTargetInstantly(target, toolbarSelection.powerup());
+      });
+      return;
+    }
+    const brokenTargets: Record<string, true> = {};
+    hitTargets.forEach((hitTarget) => {
+      const targetKey = this.targetKey(hitTarget.target);
+      if (brokenTargets[targetKey]) {
         return;
       }
-      this.touchBreakingTarget(
-        target,
+      const shouldApplyDamage = this.isUnspentBlockBreakHit(hitTarget);
+      if (shouldApplyDamage) {
+        this.rememberBlockBreakHit(hitTarget);
+      }
+      const didBreak = this.touchBreakingTarget(
+        hitTarget.target,
         shouldApplyDamage ? baseDamage : 0,
         toolbarSelection.powerup(),
       );
+      if (!didBreak) {
+        return;
+      }
+      brokenTargets[targetKey] = true;
     });
   }
 
@@ -584,11 +611,11 @@ export class BlockTargetingHighlight extends ex.Actor {
   ) {
     const entry = this.breakingTargetEntryFor(target, powerup);
     if (!entry) {
-      return;
+      return false;
     }
     entry.isTouched = true;
     if (damage <= 0) {
-      return;
+      return false;
     }
     entry.regenDelayRemainingMs = blockBreakRegenDelayMs;
     entry.health = Math.max(entry.health - damage, 0);
@@ -601,7 +628,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       true,
     );
     if (entry.health > 0) {
-      return;
+      return false;
     }
     this.client.send(messageTypes.updateBlock, {
       column: entry.target.column,
@@ -610,6 +637,52 @@ export class BlockTargetingHighlight extends ex.Actor {
       brokenWith: entry.powerup,
     });
     this.removeBreakingTarget(entry);
+    return true;
+  }
+
+  private syncBlockBreakHitTracking(localPlayer: Player | null) {
+    const actionInstanceId = localPlayer?.currentBlockBreakActionInstanceId() ?? null;
+    if (actionInstanceId === null) {
+      this.clearSpentBlockBreakHits();
+      return;
+    }
+    if (actionInstanceId === this.activeBlockBreakActionInstanceId) {
+      return;
+    }
+    this.activeBlockBreakActionInstanceId = actionInstanceId;
+    this.spentBlockBreakHitKeys = {};
+  }
+
+  private clearSpentBlockBreakHits() {
+    this.activeBlockBreakActionInstanceId = null;
+    this.spentBlockBreakHitKeys = {};
+  }
+
+  private spentBlockBreakHitKey(hitboxId: string, target: TargetBlockPosition) {
+    return `${hitboxId}:${this.targetKey(target)}`;
+  }
+
+  private uniqueHitTargets(hitTargets: BlockBreakHitTarget[]) {
+    return Object.values(
+      Object.fromEntries(
+        hitTargets.map((hitTarget) => [
+          this.spentBlockBreakHitKey(hitTarget.hitboxId, hitTarget.target),
+          hitTarget,
+        ]),
+      ),
+    ) as BlockBreakHitTarget[];
+  }
+
+  private isUnspentBlockBreakHit(hitTarget: BlockBreakHitTarget) {
+    return !this.spentBlockBreakHitKeys[
+      this.spentBlockBreakHitKey(hitTarget.hitboxId, hitTarget.target)
+    ];
+  }
+
+  private rememberBlockBreakHit(hitTarget: BlockBreakHitTarget) {
+    this.spentBlockBreakHitKeys[
+      this.spentBlockBreakHitKey(hitTarget.hitboxId, hitTarget.target)
+    ] = true;
   }
 
   private regenerateBreakingTargets(delta: number) {
@@ -653,14 +726,15 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private stopToolUse() {
-    this.lastAppliedBlockBreakFrameIndex = null;
     const localPlayer = this.getLocalPlayer();
     if (!localPlayer) {
+      this.clearSpentBlockBreakHits();
       this.hideHitboxActors();
       return;
     }
     if (localPlayer.isPaused) {
       localPlayer.stopBlockBreakAction();
+      this.clearSpentBlockBreakHits();
       this.hideHitboxActors();
       return;
     }

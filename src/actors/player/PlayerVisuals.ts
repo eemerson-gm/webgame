@@ -155,6 +155,10 @@ export class PlayerVisuals {
     return this.blockBreakAnimation?.currentFrameIndex ?? 0;
   }
 
+  public get blockBreakCycleIndex() {
+    return this.blockBreakAnimation?.cycleIndex ?? 0;
+  }
+
   public bodyGraphicsDrawOffset() {
     return playerGraphicOffset
       .add(this.visualCorrectionOffset)

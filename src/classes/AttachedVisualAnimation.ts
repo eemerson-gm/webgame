@@ -9,6 +9,7 @@ export type AttachedVisualPose = {
 };
 
 export type AttachedVisualHitbox = {
+  id: string;
   offset: ex.Vector;
   width: number;
   height: number;
@@ -48,6 +49,7 @@ export class AttachedVisualAnimation {
   public readonly baseDamage: number;
   private readonly shouldLoopCheck?: () => boolean;
   private currentAnimationFrameIndex = 0;
+  private currentCycleIndex = 0;
   private lastFacingLeft = false;
   private isPlaying = false;
 
@@ -113,6 +115,7 @@ export class AttachedVisualAnimation {
 
   reset() {
     this.currentAnimationFrameIndex = 0;
+    this.currentCycleIndex = 0;
     this.animation.reset();
   }
 
@@ -138,6 +141,10 @@ export class AttachedVisualAnimation {
 
   get currentFrameIndex() {
     return this.currentAnimationFrameIndex;
+  }
+
+  get cycleIndex() {
+    return this.currentCycleIndex;
   }
 
   get currentHitboxes() {
@@ -170,6 +177,9 @@ export class AttachedVisualAnimation {
       this.syncAttachment(this.lastFacingLeft);
       onFrame?.();
       return;
+    }
+    if (this.currentAnimationFrameIndex === this.frameCount - 1 && nextIndex === 0) {
+      this.currentCycleIndex += 1;
     }
     this.currentAnimationFrameIndex = nextIndex;
     this.syncAttachment(this.lastFacingLeft);

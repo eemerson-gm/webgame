@@ -72,6 +72,7 @@ type JsonAttachedVisualPose = {
 };
 
 type JsonAttachedVisualHitbox = {
+  id?: string | number;
   offset: JsonVector;
   width: number;
   height: number;
@@ -219,7 +220,9 @@ const actionPoseFromJson = (
 
 const actionHitboxFromJson = (
   hitbox: JsonAttachedVisualHitbox,
+  hitboxIndex: number,
 ): AttachedVisualHitbox => ({
+  id: String(hitbox.id ?? `hitbox-${hitboxIndex}`),
   offset: vectorFromJson(hitbox.offset),
   width: hitbox.width,
   height: hitbox.height,
@@ -232,7 +235,9 @@ const actionDefinitionFromJson = (
   frameDurationMs: action.frameDurationMs,
   baseDamage: action.baseDamage ?? 0,
   hitboxes: action.hitboxes?.map((frameHitboxes) =>
-    frameHitboxes.map((hitbox) => actionHitboxFromJson(hitbox)),
+    frameHitboxes.map((hitbox, hitboxIndex) =>
+      actionHitboxFromJson(hitbox, hitboxIndex),
+    ),
   ),
   attachments: action.attachments?.map((attachment) => ({
     id: attachment.id,

@@ -54,7 +54,6 @@ const playerMaxHealth = 6;
 const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
-const playerMaxFixedStepAccumulatedMs = playerFixedStepMs * 5;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -72,11 +71,12 @@ export class Player extends MovingActor {
   private damageFlash: DamageFlash;
   private activePowerup: PlayerPowerup = "none";
   private blockBreakActionTimeRemainingMs: number = 0;
+  private blockBreakActionInstanceId: number = 0;
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
-  private fixedStepElapsedMs: number = 0;
-  private fixedStepPreviousPosition: ex.Vector = ex.vec(0, 0);
+  private renderStepStartedAtMs: number = performance.now();
+  private renderPreviousPosition: ex.Vector = ex.vec(0, 0);
 
   private visuals: PlayerVisuals;
   private networkSync: PlayerNetworkSync;
@@ -104,7 +104,8 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
-    this.fixedStepPreviousPosition = ex.vec(pos.x, pos.y);
+    this.renderPreviousPosition = ex.vec(pos.x, pos.y);
+    this.body.enableFixedUpdateInterpolate = false;
     
     this.visuals = new PlayerVisuals(this, () =>
       !Number.isFinite(this.blockBreakActionTimeRemainingMs),
@@ -160,6 +161,7 @@ export class Player extends MovingActor {
   override onInitialize(engine: ex.Engine) {
     this.visuals.initialize();
     this.damageFlash.initialize(engine);
+    this.graphics.onPreDraw = () => this.updateRenderInterpolation();
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -194,12 +196,9 @@ export class Player extends MovingActor {
     this.jumpHoldTimeRemainingMs = 0;
     const roundedX = Math.round(this.pos.x);
     const roundedY = Math.round(this.pos.y);
-    const deltaX = roundedX - this.pos.x;
-    const deltaY = roundedY - this.pos.y;
+    this.moveRenderHistoryBy(roundedX - this.pos.x, roundedY - this.pos.y);
     this.pos.x = roundedX;
     this.pos.y = roundedY;
-    this.fixedStepPreviousPosition.x += deltaX;
-    this.fixedStepPreviousPosition.y += deltaY;
     this.syncPosition();
   }
 
@@ -316,9 +315,8 @@ export class Player extends MovingActor {
     if (this.pos.x === x) {
       return;
     }
-    const deltaX = x - this.pos.x;
+    this.moveRenderHistoryBy(x - this.pos.x, 0);
     this.pos.x = x;
-    this.fixedStepPreviousPosition.x += deltaX;
     this.networkSync.markPositionChanged();
     this.networkSync.setShouldBroadcastSeparatedPosition(true);
   }
@@ -346,6 +344,13 @@ export class Player extends MovingActor {
 
   public currentBlockBreakFrameIndex() {
     return this.visuals.blockBreakFrameIndex;
+  }
+
+  public currentBlockBreakActionInstanceId() {
+    if (!this.isBreakingBlock) {
+      return null;
+    }
+    return `${this.blockBreakActionInstanceId}:${this.visuals.blockBreakCycleIndex}`;
   }
 
   public blockBreakFramePixelSize() {
@@ -505,6 +510,7 @@ export class Player extends MovingActor {
   }
 
   private beginBlockBreakActionVisual(durationMs: number) {
+    this.blockBreakActionInstanceId += 1;
     this.blockBreakActionTimeRemainingMs = durationMs;
     this.visuals.setVisual("blockBreakAction");
   }
@@ -717,16 +723,22 @@ export class Player extends MovingActor {
     this.damageFlash.tick(delta);
   }
 
+  private moveRenderHistoryBy(deltaX: number, deltaY: number) {
+    this.renderPreviousPosition.x += deltaX;
+    this.renderPreviousPosition.y += deltaY;
+  }
+
   private resetRenderInterpolation() {
-    this.fixedStepElapsedMs = 0;
-    this.fixedStepPreviousPosition = ex.vec(this.pos.x, this.pos.y);
+    this.renderStepStartedAtMs = performance.now();
+    this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
     this.visuals.applyRenderOffset(ex.vec(0, 0));
   }
 
   private updateRenderInterpolation() {
-    const progress = this.fixedStepElapsedMs / playerFixedStepMs;
+    const elapsedMs = performance.now() - this.renderStepStartedAtMs;
+    const progress = Math.min(Math.max(elapsedMs / playerFixedStepMs, 0), 1);
     const renderPosition = interpolatePosition(
-      this.fixedStepPreviousPosition,
+      this.renderPreviousPosition,
       this.pos,
       progress,
     );
@@ -738,6 +750,8 @@ export class Player extends MovingActor {
       this.updateBlockBreakActionTimer(delta);
       return;
     }
+    this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
+    this.renderStepStartedAtMs = performance.now();
     this.updateControls(engine);
 
     const dt = delta / 1000;
@@ -782,20 +796,6 @@ export class Player extends MovingActor {
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.visuals.updateVisualCorrection(delta);
     this.updateDamageFeedback(delta);
-    if (this.isPaused) {
-      this.fixedStepElapsedMs = 0;
-      this.updateBlockBreakActionTimer(delta);
-      return;
-    }
-    this.fixedStepElapsedMs = Math.min(
-      this.fixedStepElapsedMs + delta,
-      playerMaxFixedStepAccumulatedMs,
-    );
-    while (this.fixedStepElapsedMs >= playerFixedStepMs) {
-      this.fixedStepPreviousPosition = ex.vec(this.pos.x, this.pos.y);
-      this.fixedStepElapsedMs -= playerFixedStepMs;
-      this.stepPlayerPhysics(engine, playerFixedStepMs);
-    }
-    this.updateRenderInterpolation();
+    this.stepPlayerPhysics(engine, delta);
   }
 }

@@ -102,6 +102,10 @@
         <span class="editor-label">Y</span>
         <input type="number" id="off-y" class="editor-input" step="1" />
       </span>
+      <span class="editor-toolbar__field" id="hitbox-id-field">
+        <span class="editor-label">ID</span>
+        <input type="text" id="hitbox-id" class="editor-input editor-input--narrow" aria-label="Hitbox strike id" />
+      </span>
       <span class="editor-toolbar__field" id="width-field">
         <span class="editor-label">Width</span>
         <input type="number" id="hitbox-width" class="editor-input" step="1" min="1" />
@@ -243,6 +247,8 @@ const elements = {
   selectedItemLabel: document.getElementById("selected-item-label"),
   offX: document.getElementById("off-x"),
   offY: document.getElementById("off-y"),
+  hitboxId: document.getElementById("hitbox-id"),
+  hitboxIdField: document.getElementById("hitbox-id-field"),
   hitboxWidth: document.getElementById("hitbox-width"),
   hitboxHeight: document.getElementById("hitbox-height"),
   widthField: document.getElementById("width-field"),
@@ -284,6 +290,20 @@ const CORE_BODY_CLIPS = ["idle", "walk", "jump", "crouch"];
 const ensurePoseCount = (poses, count, factory) => Array.from({ length: count }, (_, index) => poses?.[index] ?? poses?.[0] ?? factory());
 const uniqueAttachmentId = () => `attachment-${Date.now()}-${Math.round(Math.random() * 10000)}`;
 const uniqueHitboxId = () => `hitbox-${Date.now()}-${Math.round(Math.random() * 10000)}`;
+const hitboxIdFromInput = (raw) => {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
+};
+const nextNumericHitboxId = () => {
+  const ids = Object.values(state.animData?.actions ?? {})
+    .flatMap((action) => action.hitboxes ?? [])
+    .flatMap((frameHitboxes) => frameHitboxes)
+    .map((hitbox) => Number(hitbox.id))
+    .filter((id) => Number.isInteger(id));
+  return ids.length ? Math.max(...ids) + 1 : 1;
+};
 const ensureAnimationData = (data) => {
   const body = data.body ?? defaultBody();
   const legacyAction = data.action;
@@ -328,7 +348,7 @@ const ensureAnimationData = (data) => {
     action.hitboxes = action.hitboxes.slice(0, action.frames.length);
     action.hitboxes.forEach((frameHitboxes) => {
       frameHitboxes.forEach((hitbox) => {
-        hitbox.id = hitbox.id || uniqueHitboxId();
+        hitbox.id = hitbox.id === undefined || hitbox.id === null || hitbox.id === "" ? uniqueHitboxId() : hitbox.id;
         hitbox.offset = hitbox.offset ?? { x: 0, y: 0 };
         hitbox.width = Number.isFinite(Number(hitbox.width)) ? Number(hitbox.width) : 16;
         hitbox.height = Number.isFinite(Number(hitbox.height)) ? Number(hitbox.height) : 16;
@@ -387,7 +407,7 @@ const selectedAttachment = () => {
 };
 const selectedHitbox = () => {
   if (state.selectedItem.type !== "hitbox") return undefined;
-  return currentHitboxes().find((hitbox) => hitbox.id === state.selectedItem.id);
+  return currentHitboxes().find((hitbox) => String(hitbox.id) === String(state.selectedItem.id));
 };
 const selectedPose = () => {
   if (state.selectedItem.type === "hat") return currentHatPose();
@@ -402,7 +422,7 @@ const selectedItemLabel = () => {
   const attachment = selectedAttachment();
   if (attachment) return `Attachment: ${attachment.sprite}`;
   const hitbox = selectedHitbox();
-  if (hitbox) return `Hitbox: ${hitbox.width}x${hitbox.height}`;
+  if (hitbox) return `Hitbox ${hitbox.id}: ${hitbox.width}x${hitbox.height}`;
   return "Body frame";
 };
 const captureState = () => {
@@ -496,7 +516,7 @@ const renderHitboxTracks = () => {
   if (!isActionTrack()) return;
   currentHitboxes().forEach((hitbox) => {
     const row = document.createElement("div");
-    row.className = `editor-track-row editor-track-row--attachment${state.selectedItem.type === "hitbox" && state.selectedItem.id === hitbox.id ? " editor-track-row--active" : ""}`;
+    row.className = `editor-track-row editor-track-row--attachment${state.selectedItem.type === "hitbox" && String(state.selectedItem.id) === String(hitbox.id) ? " editor-track-row--active" : ""}`;
     row.dataset.hitboxId = hitbox.id;
     const badge = document.createElement("span");
     badge.className = "editor-track-row__badge";
@@ -505,10 +525,10 @@ const renderHitboxTracks = () => {
     body.className = "editor-track-row__body";
     const name = document.createElement("span");
     name.className = "editor-muted editor-track-row__name";
-    name.textContent = `${hitbox.width}x${hitbox.height}`;
+    name.textContent = `ID ${hitbox.id}`;
     const pos = document.createElement("span");
     pos.className = "editor-muted editor-track-row__meta";
-    pos.textContent = `offset ${hitbox.offset.x},${hitbox.offset.y}`;
+    pos.textContent = `${hitbox.width}x${hitbox.height} at ${hitbox.offset.x},${hitbox.offset.y}`;
     body.appendChild(name);
     body.appendChild(pos);
     row.appendChild(badge);
@@ -557,8 +577,10 @@ const syncControls = () => {
   elements.selectedItemLabel.textContent = selectedItemLabel();
   elements.offX.value = pose ? pose.offset.x : "";
   elements.offY.value = pose ? pose.offset.y : "";
+  elements.hitboxId.value = hitbox ? hitbox.id : "";
   elements.hitboxWidth.value = hitbox ? hitbox.width : "";
   elements.hitboxHeight.value = hitbox ? hitbox.height : "";
+  elements.hitboxIdField.style.display = hitbox ? "" : "none";
   elements.widthField.style.display = hitbox ? "" : "none";
   elements.heightField.style.display = hitbox ? "" : "none";
   elements.layer.value = attachment ? attachment.layer : "";
@@ -732,7 +754,7 @@ const drawHitboxes = () => {
     const y = (CENTER_OFFSET - bodyOffsetY + hitbox.offset.y) * SCALE;
     const width = hitbox.width * SCALE;
     const height = hitbox.height * SCALE;
-    const isSelected = state.selectedItem.type === "hitbox" && state.selectedItem.id === hitbox.id;
+    const isSelected = state.selectedItem.type === "hitbox" && String(state.selectedItem.id) === String(hitbox.id);
     ctx.fillStyle = isSelected ? "rgba(255, 100, 100, 0.3)" : "rgba(255, 200, 100, 0.25)";
     ctx.fillRect(x, y, width, height);
     ctx.strokeStyle = isSelected ? "rgba(255, 100, 100, 0.8)" : "rgba(255, 200, 100, 0.6)";
@@ -893,15 +915,13 @@ const addHitbox = () => {
   const track = currentTrack();
   if (!track.hitboxes) return;
   captureState();
-  const id = uniqueHitboxId();
+  const id = nextNumericHitboxId();
   const template = { x: 10, y: 4, width: 16, height: 16 };
-  track.hitboxes.forEach((frameList) => {
-    frameList.push({
-      id,
-      offset: { x: template.x, y: template.y },
-      width: template.width,
-      height: template.height,
-    });
+  track.hitboxes[state.frameIndex].push({
+    id,
+    offset: { x: template.x, y: template.y },
+    width: template.width,
+    height: template.height,
   });
   state.selectedItem = { type: "hitbox", id };
   syncControls();
@@ -912,10 +932,7 @@ const removeSelectedHitbox = () => {
   const track = currentTrack();
   if (!hitbox || !track?.hitboxes) return;
   captureState();
-  const id = hitbox.id;
-  track.hitboxes.forEach((frameList, index) => {
-    track.hitboxes[index] = frameList.filter((item) => item.id !== id);
-  });
+  track.hitboxes[state.frameIndex] = currentHitboxes().filter((item) => item !== hitbox);
   state.selectedItem = { type: "body" };
   syncControls();
   render();
@@ -924,6 +941,7 @@ const copySelectedHitbox = () => {
   const hitbox = selectedHitbox();
   if (!hitbox) return;
   state.copiedHitbox = {
+    id: hitbox.id,
     offset: { x: hitbox.offset.x, y: hitbox.offset.y },
     width: hitbox.width,
     height: hitbox.height,
@@ -940,15 +958,12 @@ const pasteHitbox = () => {
   const track = currentTrack();
   if (!track?.hitboxes) return;
   captureState();
-  const id = uniqueHitboxId();
-  const { offset, width, height } = state.copiedHitbox;
-  track.hitboxes.forEach((frameList) => {
-    frameList.push({
-      id,
-      offset: { x: offset.x, y: offset.y },
-      width,
-      height,
-    });
+  const { id, offset, width, height } = state.copiedHitbox;
+  track.hitboxes[state.frameIndex].push({
+    id,
+    offset: { x: offset.x, y: offset.y },
+    width,
+    height,
   });
   state.selectedItem = { type: "hitbox", id };
   syncControls();
@@ -974,19 +989,15 @@ const applySelectedPoseChange = () => {
     elements.rotLabel.textContent = rotation.toFixed(2);
   }
   if (hitbox) {
+    const nextHitboxId = hitboxIdFromInput(elements.hitboxId.value);
+    if (nextHitboxId !== null) {
+      hitbox.id = nextHitboxId;
+      state.selectedItem = { type: "hitbox", id: hitbox.id };
+    }
     const w = Math.max(1, parseInt(elements.hitboxWidth.value, 10) || 16);
     const h = Math.max(1, parseInt(elements.hitboxHeight.value, 10) || 16);
-    const track = currentTrack();
-    if (track?.hitboxes) {
-      track.hitboxes.forEach((frameList) => {
-        frameList.forEach((hb) => {
-          if (hb.id === hitbox.id) {
-            hb.width = w;
-            hb.height = h;
-          }
-        });
-      });
-    }
+    hitbox.width = w;
+    hitbox.height = h;
   }
   syncControls();
   render();
@@ -1087,7 +1098,7 @@ canvasArea.addEventListener("drop", (event) => {
   const { px, py } = canvasToPixel(event.clientX, event.clientY);
   addAttachmentFromAssetAt(assetPath, px, py);
 });
-["offX", "offY", "layer", "rotExact", "hitboxWidth", "hitboxHeight"].forEach((key) => {
+["offX", "offY", "layer", "rotExact", "hitboxId", "hitboxWidth", "hitboxHeight"].forEach((key) => {
   elements[key].onfocus = captureState;
   elements[key].oninput = applySelectedPoseChange;
 });
