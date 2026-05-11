@@ -65,6 +65,7 @@ const playerMaxHealth = 6;
 const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
+const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -87,7 +88,7 @@ export class Player extends MovingActor {
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
-  private renderStepStartedAtMs: number = performance.now();
+  private physicsAccumulatorMs: number = 0;
   private renderPreviousPosition: ex.Vector = ex.vec(0, 0);
 
   private visuals: PlayerVisuals;
@@ -122,9 +123,6 @@ export class Player extends MovingActor {
     this.visuals = new PlayerVisuals(
       this,
       () => this.isBlockBreakActionHeld,
-    );
-    this.visuals.setRenderInterpolationBeforeDraw(() =>
-      this.updateRenderInterpolation(),
     );
     this.networkSync = new PlayerNetworkSync(client);
 
@@ -177,7 +175,6 @@ export class Player extends MovingActor {
   override onInitialize(engine: ex.Engine) {
     this.visuals.initialize();
     this.damageFlash.initialize(engine);
-    this.graphics.onPreDraw = () => this.updateRenderInterpolation();
     if (this.client && this.scene) {
       const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
       const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
@@ -332,6 +329,7 @@ export class Player extends MovingActor {
     }
     this.moveRenderHistoryBy(x - this.pos.x, 0);
     this.pos.x = x;
+    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
     this.networkSync.markPositionChanged();
     this.networkSync.setShouldBroadcastSeparatedPosition(true);
   }
@@ -754,14 +752,12 @@ export class Player extends MovingActor {
   }
 
   private resetRenderInterpolation() {
-    this.renderStepStartedAtMs = performance.now();
+    this.physicsAccumulatorMs = 0;
     this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
     this.visuals.applyRenderOffset(ex.vec(0, 0));
   }
 
-  private updateRenderInterpolation() {
-    const elapsedMs = performance.now() - this.renderStepStartedAtMs;
-    const progress = Math.min(Math.max(elapsedMs / playerFixedStepMs, 0), 1);
+  private updateRenderInterpolation(progress: number) {
     const renderPosition = interpolatePosition(
       this.renderPreviousPosition,
       this.pos,
@@ -770,18 +766,47 @@ export class Player extends MovingActor {
     this.visuals.applyRenderOffset(renderPosition.sub(this.pos));
   }
 
-  private stepPlayerPhysics(engine: ex.Engine, delta: number) {
+  private stepPlayerFrame(engine: ex.Engine, delta: number) {
+    const frameDelta = Math.min(delta, playerMaxFrameDeltaMs);
+    this.physicsAccumulatorMs += frameDelta;
     if (this.isPaused) {
-      this.updateBlockBreakActionTimer(delta);
+      this.stepPausedPlayerFrame();
+      return;
+    }
+    this.updateControls(engine);
+    const keySign = this.inputState.horizontalSign();
+    this.consumeFixedPlayerSteps(keySign);
+    this.onMove();
+    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
+  }
+
+  private stepPausedPlayerFrame() {
+    this.consumePausedFixedSteps();
+    this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
+    this.updateRenderInterpolation(0);
+  }
+
+  private consumePausedFixedSteps() {
+    if (this.physicsAccumulatorMs < playerFixedStepMs) {
+      return;
+    }
+    this.physicsAccumulatorMs -= playerFixedStepMs;
+    this.updateBlockBreakActionTimer(playerFixedStepMs);
+    this.consumePausedFixedSteps();
+  }
+
+  private consumeFixedPlayerSteps(keySign: number) {
+    if (this.physicsAccumulatorMs < playerFixedStepMs) {
       return;
     }
     this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
-    this.renderStepStartedAtMs = performance.now();
-    this.updateControls(engine);
+    this.physicsAccumulatorMs -= playerFixedStepMs;
+    this.stepPlayerPhysics(keySign, playerFixedStepMs);
+    this.consumeFixedPlayerSteps(keySign);
+  }
 
+  private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
-
-    const keySign = this.inputState.horizontalSign();
 
     const previousGrounded = this.isGrounded;
     const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
@@ -808,7 +833,6 @@ export class Player extends MovingActor {
     }
 
     this.syncPlayerVisuals(keySign);
-    this.onMove();
 
     this.networkSync.syncMovementPeriodically(
       delta,
@@ -825,6 +849,6 @@ export class Player extends MovingActor {
   override onPostUpdate(engine: ex.Engine, delta: number) {
     this.visuals.updateVisualCorrection(delta);
     this.updateDamageFeedback(delta);
-    this.stepPlayerPhysics(engine, delta);
+    this.stepPlayerFrame(engine, delta);
   }
 }

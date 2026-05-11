@@ -43,7 +43,6 @@ export class PlayerVisuals {
   private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
   private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
   private renderOffset: ex.Vector = ex.vec(0, 0);
-  private syncRenderInterpolationBeforeDraw = () => {};
   
   constructor(
     private readonly actor: ex.Actor,
@@ -57,7 +56,6 @@ export class PlayerVisuals {
       z: 12,
     });
     this.hatActor.graphics.anchor = hatAnchor;
-    this.hatActor.graphics.onPreDraw = () => this.syncRenderInterpolationBeforeDraw();
     this.hideHat();
 
     this.sleepBubbleActor = new ex.Actor({
@@ -69,7 +67,6 @@ export class PlayerVisuals {
     });
     this.sleepBubbleActor.graphics.anchor = sleepBubbleAnchor;
     this.sleepBubbleActor.graphics.use(Resources.ThoughtBubbleSleep.toSprite());
-    this.sleepBubbleActor.graphics.onPreDraw = () => this.syncRenderInterpolationBeforeDraw();
     this.sleepBubbleActor.graphics.visible = false;
     this.sleepBubbleActor.graphics.opacity = 0;
     
@@ -83,10 +80,6 @@ export class PlayerVisuals {
     this.actor.addChild(this.sleepBubbleActor);
     this.applyPowerup("none", false);
     this.setVisual("idle", true);
-  }
-
-  public setRenderInterpolationBeforeDraw(callback: () => void) {
-    this.syncRenderInterpolationBeforeDraw = callback;
   }
 
   public setPaused(isPaused: boolean) {
@@ -266,7 +259,6 @@ export class PlayerVisuals {
       z: layer,
     });
     this.powerupAttachmentActors.push(actor);
-    actor.graphics.onPreDraw = () => this.syncRenderInterpolationBeforeDraw();
     if (this.isInitialized) {
       this.actor.addChild(actor);
     }
