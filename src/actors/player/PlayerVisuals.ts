@@ -110,10 +110,7 @@ export class PlayerVisuals {
     const visualWorldPosition = this.visualWorldPosition();
     this.actor.pos = ex.vec(position.x, position.y);
     const nextOffset = visualWorldPosition.sub(this.actor.pos);
-    if (nextOffset.distance(ex.vec(0, 0)) >= snapDistance) {
-      this.applyVisualCorrectionOffset(ex.vec(0, 0));
-      return;
-    }
+    void snapDistance;
     this.visualCorrectionStartOffset = nextOffset;
     this.visualCorrectionElapsedMs = 0;
     this.applyVisualCorrectionOffset(nextOffset);

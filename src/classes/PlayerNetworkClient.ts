@@ -1,12 +1,6 @@
-import type { GameClient } from "../../classes/GameClient";
-import { messageTypes } from "../../classes/GameProtocol";
-import type { Data } from "../../classes/GameProtocol";
-
-const serverMovementSyncIntervalMs = 75;
-const serverKnockbackMovementSyncIntervalMs = 50;
-const serverPeerMovementCorrectionIntervalMs = 100;
-const serverMovementPositionThreshold = 0.5;
-const serverMovementSpeedThreshold = 0.05;
+import type { GameClient } from "./GameClient";
+import { messageTypes } from "./GameProtocol";
+import type { Data } from "./GameProtocol";
 
 export type PlayerMovementState = {
   x: number;
@@ -15,27 +9,38 @@ export type PlayerMovementState = {
   verticalSpeed: number;
 };
 
-export class PlayerNetworkSync {
+const absDiffAtLeast = (a: number, b: number, threshold: number) =>
+  Math.abs(a - b) >= threshold;
+
+const serverMovementSyncIntervalMs = 75;
+const serverKnockbackMovementSyncIntervalMs = 50;
+const serverPeerMovementCorrectionIntervalMs = 100;
+const serverMovementPositionThreshold = 0.5;
+const serverMovementSpeedThreshold = 0.05;
+
+export class PlayerNetworkClient {
   private serverMovementSyncElapsedMs: number = 0;
   private serverPeerMovementSyncElapsedMs: number = 0;
   private lastServerMovementState?: PlayerMovementState;
   private shouldBroadcastSeparatedPosition: boolean = false;
-  
+
   constructor(private client?: GameClient) {}
-  
+
   public setShouldBroadcastSeparatedPosition(value: boolean) {
     this.shouldBroadcastSeparatedPosition = value;
   }
-  
+
   public markPositionChanged() {
     this.lastServerMovementState = undefined;
   }
-  
+
   public sendUpdate(payload: Data, statePatch?: Data) {
-    if (!this.client) return;
+    if (!this.client) {
+      return;
+    }
     this.client.send(messageTypes.updatePlayer, payload, statePatch);
   }
-  
+
   public syncMovementPeriodically(
     delta: number,
     currentState: PlayerMovementState,
@@ -54,7 +59,6 @@ export class PlayerNetworkSync {
     }
     this.serverMovementSyncElapsedMs =
       this.serverMovementSyncElapsedMs % syncIntervalMs;
-      
     if (!this.shouldSyncMovementState(currentState)) {
       return;
     }
@@ -83,30 +87,38 @@ export class PlayerNetworkSync {
       return true;
     }
     if (
-      Math.abs(movementState.x - lastMovementState.x) >=
-      serverMovementPositionThreshold
+      absDiffAtLeast(
+        movementState.x,
+        lastMovementState.x,
+        serverMovementPositionThreshold,
+      )
     ) {
       return true;
     }
     if (
-      Math.abs(movementState.y - lastMovementState.y) >=
-      serverMovementPositionThreshold
+      absDiffAtLeast(
+        movementState.y,
+        lastMovementState.y,
+        serverMovementPositionThreshold,
+      )
     ) {
       return true;
     }
     if (
-      Math.abs(
-        movementState.horizontalSpeed -
-          lastMovementState.horizontalSpeed,
-      ) >= serverMovementSpeedThreshold
+      absDiffAtLeast(
+        movementState.horizontalSpeed,
+        lastMovementState.horizontalSpeed,
+        serverMovementSpeedThreshold,
+      )
     ) {
       return true;
     }
     if (
-      Math.abs(
-        movementState.verticalSpeed -
-          lastMovementState.verticalSpeed,
-      ) >= serverMovementSpeedThreshold
+      absDiffAtLeast(
+        movementState.verticalSpeed,
+        lastMovementState.verticalSpeed,
+        serverMovementSpeedThreshold,
+      )
     ) {
       return true;
     }

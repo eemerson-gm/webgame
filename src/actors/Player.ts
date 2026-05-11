@@ -1,7 +1,5 @@
 import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
-import { messageTypes } from "../classes/GameProtocol";
-import type { Data } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
@@ -9,7 +7,7 @@ import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
 import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
-import { PlayerNetworkSync } from "./player/PlayerNetworkSync";
+import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
 
 const approach = (start: number, end: number, amount: number) => {
   if (start < end) {
@@ -77,7 +75,7 @@ export class Player extends MovingActor {
   private renderPreviousPosition: ex.Vector = ex.vec(0, 0);
 
   private visuals: PlayerVisuals;
-  private networkSync: PlayerNetworkSync;
+  private playerNetwork: PlayerNetworkClient;
 
   constructor(
     pos: ex.Vector,
@@ -106,7 +104,7 @@ export class Player extends MovingActor {
     this.body.enableFixedUpdateInterpolate = false;
 
     this.visuals = new PlayerVisuals(this);
-    this.networkSync = new PlayerNetworkSync(client);
+    this.playerNetwork = new PlayerNetworkClient(client);
 
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
@@ -162,19 +160,12 @@ export class Player extends MovingActor {
     }
   }
 
-  private sendClient(type: string, payload: Data, playerData?: Data) {
-    if (!this.client) {
-      return;
-    }
-    this.client.send(type, payload, playerData);
-  }
-
   private onJump() {
     if (!this.jump(jumpSpeed)) {
       return;
     }
     this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
-    this.sendClient(messageTypes.updatePlayer, {
+    this.playerNetwork.sendUpdate({
       keyJump: true,
     });
   }
@@ -202,7 +193,7 @@ export class Player extends MovingActor {
     const movementState = {
       ...this.currentMovementState(),
     };
-    this.sendClient(messageTypes.updatePlayer, movementState);
+    this.playerNetwork.sendUpdate(movementState);
   }
 
   public takeDamageFrom(
@@ -254,11 +245,9 @@ export class Player extends MovingActor {
     }
     this.moveRenderHistoryBy(x - this.pos.x, 0);
     this.pos.x = x;
-    this.updateRenderInterpolation(
-      this.physicsAccumulatorMs / playerFixedStepMs,
-    );
-    this.networkSync.markPositionChanged();
-    this.networkSync.setShouldBroadcastSeparatedPosition(true);
+    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
+    this.playerNetwork.markPositionChanged();
+    this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
   }
 
   public applyRemotePositionCorrection(
@@ -324,7 +313,7 @@ export class Player extends MovingActor {
   public syncPauseState(isPaused: boolean) {
     const position = this.currentPosition();
     this.setPaused(isPaused);
-    this.sendClient(messageTypes.updatePlayer, {
+    this.playerNetwork.sendUpdate({
       isPaused,
       keyLeft: false,
       keyRight: false,
@@ -371,7 +360,7 @@ export class Player extends MovingActor {
 
   private syncPosition() {
     const position = this.currentPosition();
-    this.sendClient(messageTypes.updatePlayer, position);
+    this.playerNetwork.sendUpdate(position);
   }
 
   private syncHealthState() {
@@ -379,7 +368,7 @@ export class Player extends MovingActor {
       ...this.currentMovementState(),
       health: this.health,
     };
-    this.sendClient(messageTypes.updatePlayer, movementState, movementState);
+    this.playerNetwork.sendUpdate(movementState, movementState);
   }
 
   private onMove() {
@@ -390,11 +379,7 @@ export class Player extends MovingActor {
     const movementState = shouldSyncPosition ? this.currentMovementState() : {};
     const payload = this.inputState.payload(movementState);
     const statePatch = this.inputState.statePatch(shouldSyncPosition, payload);
-    this.sendClient(
-      messageTypes.updatePlayer,
-      payload,
-      statePatch === payload ? undefined : statePatch,
-    );
+    this.playerNetwork.sendUpdate(payload, statePatch === payload ? undefined : statePatch);
     this.inputState.remember();
   }
 
@@ -534,9 +519,7 @@ export class Player extends MovingActor {
     const keySign = this.inputState.horizontalSign();
     this.consumeFixedPlayerSteps(keySign);
     this.onMove();
-    this.updateRenderInterpolation(
-      this.physicsAccumulatorMs / playerFixedStepMs,
-    );
+    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
   }
 
   private stepPausedPlayerFrame() {
@@ -588,7 +571,7 @@ export class Player extends MovingActor {
 
     this.syncPlayerVisuals(keySign);
 
-    this.networkSync.syncMovementPeriodically(
+    this.playerNetwork.syncMovementPeriodically(
       delta,
       {
         ...this.currentMovementState(),

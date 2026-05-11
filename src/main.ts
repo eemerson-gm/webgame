@@ -407,6 +407,17 @@ const applyRemotePlayerUpdate = (payload: Data) => {
   if (!player) {
     return;
   }
+  const localPlayerId = clientSlot.client?.clientId;
+  const isLocalPlayerUpdate = localPlayerId !== undefined && playerId === localPlayerId;
+  if (isLocalPlayerUpdate) {
+    if (playerState.isPaused !== undefined) {
+      player.setPaused(playerState.isPaused);
+    }
+    if (playerState.health !== undefined) {
+      player.syncHealth(playerState.health);
+    }
+    return;
+  }
   applyPositionFromPayloadIfPresent(player, playerState);
   syncMovementFieldsFromPayload(player, playerState);
 };

@@ -20,6 +20,7 @@ import {
   chunkStartTile,
   isInsideTerrain,
 } from "./TerrainBorderManager";
+import { TerrainTileGrid } from "./TerrainTileGrid";
 
 type TerrainTileMapOptions = {
   pos?: ex.Vector;
@@ -87,9 +88,9 @@ const isSolidTerrainTile = (
 const terrainGraphicFor = (
   column: number,
   row: number,
-  terrainTiles: Record<string, TerrainTileKind>,
+  terrainTiles: TerrainTileGrid,
 ) => {
-  const kind = terrainTiles[terrainTileKey(column, row)] ?? "dirt";
+  const kind = terrainTiles.kindAt(column, row) ?? "dirt";
   return terrainBlockForKind(kind).toGraphic();
 };
 
@@ -225,7 +226,7 @@ export class TerrainTileMap {
   private readonly renderFromTopOfGraphic: boolean;
   private readonly solidTiles: Set<string>;
   private readonly protectedTiles: Set<string>;
-  private readonly terrainTiles: Record<string, TerrainTileKind>;
+  private readonly terrainTileGrid: TerrainTileGrid;
   private readonly blockChangeHandlers: TerrainChangeHandler[];
   private readonly borderManager: TerrainBorderManager;
   private readonly chunkRenderer: TerrainChunkRenderer;
@@ -247,9 +248,14 @@ export class TerrainTileMap {
     this.columns = columns;
     this.rows = rows;
     this.renderFromTopOfGraphic = renderFromTopOfGraphic;
-    const terrainTiles = initialTerrainTiles(options);
-    this.terrainTiles = terrainTiles;
-    this.solidTiles = initialSolidTiles(options, terrainTiles);
+    const terrainTilesRecord = initialTerrainTiles(options);
+    this.solidTiles = initialSolidTiles(options, terrainTilesRecord);
+    this.terrainTileGrid = new TerrainTileGrid(
+      this.columns,
+      this.rows,
+      terrainTilesRecord,
+    );
+    void terrainTilesRecord;
     this.protectedTiles = new Set(options.protectedTiles ?? []);
     this.blockChangeHandlers = [];
 
@@ -260,7 +266,7 @@ export class TerrainTileMap {
       this.columns,
       this.rows,
       this.solidTiles,
-      this.terrainTiles
+      (column: number, row: number) => this.terrainTileGrid.kindAt(column, row),
     );
 
     this.map = new ex.TileMap({
@@ -344,7 +350,7 @@ export class TerrainTileMap {
     if (!isInsideTerrain(column, row, this.columns, this.rows)) {
       return null;
     }
-    return this.terrainTiles[terrainTileKey(column, row)] ?? null;
+    return this.terrainTileGrid.kindAt(column, row);
   }
 
   public blockAt(column: number, row: number) {
@@ -374,11 +380,11 @@ export class TerrainTileMap {
     const key = terrainTileKey(column, row);
     if (solid) {
       this.solidTiles.add(key);
-      this.terrainTiles[key] = kind;
+      this.terrainTileGrid.setKindAt(column, row, kind);
     }
     if (!solid) {
       this.solidTiles.delete(key);
-      delete this.terrainTiles[key];
+      this.terrainTileGrid.clearKindAt(column, row);
     }
     this.syncTileNeighborhood(column, row);
     this.chunkRenderer.rebuildBorderChunks(
@@ -441,10 +447,10 @@ export class TerrainTileMap {
       return;
     }
     tile.clearGraphics();
-    if (!this.terrainTiles[terrainTileKey(column, row)]) {
+    if (!this.terrainTileGrid.kindAt(column, row)) {
       return;
     }
-    tile.addGraphic(terrainGraphicFor(column, row, this.terrainTiles));
+    tile.addGraphic(terrainGraphicFor(column, row, this.terrainTileGrid));
   }
 
   private emitBlocksChanged(change: TerrainChange) {

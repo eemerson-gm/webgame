@@ -18,7 +18,7 @@ type TerrainBorderOptions = {
   columns: number;
   rows: number;
   solidTiles: Set<string>;
-  terrainTiles: Record<string, TerrainTileKind>;
+  tileKindAt: (column: number, row: number) => TerrainTileKind | null;
   chunkColumn: number;
   chunkRow: number;
 };
@@ -51,7 +51,7 @@ const borderSegmentsForTile = (
   row: number,
   options: TerrainBorderOptions,
 ) => {
-  const { tileWidth, tileHeight, columns, rows, solidTiles, chunkColumn, chunkRow, terrainTiles } = options;
+  const { tileWidth, tileHeight, columns, rows, solidTiles, chunkColumn, chunkRow, tileKindAt } = options;
   const x = (column - chunkStartTile(chunkColumn)) * tileWidth;
   const y = (row - chunkStartTile(chunkRow)) * tileHeight;
   
@@ -59,8 +59,8 @@ const borderSegmentsForTile = (
     if (!isSolidTerrainTile(c, r, columns, rows, solidTiles)) {
       return false;
     }
-    const key = terrainTileKey(c, r);
-    return terrainTiles[key] !== "mushroom";
+    const kind = tileKindAt(c, r);
+    return kind !== "mushroom";
   };
 
   const above = isVisualSolid(column, row - 1);
@@ -105,7 +105,7 @@ const chunkTileRange = (chunkIndex: number, totalTiles: number) => {
 };
 
 const terrainBorderSegmentsForChunk = (options: TerrainBorderOptions) => {
-  const { columns, rows, solidTiles, chunkColumn, chunkRow, terrainTiles } = options;
+  const { columns, rows, solidTiles, chunkColumn, chunkRow, tileKindAt } = options;
 
   return chunkTileRange(chunkColumn, columns).flatMap((column) =>
     chunkTileRange(chunkRow, rows)
@@ -113,8 +113,7 @@ const terrainBorderSegmentsForChunk = (options: TerrainBorderOptions) => {
         if (!isSolidTerrainTile(column, row, columns, rows, solidTiles)) {
           return false;
         }
-        const key = terrainTileKey(column, row);
-        return terrainTiles[key] !== "mushroom";
+        return tileKindAt(column, row) !== "mushroom";
       })
       .flatMap((row) => borderSegmentsForTile(column, row, options)),
   );
@@ -179,7 +178,7 @@ export class TerrainBorderManager {
     private readonly columns: number,
     private readonly rows: number,
     private readonly solidTiles: Set<string>,
-    private readonly terrainTiles: Record<string, TerrainTileKind>
+    private readonly tileKindAt: (column: number, row: number) => TerrainTileKind | null,
   ) {}
 
   public createAllBorderActors(): ex.Actor[] {
@@ -214,7 +213,7 @@ export class TerrainBorderManager {
         columns: this.columns,
         rows: this.rows,
         solidTiles: this.solidTiles,
-        terrainTiles: this.terrainTiles,
+        tileKindAt: this.tileKindAt,
         chunkColumn,
         chunkRow,
       }),
