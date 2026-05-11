@@ -13,7 +13,6 @@ export type PlayerMovementState = {
   y: number;
   horizontalSpeed: number;
   verticalSpeed: number;
-  isFlying: boolean;
 };
 
 export class PlayerNetworkSync {
@@ -111,6 +110,6 @@ export class PlayerNetworkSync {
     ) {
       return true;
     }
-    return movementState.isFlying !== lastMovementState.isFlying;
+    return false;
   }
 }

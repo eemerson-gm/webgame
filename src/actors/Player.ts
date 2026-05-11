@@ -50,8 +50,6 @@ const jumpHeldGravityMultiplier = 0.3;
 const jumpReleasedGravityMultiplier = 1.15;
 const jumpFallGravityMultiplier = 0.85;
 const positionScale = 100;
-const flySpeed = 2.4;
-const flyAcceleration = 0.45;
 const playerKnockbackHorizontalSpeed = 2.2;
 const playerKnockbackVerticalSpeed = -1.4;
 const playerKnockbackDurationMs = 240;
@@ -69,7 +67,6 @@ const syncedPositionValue = (value: number) =>
 export class Player extends MovingActor {
   private client?: GameClient;
   isLocal: boolean = false;
-  isFlying: boolean = false;
   isPaused: boolean = false;
   public health: number = playerMaxHealth;
   public readonly maxHealth: number = playerMaxHealth;
@@ -199,19 +196,14 @@ export class Player extends MovingActor {
     if (this.isPaused) {
       return;
     }
-    if (this.isFlying) {
-      return;
-    }
     const actorCenterX = actor.pos.x + actor.width / 2;
     const direction = this.centerX() < actorCenterX ? -1 : 1;
-    this.isFlying = false;
     this.hspeed = playerKnockbackHorizontalSpeed * direction;
     this.vspeed = playerKnockbackVerticalSpeed;
     this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
     this.jumpHoldTimeRemainingMs = 0;
     const movementState = {
       ...this.currentMovementState(),
-      isFlying: this.isFlying,
     };
     this.sendClient(messageTypes.updatePlayer, movementState);
   }
@@ -315,9 +307,6 @@ export class Player extends MovingActor {
     if (this.isPaused) {
       return false;
     }
-    if (this.isFlying) {
-      return false;
-    }
     if (this.damageImmunityTimeRemainingMs > 0) {
       return false;
     }
@@ -330,7 +319,6 @@ export class Player extends MovingActor {
     this.resetRenderInterpolation();
     this.hspeed = 0;
     this.vspeed = 0;
-    this.isFlying = false;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
     this.syncHealthState();
@@ -393,32 +381,24 @@ export class Player extends MovingActor {
     const movementState = {
       ...this.currentMovementState(),
       health: this.health,
-      isFlying: this.isFlying,
     };
     this.sendClient(messageTypes.updatePlayer, movementState, movementState);
   }
 
   private onMove() {
-    if (!this.inputState.hasChanged(this.isFlying)) {
+    if (!this.inputState.hasChanged()) {
       return;
     }
-    const shouldSyncPosition = this.inputState.shouldSyncPosition(
-      this.isGrounded,
-      this.isFlying,
-    );
+    const shouldSyncPosition = this.inputState.shouldSyncPosition(this.isGrounded);
     const movementState = shouldSyncPosition ? this.currentMovementState() : {};
-    const payload = this.inputState.payload(this.isFlying, movementState);
-    const statePatch = this.inputState.statePatch(
-      this.isFlying,
-      shouldSyncPosition,
-      payload,
-    );
+    const payload = this.inputState.payload(movementState);
+    const statePatch = this.inputState.statePatch(shouldSyncPosition, payload);
     this.sendClient(
       messageTypes.updatePlayer,
       payload,
       statePatch === payload ? undefined : statePatch,
     );
-    this.inputState.remember(this.isFlying);
+    this.inputState.remember();
   }
 
   private updateControls(engine: ex.Engine) {
@@ -428,12 +408,7 @@ export class Player extends MovingActor {
     if (this.isPaused) {
       return;
     }
-    const controlState = this.inputState.readKeyboard(engine, this.isFlying);
-    this.isFlying = controlState.isFlying;
-    if (controlState.didToggleFlying) {
-      this.hspeed = 0;
-      this.vspeed = 0;
-    }
+    this.inputState.readKeyboard(engine);
   }
 
   private canTurnFromInput() {
@@ -446,7 +421,7 @@ export class Player extends MovingActor {
     }
     const nextVisual: PlayerVisual = !this.isGrounded
       ? "jump"
-      : this.keyDown && !this.isFlying
+      : this.keyDown
         ? "crouch"
         : keySign !== 0
           ? "walk"
@@ -464,25 +439,6 @@ export class Player extends MovingActor {
       return turnAcceleration;
     }
     return walkAcceleration;
-  }
-
-  private flyVerticalInput() {
-    return this.inputState.flyingVerticalSign();
-  }
-
-  private moveWithFlying(dt: number, keySign: number) {
-    const verticalSign = this.flyVerticalInput();
-    this.hspeed = approach(
-      this.hspeed,
-      keySign * flySpeed,
-      flyAcceleration * 60 * dt,
-    );
-    this.vspeed = approach(
-      this.vspeed,
-      verticalSign * flySpeed,
-      flyAcceleration * 60 * dt,
-    );
-    this.moveFreely(positionScale, dt);
   }
 
   private moveWithGravity(delta: number, dt: number, keySign: number) {
@@ -618,22 +574,18 @@ export class Player extends MovingActor {
     if (isKnockbackActive) {
       this.moveWithKnockback(delta, dt);
     }
-    if (!isKnockbackActive && this.isFlying) {
-      this.moveWithFlying(dt, keySign);
-    }
-    if (!isKnockbackActive && !this.isFlying) {
+    if (!isKnockbackActive) {
       this.moveWithGravity(delta, dt, keySign);
     }
 
     if (
       !isKnockbackActive &&
-      !this.isFlying &&
       this.isGrounded &&
       this.keyJump
     ) {
       this.onJump();
     }
-    if (!this.isFlying && !previousGrounded && this.isGrounded) {
+    if (!isKnockbackActive && !previousGrounded && this.isGrounded) {
       this.onLand();
     }
 
@@ -643,7 +595,6 @@ export class Player extends MovingActor {
       delta,
       {
         ...this.currentMovementState(),
-        isFlying: this.isFlying,
       },
       isKnockbackActive,
     );

@@ -309,7 +309,6 @@ const syncMovementFieldsFromPayload = (
   if (payload.health !== undefined) {
     player.syncHealth(payload.health);
   }
-  player.isFlying = payload.isFlying ?? player.isFlying;
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
 };
@@ -324,7 +323,6 @@ const playerStateFromActor = (
     x: player.pos.x,
     y: player.pos.y,
     isPaused: player.isPaused,
-    isFlying: player.isFlying,
     horizontalSpeed: player.hspeed,
     verticalSpeed: player.vspeed,
     health: player.health,
