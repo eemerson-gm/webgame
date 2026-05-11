@@ -2,19 +2,13 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
-import { TILE_PX } from "../world/worldConfig";
 import { generateWorld } from "../world/worldGeneration";
 import { loadWorldDefinition } from "../world/worldDefinition";
 import { solidTerrainTileKeys } from "./TerrainTileKinds";
-import { createSlimeEntityState } from "../simulation/entitySpawns";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
-  EntitiesSnapshotPayload,
-  EntityCreatePayload,
   EntityState,
-  EntityUpdatePayload,
-  EntityDamageUpdate,
   JoinWorldPayload,
   PlayerDamageUpdate,
   PlayerState,
@@ -45,9 +39,6 @@ const playerStateMessageTypes: string[] = [
   messageTypes.updatePlayer,
   messageTypes.updatePing,
 ];
-const entityDamageKnockbackHorizontalSpeed = 1.5;
-const entityDamageKnockbackVerticalSpeed = -1.6;
-const entityDamageKnockbackDurationMs = 240;
 const worldNameAdjectives = [
   "Amber",
   "Bright",
@@ -288,7 +279,6 @@ export class GameServer {
       x: room.playerSpawn.x,
       y: room.playerSpawn.y,
     };
-    const didReassignEntities = this.assignBalancedEntityOwners(room);
     console.log(
       `[${playerId}]: Joined ${room.name} (${Object.keys(room.playerSockets).length} players)`,
     );
@@ -298,14 +288,6 @@ export class GameServer {
       entitiesData: room.entitiesData,
       world: this.worldPayload(room),
     });
-    if (didReassignEntities) {
-      this.sendToRoomOthers(
-        room,
-        playerId,
-        messageTypes.updateEntities,
-        this.entitiesPayload(room),
-      );
-    }
     this.broadcastWorldsUpdatedToLobby();
   }
 
@@ -321,11 +303,7 @@ export class GameServer {
     if (socket) {
       this.lobbySockets[playerId] = socket;
     }
-    const didReassignEntities = this.assignBalancedEntityOwners(room);
     this.sendToRoomOthers(room, playerId, messageTypes.disconnected, { id: playerId });
-    if (didReassignEntities) {
-      this.sendToRoomAll(room, messageTypes.updateEntities, this.entitiesPayload(room));
-    }
     this.broadcastWorldsUpdatedToLobby();
   }
 
@@ -347,7 +325,6 @@ export class GameServer {
       console.log(`[${playerId}]: ${json}`);
       return;
     }
-    const wasActive = this.isActivePlayer(room, playerId);
     const wasPaused = room.playersData[playerId]?.isPaused === true;
     const isResuming = wasPaused && this.shouldResumePlayer(type, payload);
     const patch = this.playerStatePatch(type, payload, message.statePatch);
@@ -358,7 +335,6 @@ export class GameServer {
       console.log(`[${playerId}]: ${json}`);
       return;
     }
-    this.reassignEntitiesIfPlayerActivityChanged(room, playerId, wasActive);
     if (this.isPausedInteraction(room, playerId, type)) {
       console.log(`[${playerId}]: Paused interaction blocked`);
       return;
@@ -373,9 +349,7 @@ export class GameServer {
       outgoingPayload,
       playerId,
     );
-    if (!payloadWithPlayerId) {
-      console.error("Invalid message payload:", type);
-      console.log(`[${playerId}]: ${json}`);
+    if (payloadWithPlayerId === null) {
       return;
     }
     const outgoingType = this.outgoingMessageType(type);
@@ -422,20 +396,6 @@ export class GameServer {
     return Object.keys(payload).length === 0;
   }
 
-  private reassignEntitiesIfPlayerActivityChanged(
-    room: WorldRoom,
-    playerId: string,
-    wasActive: boolean,
-  ) {
-    if (wasActive === this.isActivePlayer(room, playerId)) {
-      return;
-    }
-    if (!this.assignBalancedEntityOwners(room)) {
-      return;
-    }
-    this.sendToRoomAll(room, messageTypes.updateEntities, this.entitiesPayload(room));
-  }
-
   private removeClient(playerId: string) {
     const room = this.worldRoomForPlayer(playerId);
     if (!room) {
@@ -449,14 +409,10 @@ export class GameServer {
     delete room.playerSockets[playerId];
     delete room.playersData[playerId];
     delete this.socketWorldIds[playerId];
-    const didReassignEntities = this.assignBalancedEntityOwners(room);
     console.log(
       `[${playerId}]: Disconnected from ${room.name} (${Object.keys(room.playerSockets).length} players)`,
     );
     this.sendToRoomOthers(room, playerId, messageTypes.disconnected, { id: playerId });
-    if (didReassignEntities) {
-      this.sendToRoomAll(room, messageTypes.updateEntities, this.entitiesPayload(room));
-    }
     this.broadcastWorldsUpdatedToLobby();
   }
 
@@ -469,169 +425,6 @@ export class GameServer {
       solidTiles: solidTerrainTileKeys(room.worldTerrainTiles),
       protectedTiles: Array.from(room.protectedTerrainTiles),
       terrainTiles: room.worldTerrainTiles,
-    };
-  }
-
-  private entitiesPayload(room: WorldRoom): EntitiesSnapshotPayload {
-    return {
-      entitiesData: room.entitiesData,
-    };
-  }
-
-  private entityPayload(entity: EntityState): EntitiesSnapshotPayload {
-    return {
-      entitiesData: {
-        [entity.id]: entity,
-      },
-      replaceExisting: false,
-    };
-  }
-
-  private activePlayerIds(room: WorldRoom) {
-    return Object.keys(room.playerSockets).filter((playerId) =>
-      this.isActivePlayer(room, playerId),
-    );
-  }
-
-  private isActivePlayer(room: WorldRoom, playerId: string) {
-    if (!room.playerSockets[playerId]) {
-      return false;
-    }
-    return room.playersData[playerId]?.isPaused !== true;
-  }
-
-  private assignBalancedEntityOwners(room: WorldRoom) {
-    const activePlayerIds = this.activePlayerIds(room);
-    const nextEntitiesData = Object.fromEntries(
-      Object.entries(room.entitiesData).map(([entityId, entity], index) => [
-        entityId,
-        {
-          ...entity,
-          ownerId:
-            activePlayerIds.length === 0
-              ? undefined
-              : activePlayerIds[index % activePlayerIds.length],
-        },
-      ]),
-    );
-    const didChangeOwner = Object.values(nextEntitiesData).some(
-      (entity) => room.entitiesData[entity.id]?.ownerId !== entity.ownerId,
-    );
-    room.entitiesData = nextEntitiesData;
-    return didChangeOwner;
-  }
-
-  private applyEntityUpdate(room: WorldRoom, payload: Data, playerId: string) {
-    const entity = (payload as EntityUpdatePayload).entity;
-    if (!entity) {
-      return null;
-    }
-    const storedEntity = room.entitiesData[entity.id];
-    if (!storedEntity) {
-      return null;
-    }
-    if (storedEntity.ownerId !== playerId) {
-      return null;
-    }
-    if (entity.type !== "slime") {
-      return null;
-    }
-    const updatedEntity = {
-      ...storedEntity,
-      ...entity,
-      id: storedEntity.id,
-      type: storedEntity.type,
-      ownerId: playerId,
-      health: storedEntity.health,
-    };
-    room.entitiesData = {
-      ...room.entitiesData,
-      [storedEntity.id]: updatedEntity,
-    };
-    return this.entityPayload(updatedEntity);
-  }
-
-  private applyEntityCreate(room: WorldRoom, payload: Data, playerId: string) {
-    const entity = this.entityCreatePayloadFrom(room, payload, playerId);
-    if (!entity) {
-      return null;
-    }
-    room.entitiesData = {
-      ...room.entitiesData,
-      [entity.id]: entity,
-    };
-    return this.entityPayload(entity);
-  }
-
-  private entityCreatePayloadFrom(room: WorldRoom, payload: Data, playerId: string) {
-    const createPayload = payload as EntityCreatePayload;
-    const x = Number(createPayload.x);
-    const y = Number(createPayload.y);
-    if (createPayload.type !== "slime") {
-      return null;
-    }
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return null;
-    }
-    const entityId = `slime${room.nextEntityIndex++}`;
-    return createSlimeEntityState(
-      entityId,
-      x,
-      y,
-      this.isActivePlayer(room, playerId) ? playerId : undefined,
-    );
-  }
-
-  private applyEntityDamage(room: WorldRoom, payload: Data, playerId: string) {
-    const update = this.entityDamageUpdateFromPayload(payload);
-    if (!update) {
-      return null;
-    }
-    const storedEntity = room.entitiesData[update.entityId];
-    if (!storedEntity) {
-      return null;
-    }
-    if (storedEntity.type !== "slime") {
-      return null;
-    }
-    const damage = update.damage ?? 1;
-    const nextHealth = Math.max(storedEntity.health - damage, 0);
-    const player = room.playersData[playerId];
-    const playerX = Number(player?.x);
-    const direction =
-      Number.isFinite(playerX) && storedEntity.x + TILE_PX / 2 < playerX + TILE_PX / 2
-        ? -1
-        : 1;
-    const updatedEntity = {
-      ...storedEntity,
-      health: nextHealth,
-      horizontalSpeed: entityDamageKnockbackHorizontalSpeed * direction,
-      verticalSpeed: entityDamageKnockbackVerticalSpeed,
-      knockbackMs: entityDamageKnockbackDurationMs,
-    };
-    if (nextHealth <= 0) {
-      delete room.entitiesData[storedEntity.id];
-      return this.entityPayload(updatedEntity);
-    }
-    room.entitiesData = {
-      ...room.entitiesData,
-      [storedEntity.id]: updatedEntity,
-    };
-    return this.entityPayload(updatedEntity);
-  }
-
-  private entityDamageUpdateFromPayload(payload: Data): EntityDamageUpdate | null {
-    const entityId = String(payload.entityId ?? "");
-    const damage = Number(payload.damage ?? 1);
-    if (!entityId) {
-      return null;
-    }
-    if (!Number.isFinite(damage) || damage <= 0) {
-      return null;
-    }
-    return {
-      entityId,
-      damage,
     };
   }
 
@@ -677,15 +470,15 @@ export class GameServer {
     type: string,
     payload: Data,
     playerId: string,
-  ) {
+  ): Data | null {
     if (type === messageTypes.createEntity) {
-      return this.applyEntityCreate(room, payload, playerId);
+      return null;
     }
     if (type === messageTypes.updateEntity) {
-      return this.applyEntityUpdate(room, payload, playerId);
+      return null;
     }
     if (type === messageTypes.damageEntity) {
-      return this.applyEntityDamage(room, payload, playerId);
+      return null;
     }
     if (type === messageTypes.damagePlayer) {
       return this.playerDamagePayload(payload, playerId);

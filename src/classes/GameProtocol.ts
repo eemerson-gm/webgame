@@ -28,29 +28,7 @@ export type PlayerState = {
   pingMs?: number;
 };
 
-export type EntityType = "slime";
-
-type BaseEntityState = {
-  id: string;
-  type: EntityType;
-  ownerId?: string;
-  x: number;
-  y: number;
-  horizontalSpeed: number;
-  verticalSpeed: number;
-  isGrounded: boolean;
-  isJumping: boolean;
-};
-
-export type SlimeEntityState = BaseEntityState & {
-  type: "slime";
-  facingLeft: boolean;
-  health: number;
-  knockbackMs: number;
-  targetPlayerId?: string;
-};
-
-export type EntityState = SlimeEntityState;
+export type EntityState = {};
 
 export type EntitiesSnapshotPayload = {
   entitiesData: Record<string, EntityState>;
@@ -63,7 +41,7 @@ export type EntityUpdatePayload = {
 };
 
 export type EntityCreatePayload = {
-  type: "slime";
+  type?: string;
   x: number;
   y: number;
 };

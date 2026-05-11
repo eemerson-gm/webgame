@@ -1,7 +1,6 @@
 import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { HUDManager } from "./ui/HUDManager";
-import { Slime } from "./actors/Slime";
 import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
 import { GameClient, type MessageEvents } from "./classes/GameClient";
@@ -14,22 +13,20 @@ import type {
   PlayerDamageUpdate,
   PlayerKnockbackUpdate,
   PlayerState,
-  SlimeEntityState,
   WorldSummary,
   WorldTerrainPayload,
   WorldsUpdatedPayload,
 } from "./classes/GameProtocol";
 import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TileLightingOverlay } from "./classes/TileLightingOverlay";
-import { separateEntityBodies } from "./simulation/entityPhysics";
-import type { EntitySeparationBody } from "./simulation/entityPhysics";
+import { separateEntityBodies } from "./actors/MovingActor";
+import type { EntitySeparationBody } from "./actors/MovingActor";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
 const playerById: Record<string, Player> = {};
 const playerPingById: Record<string, number | undefined> = {};
 const pingLoopSlot = { intervalId: null as number | null };
-const slimeById: Record<string, Slime> = {};
 const worldSession = {
   terrain: null as TerrainTileMap | null,
   dynamicLighting: null as TileLightingOverlay | null,
@@ -367,16 +364,9 @@ const remotePlayerSeparationEntries = (): EntitySeparationEntry[] =>
     applySeparatedX: (x) => player.applySeparatedX(x),
   }));
 
-const slimeSeparationEntries = (): EntitySeparationEntry[] =>
-  Object.values(slimeById).map((slime) => ({
-    body: slime.entitySeparationBody(),
-    applySeparatedX: (x) => slime.applySeparatedX(x),
-  }));
-
 const entitySeparationEntries = () => [
   ...localPlayerSeparationEntries(),
   ...remotePlayerSeparationEntries(),
-  ...slimeSeparationEntries(),
 ];
 
 const separateEntityActors = () => {
@@ -438,63 +428,8 @@ const joinExistingRemotePlayers = (
   });
 };
 
-const spawnSlimeFromState = (game: ex.Engine, state: SlimeEntityState) => {
-  const slime = new Slime(state, {
-    world: () => worldSession.terrain?.tileCollisionWorld() ?? null,
-    playersData: currentPlayersData,
-    clientId: () => clientSlot.client?.clientId ?? "",
-    sendState: (entity) =>
-      clientSlot.client?.send(messageTypes.updateEntity, { entity }),
-  });
-  slimeById[state.id] = slime;
-  game.add(slime);
-  return slime;
-};
-
-const removeEntityActor = (entityId: string) => {
-  slimeById[entityId]?.kill();
-  delete slimeById[entityId];
-};
-
-const applyEntityState = (state: EntityState) => {
-  if (state.type !== "slime") {
-    return;
-  }
-  if (state.health <= 0) {
-    removeEntityActor(state.id);
-    return;
-  }
-  const slime = slimeById[state.id];
-  if (slime) {
-    slime.syncFromState(state);
-    return;
-  }
-  const terrain = worldSession.terrain;
-  if (!terrain) {
-    return;
-  }
-  spawnSlimeFromState(game, state);
-};
-
-const applyEntitiesSnapshot = (payload: Data) => {
-  const {
-    entitiesData,
-    removedEntityIds = [],
-    replaceExisting = true,
-  } = payload as EntitiesSnapshotPayload;
-  if (!entitiesData) {
-    return;
-  }
-  Object.values(entitiesData).forEach((state) => applyEntityState(state));
-  removedEntityIds.forEach(removeEntityActor);
-  if (!replaceExisting) {
-    return;
-  }
-  Object.keys(slimeById)
-    .filter((slimeId) => !entitiesData[slimeId])
-    .forEach((slimeId) => {
-      removeEntityActor(slimeId);
-    });
+const applyEntitiesSnapshot = (_payload: Data) => {
+  void _payload;
 };
 
 const applyParticleCreate = (payload: Data) => {
@@ -646,7 +581,6 @@ const startWorldSession = (
   console.log("Players:", playersData);
   joinExistingRemotePlayers(game, terrain, myPlayerId, playersData);
   renderPlayerList();
-  applyEntitiesSnapshot({ entitiesData });
 };
 
 const gameMessageHandlers = (client: GameClient): MessageEvents => ({

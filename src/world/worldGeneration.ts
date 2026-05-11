@@ -1,5 +1,4 @@
 import type { EntityState, TerrainTileKind } from "../classes/GameProtocol";
-import { createInitialEntitiesData } from "../simulation/entitySpawns";
 import { TILE_PX } from "./worldConfig";
 import { Structure } from "./Structure";
 import { buildSurfaceStartByColumn } from "./terrainGen";
@@ -142,6 +141,6 @@ export const generateWorld = (
       structureResults.find(({ placement }) => placement.setsPlayerSpawn)?.structure.spawnPosition(
         TILE_PX,
       ) ?? defaultPlayerSpawn(definition),
-    entitiesData: createInitialEntitiesData(),
+    entitiesData: {} as Record<string, EntityState>,
   };
 };

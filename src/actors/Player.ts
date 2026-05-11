@@ -5,10 +5,7 @@ import type { Data } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
-import type {
-  EntitySeparationBody,
-  TileCollisionWorld,
-} from "../simulation/entityPhysics";
+import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
 import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";

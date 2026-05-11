@@ -3,14 +3,14 @@ import {
   moveHorizontallyUntilBlocked as moveEntityHorizontallyUntilBlocked,
   moveVerticallyUntilBlocked as moveEntityVerticallyUntilBlocked,
   tileMeeting as entityTileMeeting,
-} from "../simulation/entityPhysics";
+} from "./MovingActor";
 import type {
   CollisionBounds,
   EntityPhysicsOptions,
   TileCollisionWorld,
-} from "../simulation/entityPhysics";
+} from "./MovingActor";
 
-export type { CollisionBounds } from "../simulation/entityPhysics";
+export type { CollisionBounds } from "./MovingActor";
 
 export class TileCollisionActor extends ex.Actor {
   public hspeed: number = 0;

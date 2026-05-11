@@ -1,4 +1,4 @@
-import type { WorldBounds } from "../simulation/entityPhysics";
+import type { WorldBounds } from "./MovingActor";
 import type { DamageableActor } from "./DamageableActor";
 import type { Player } from "./Player";
 

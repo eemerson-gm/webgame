@@ -9,7 +9,7 @@ import {
   terrainTileKey,
 } from "../world/terrainTiles";
 import { solidTerrainTileKeys } from "./TerrainTileKinds";
-import type { TileCollisionWorld } from "../simulation/entityPhysics";
+import type { TileCollisionWorld } from "../actors/MovingActor";
 import {
   TerrainBorderManager,
   adjacentTilePositions,
