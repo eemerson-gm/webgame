@@ -1,8 +1,6 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
 import type { TerrainTileKind } from "./GameProtocol";
-import type { PlayerPowerup } from "./Powerups";
-import { terrainBlockDropsForKind } from "./TerrainBlockDrops";
 
 type TerrainBlockOptions = {
   kind: TerrainTileKind;
@@ -64,10 +62,6 @@ export class TerrainBlock {
       },
     });
   }
-
-  public dropsFor(brokenWith: PlayerPowerup) {
-    return terrainBlockDropsForKind(this.kind, brokenWith);
-  }
 }
 
 const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
@@ -94,7 +88,7 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
   mushroom: new TerrainBlock({
     kind: "mushroom",
     health: 4,
-    sprite: Resources.MinerPowerup,
+    sprite: Resources.Grass,
   }),
   pillarBottom: new TerrainBlock({
     kind: "pillarBottom",

@@ -1,72 +1,38 @@
 import * as ex from "excalibur";
-import { toolbarSelection } from "../classes/ToolbarSelection";
 import { HeartDisplay } from "./HeartDisplay";
-import { ToolbarDisplay } from "./ToolbarDisplay";
-import { PowerupTimerDisplay } from "./PowerupTimerDisplay";
 import { FpsDisplay } from "./FpsDisplay";
 
 type HealthProvider = () => {
   health: number;
   maxHealth: number;
-  isFlying: boolean;
 } | null;
-
-type PowerupExpiredHandler = () => void;
 
 const displayPosition = ex.vec(4, 4);
 const viewWidth = 320;
-const viewHeight = 180;
 const fpsDisplayRightTop = ex.vec(viewWidth - displayPosition.x - 1, 0);
 
 export class HUDManager extends ex.ScreenElement {
   private readonly getHealth: HealthProvider;
-  private readonly onPowerupExpired: PowerupExpiredHandler;
-  
+
   private readonly heartDisplay: HeartDisplay;
-  private readonly toolbarDisplay: ToolbarDisplay;
-  private readonly powerupTimerDisplay: PowerupTimerDisplay;
   private readonly fpsDisplay: FpsDisplay;
 
-  private readonly selectBlockFromWheel = (event: WheelEvent) => {
-    const direction = Math.sign(event.deltaY);
-    if (direction === 0) {
-      return;
-    }
-    event.preventDefault();
-    toolbarSelection.selectNextSlot(direction);
-    this.toolbarDisplay.sync();
-  };
-
-  constructor(
-    getHealth: HealthProvider,
-    onPowerupExpired: PowerupExpiredHandler = () => {},
-  ) {
+  constructor(getHealth: HealthProvider) {
     super({
       pos: displayPosition,
       anchor: ex.vec(0, 0),
       z: 1000,
     });
     this.getHealth = getHealth;
-    this.onPowerupExpired = onPowerupExpired;
-    
+
     this.heartDisplay = new HeartDisplay(ex.vec(0, 0));
-    this.toolbarDisplay = new ToolbarDisplay(ex.vec(0, 0), ex.vec(0, viewHeight), this.getHealth);
-    this.powerupTimerDisplay = new PowerupTimerDisplay(() => this.toolbarDisplay.getPowerupSlotPosition());
     this.fpsDisplay = new FpsDisplay(fpsDisplayRightTop);
   }
 
-  override onInitialize(engine: ex.Engine) {
-    engine.canvas.addEventListener("wheel", this.selectBlockFromWheel, {
-      passive: false,
-    });
-    
+  override onInitialize() {
     this.heartDisplay.getActors().forEach((actor) => this.addChild(actor));
-    this.toolbarDisplay.getActors().forEach((actor) => this.addChild(actor));
-    this.powerupTimerDisplay.getActors().forEach((actor) => this.addChild(actor));
     this.fpsDisplay.getActors().forEach((actor) => this.addChild(actor));
 
-    this.toolbarDisplay.sync();
-    this.powerupTimerDisplay.sync();
     this.syncHearts();
   }
 
@@ -74,12 +40,7 @@ export class HUDManager extends ex.ScreenElement {
     if (!engine) {
       return;
     }
-    if (toolbarSelection.updatePowerupTimer(delta)) {
-      this.onPowerupExpired();
-    }
-    
-    this.toolbarDisplay.sync();
-    this.powerupTimerDisplay.sync();
+
     this.fpsDisplay.sync(delta);
     this.syncHearts();
   }

@@ -1,12 +1,7 @@
 import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
-import type { Data, PlayerPowerup } from "../classes/GameProtocol";
-import {
-  isPlayerPowerup,
-  powerupHasBehavior,
-  type PowerupBehavior,
-} from "../classes/Powerups";
+import type { Data } from "../classes/GameProtocol";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
@@ -81,10 +76,6 @@ export class Player extends MovingActor {
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
   private damageFlash: DamageFlash;
-  private activePowerup: PlayerPowerup = "none";
-  private blockBreakActionTimeRemainingMs: number = 0;
-  private isBlockBreakActionHeld: boolean = false;
-  private blockBreakActionInstanceId: number = 0;
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
@@ -120,10 +111,7 @@ export class Player extends MovingActor {
     this.renderPreviousPosition = ex.vec(pos.x, pos.y);
     this.body.enableFixedUpdateInterpolate = false;
 
-    this.visuals = new PlayerVisuals(
-      this,
-      () => this.isBlockBreakActionHeld,
-    );
+    this.visuals = new PlayerVisuals(this);
     this.networkSync = new PlayerNetworkSync(client);
 
     this.damageFlash = new DamageFlash(this, {
@@ -162,14 +150,6 @@ export class Player extends MovingActor {
 
   set keyDown(value: boolean) {
     this.inputState.keyDown = value;
-  }
-
-  get isUsingPowerup() {
-    return this.isBreakingBlock;
-  }
-
-  get isBreakingBlock() {
-    return this.blockBreakActionTimeRemainingMs > 0;
   }
 
   override onInitialize(engine: ex.Engine) {
@@ -213,50 +193,6 @@ export class Player extends MovingActor {
     this.pos.x = roundedX;
     this.pos.y = roundedY;
     this.syncPosition();
-  }
-
-  private sendBlockBreakActionState(isBreakingBlock: boolean) {
-    const activePowerup = this.activePowerup;
-    this.sendClient(messageTypes.updatePlayer, {
-      isUsingPowerup: isBreakingBlock,
-      activePowerup,
-    });
-  }
-
-  public beginBlockBreakAction(durationMs?: number) {
-    if (this.isPaused) {
-      return false;
-    }
-    if (this.isBreakingBlock) {
-      return false;
-    }
-    const actualDurationMs = durationMs ?? this.visuals.blockBreakDurationMs;
-    this.beginBlockBreakActionVisual(actualDurationMs);
-    this.sendBlockBreakActionState(true);
-    return true;
-  }
-
-  public holdBlockBreakAction(
-    powerup: PlayerPowerup = this.activePowerup,
-  ) {
-    if (powerup !== this.activePowerup) {
-      this.syncPowerupState(powerup);
-    }
-    if (!this.isBreakingBlock) {
-      const started = this.beginBlockBreakAction(this.visuals.blockBreakDurationMs);
-      this.isBlockBreakActionHeld = started;
-      return started;
-    }
-    const wasHeld = this.isBlockBreakActionHeld;
-    this.isBlockBreakActionHeld = true;
-    this.blockBreakActionTimeRemainingMs = Math.max(
-      this.blockBreakActionTimeRemainingMs,
-      this.visuals.blockBreakDurationMs,
-    );
-    if (!wasHeld) {
-      this.visuals.resumeBlockBreakGraphicPlayback();
-    }
-    return true;
   }
 
   public knockBackFrom(actor: ex.Actor) {
@@ -329,13 +265,11 @@ export class Player extends MovingActor {
     }
     this.moveRenderHistoryBy(x - this.pos.x, 0);
     this.pos.x = x;
-    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
+    this.updateRenderInterpolation(
+      this.physicsAccumulatorMs / playerFixedStepMs,
+    );
     this.networkSync.markPositionChanged();
     this.networkSync.setShouldBroadcastSeparatedPosition(true);
-  }
-
-  public currentPowerup() {
-    return this.activePowerup;
   }
 
   public applyRemotePositionCorrection(
@@ -346,56 +280,8 @@ export class Player extends MovingActor {
     this.resetRenderInterpolation();
   }
 
-  public currentPowerupCan(behavior: PowerupBehavior) {
-    return powerupHasBehavior(this.activePowerup, behavior);
-  }
-
-  public currentBlockBreakHitboxes() {
-    return this.visuals.blockBreakHitboxes;
-  }
-
-  public currentBlockBreakBaseDamage() {
-    return this.visuals.blockBreakBaseDamage;
-  }
-
-  public currentBlockBreakFrameIndex() {
-    return this.visuals.blockBreakFrameIndex;
-  }
-
-  public currentBlockBreakActionInstanceId() {
-    if (!this.isBreakingBlock) {
-      return null;
-    }
-    return `${this.blockBreakActionInstanceId}:${this.visuals.blockBreakCycleIndex}`;
-  }
-
-  public blockBreakFramePixelSize() {
-    return this.visuals.blockBreakFramePixelSize();
-  }
-
-  public bodyGraphicsDrawOffset() {
-    return this.visuals.bodyGraphicsDrawOffset();
-  }
-
   public isFacingLeft() {
     return this.facingLeft;
-  }
-
-  public syncPowerupState(powerup: unknown) {
-    if (!isPlayerPowerup(powerup)) {
-      return;
-    }
-    if (powerup === this.activePowerup) {
-      return;
-    }
-    this.activePowerup = powerup;
-    this.visuals.applyPowerup(powerup, this.isUsingPowerup);
-    const position = this.currentPosition();
-    this.sendClient(messageTypes.updatePlayer, {
-      activePowerup: powerup,
-      isUsingPowerup: this.isUsingPowerup,
-      ...position,
-    });
   }
 
   public syncHealth(health: unknown) {
@@ -450,23 +336,6 @@ export class Player extends MovingActor {
     this.syncHealthState();
   }
 
-  public stopBlockBreakAction() {
-    if (!this.isBreakingBlock) {
-      return;
-    }
-    this.stopBlockBreakActionVisual();
-    this.sendBlockBreakActionState(false);
-  }
-
-  public releaseBlockBreakHold() {
-    if (!this.isBreakingBlock) {
-      return;
-    }
-    this.isBlockBreakActionHeld = false;
-    this.blockBreakActionTimeRemainingMs =
-      this.visuals.remainingBlockBreakCycleMs();
-  }
-
   public syncPauseState(isPaused: boolean) {
     const position = this.currentPosition();
     this.setPaused(isPaused);
@@ -476,8 +345,6 @@ export class Player extends MovingActor {
       keyRight: false,
       keyJump: false,
       keyDown: false,
-      isUsingPowerup: false,
-      activePowerup: this.activePowerup,
       horizontalSpeed: 0,
       verticalSpeed: 0,
       ...position,
@@ -498,66 +365,7 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
-    this.stopBlockBreakActionVisual();
     this.visuals.setVisual("idle");
-  }
-
-  public syncBlockBreakActionState(
-    isBreakingBlock: boolean,
-    durationMs?: number,
-    powerup: unknown = this.activePowerup,
-  ) {
-    if (isPlayerPowerup(powerup) && powerup !== this.activePowerup) {
-      this.syncPowerupState(powerup);
-    }
-    const actualDurationMs = durationMs ?? this.visuals.blockBreakDurationMs;
-    if (isBreakingBlock && !this.isBreakingBlock) {
-      this.beginBlockBreakActionVisual(actualDurationMs);
-      return;
-    }
-    if (isBreakingBlock && this.isBreakingBlock) {
-      this.blockBreakActionTimeRemainingMs = Math.max(
-        this.blockBreakActionTimeRemainingMs,
-        actualDurationMs,
-      );
-      return;
-    }
-    if (!isBreakingBlock && this.isBreakingBlock) {
-      this.stopBlockBreakActionVisual();
-    }
-  }
-
-  private beginBlockBreakActionVisual(durationMs: number) {
-    this.blockBreakActionInstanceId += 1;
-    this.isBlockBreakActionHeld = false;
-    this.blockBreakActionTimeRemainingMs = durationMs;
-    this.visuals.setVisual("blockBreakAction");
-  }
-
-  private stopBlockBreakActionVisual() {
-    this.isBlockBreakActionHeld = false;
-    this.blockBreakActionTimeRemainingMs = 0;
-    this.visuals.hideBlockBreakAttachment();
-    if (this.visuals.currentVisual === "blockBreakAction") {
-      this.visuals.setVisual("idle");
-    }
-  }
-
-  private updateBlockBreakActionTimer(delta: number) {
-    if (!this.isBreakingBlock) {
-      this.visuals.hideBlockBreakAttachment();
-      return;
-    }
-    this.visuals.updateBlockBreakAction(delta, this.facingLeft);
-    if (this.isBlockBreakActionHeld) {
-      return;
-    }
-    this.blockBreakActionTimeRemainingMs -= delta;
-    if (this.blockBreakActionTimeRemainingMs > 0) {
-      return;
-    }
-    this.stopBlockBreakActionVisual();
-    this.sendBlockBreakActionState(false);
   }
 
   private currentPosition() {
@@ -635,10 +443,6 @@ export class Player extends MovingActor {
   private syncPlayerVisuals(keySign: number) {
     if (this.canTurnFromInput()) {
       this.syncFacingFromHorizontalSign(keySign);
-    }
-    if (this.isBreakingBlock) {
-      this.visuals.updateFacing(this.facingLeft);
-      return;
     }
     const nextVisual: PlayerVisual = !this.isGrounded
       ? "jump"
@@ -777,7 +581,9 @@ export class Player extends MovingActor {
     const keySign = this.inputState.horizontalSign();
     this.consumeFixedPlayerSteps(keySign);
     this.onMove();
-    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
+    this.updateRenderInterpolation(
+      this.physicsAccumulatorMs / playerFixedStepMs,
+    );
   }
 
   private stepPausedPlayerFrame() {
@@ -791,7 +597,6 @@ export class Player extends MovingActor {
       return;
     }
     this.physicsAccumulatorMs -= playerFixedStepMs;
-    this.updateBlockBreakActionTimer(playerFixedStepMs);
     this.consumePausedFixedSteps();
   }
 
@@ -842,8 +647,6 @@ export class Player extends MovingActor {
       },
       isKnockbackActive,
     );
-
-    this.updateBlockBreakActionTimer(delta);
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {

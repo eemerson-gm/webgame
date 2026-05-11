@@ -278,8 +278,8 @@ const shouldSeparateBodies = (
   padding: number,
 ) => {
   if (
-    !canBodySeparateInPair(leftBody, rightBody) &&
-    !canBodySeparateInPair(rightBody, leftBody)
+    !canBodySeparateInPair(leftBody) &&
+    !canBodySeparateInPair(rightBody)
   ) {
     return false;
   }
@@ -289,13 +289,7 @@ const shouldSeparateBodies = (
   return verticalOverlap(leftBody, rightBody) > 0;
 };
 
-const canBodySeparateInPair = (
-  body: EntitySeparationBody,
-  otherBody: EntitySeparationBody,
-) => {
-  if (body.id.startsWith("player:") && otherBody.id.startsWith("item:")) {
-    return false;
-  }
+const canBodySeparateInPair = (body: EntitySeparationBody) => {
   return body.canSeparate;
 };
 
@@ -306,8 +300,8 @@ const separationMoves = (
 ) => {
   const overlap = horizontalOverlap(leftBody, rightBody, options.padding);
   const direction = separationDirection(leftBody, rightBody);
-  const canSeparateLeft = canBodySeparateInPair(leftBody, rightBody);
-  const canSeparateRight = canBodySeparateInPair(rightBody, leftBody);
+  const canSeparateLeft = canBodySeparateInPair(leftBody);
+  const canSeparateRight = canBodySeparateInPair(rightBody);
   const movableCount = Number(canSeparateLeft) + Number(canSeparateRight);
   const sharedMove = Math.min(overlap / movableCount, options.maxMoveX);
   const soloMove = Math.min(overlap, options.maxMoveX);

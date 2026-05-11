@@ -3,38 +3,21 @@ import type { RawData } from "ws";
 import { merge } from "lodash";
 import { Server } from "http";
 import { TILE_PX } from "../world/worldConfig";
-import { terrainTileKey } from "../world/terrainTiles";
 import { generateWorld } from "../world/worldGeneration";
 import { loadWorldDefinition } from "../world/worldDefinition";
-import {
-  isBreakableTerrainTileKind,
-  isTerrainTileKind,
-  solidTerrainTileKeys,
-} from "./TerrainTileKinds";
-import {
-  createItemEntityState,
-  createSlimeEntityState,
-} from "../simulation/entitySpawns";
-import {
-  terrainBlockDropsForKind,
-  type ResolvedTerrainBlockDrop,
-} from "./TerrainBlockDrops";
+import { solidTerrainTileKeys } from "./TerrainTileKinds";
+import { createSlimeEntityState } from "../simulation/entitySpawns";
 import { decodeMessage, encodeMessage, messageTypes } from "./GameProtocol";
 import type {
   Data,
-  EntityCollectPayload,
   EntitiesSnapshotPayload,
   EntityCreatePayload,
   EntityState,
   EntityUpdatePayload,
   EntityDamageUpdate,
-  ItemEntityState,
   JoinWorldPayload,
   PlayerDamageUpdate,
-  PlayerPowerup,
   PlayerState,
-  TerrainBlockBreakUpdate,
-  TerrainBlockUpdate,
   TerrainTileKind,
   WorldSummary,
   WorldTerrainPayload,
@@ -65,12 +48,6 @@ const playerStateMessageTypes: string[] = [
 const entityDamageKnockbackHorizontalSpeed = 1.5;
 const entityDamageKnockbackVerticalSpeed = -1.6;
 const entityDamageKnockbackDurationMs = 240;
-const droppedItemPickupDelayMs = 100;
-const droppedItemSize = 8;
-const droppedItemSpawnHorizontalSpeed = 0.45;
-const droppedItemSpawnVerticalSpeed = -1.2;
-const droppedItemCollectionDistance = TILE_PX * 2;
-const playerPowerups = ["none", "miner"] as const satisfies readonly PlayerPowerup[];
 const worldNameAdjectives = [
   "Amber",
   "Bright",
@@ -95,85 +72,6 @@ const randomWorldSeed = () => {
 
 const isPlayerStateMessage = (type: string) => {
   return playerStateMessageTypes.includes(type);
-};
-
-const isInsideWorld = (room: WorldRoom, column: number, row: number) => {
-  if (column < 0 || column >= room.columns) {
-    return false;
-  }
-  if (row < 0 || row >= room.rows) {
-    return false;
-  }
-  return true;
-};
-
-const isServerPlayerPowerup = (value: unknown): value is PlayerPowerup =>
-  playerPowerups.includes(value as PlayerPowerup);
-
-const blockUpdateFromPayload = (payload: Data): TerrainBlockUpdate | null => {
-  const column = Number(payload.column);
-  const row = Number(payload.row);
-  if (!Number.isInteger(column) || !Number.isInteger(row)) {
-    return null;
-  }
-  if (typeof payload.solid !== "boolean") {
-    return null;
-  }
-  if (payload.kind !== undefined && !isTerrainTileKind(payload.kind)) {
-    return null;
-  }
-  return {
-    column,
-    row,
-    solid: payload.solid,
-    kind: payload.kind,
-    ...(isServerPlayerPowerup(payload.brokenWith)
-      ? { brokenWith: payload.brokenWith }
-      : {}),
-    ...(typeof payload.dropItems === "boolean" ? { dropItems: payload.dropItems } : {}),
-  };
-};
-
-const blockBreakUpdateFromPayload = (payload: Data): TerrainBlockBreakUpdate | null => {
-  const column = Number(payload.column);
-  const row = Number(payload.row);
-  const breakDurationMs = Number(payload.breakDurationMs);
-  const health = Number(payload.health);
-  const maxHealth = Number(payload.maxHealth);
-  const isDamaging = payload.isDamaging;
-  if (!Number.isInteger(column) || !Number.isInteger(row)) {
-    return null;
-  }
-  if (typeof payload.isBreaking !== "boolean") {
-    return null;
-  }
-  if (
-    payload.breakDurationMs !== undefined &&
-    (!Number.isFinite(breakDurationMs) || breakDurationMs <= 0)
-  ) {
-    return null;
-  }
-  if (payload.health !== undefined && (!Number.isFinite(health) || health < 0)) {
-    return null;
-  }
-  if (
-    payload.maxHealth !== undefined &&
-    (!Number.isFinite(maxHealth) || maxHealth <= 0)
-  ) {
-    return null;
-  }
-  if (isDamaging !== undefined && typeof isDamaging !== "boolean") {
-    return null;
-  }
-  return {
-    column,
-    row,
-    isBreaking: payload.isBreaking,
-    ...(payload.breakDurationMs === undefined ? {} : { breakDurationMs }),
-    ...(payload.health === undefined ? {} : { health }),
-    ...(payload.maxHealth === undefined ? {} : { maxHealth }),
-    ...(isDamaging === undefined ? {} : { isDamaging }),
-  };
 };
 
 export class GameServer {
@@ -589,15 +487,6 @@ export class GameServer {
     };
   }
 
-  private entitiesPayloadFor(entities: EntityState[]): EntitiesSnapshotPayload {
-    return {
-      entitiesData: Object.fromEntries(
-        entities.map((entity) => [entity.id, entity]),
-      ),
-      replaceExisting: false,
-    };
-  }
-
   private activePlayerIds(room: WorldRoom) {
     return Object.keys(room.playerSockets).filter((playerId) =>
       this.isActivePlayer(room, playerId),
@@ -644,9 +533,6 @@ export class GameServer {
     if (storedEntity.ownerId !== playerId) {
       return null;
     }
-    if (storedEntity.type === "item") {
-      return this.applyItemEntityUpdate(room, storedEntity, entity, playerId);
-    }
     if (entity.type !== "slime") {
       return null;
     }
@@ -657,32 +543,6 @@ export class GameServer {
       type: storedEntity.type,
       ownerId: playerId,
       health: storedEntity.health,
-    };
-    room.entitiesData = {
-      ...room.entitiesData,
-      [storedEntity.id]: updatedEntity,
-    };
-    return this.entityPayload(updatedEntity);
-  }
-
-  private applyItemEntityUpdate(
-    room: WorldRoom,
-    storedEntity: ItemEntityState,
-    entity: EntityState,
-    playerId: string,
-  ) {
-    if (entity.type !== "item") {
-      return null;
-    }
-    const updatedEntity = {
-      ...storedEntity,
-      ...entity,
-      id: storedEntity.id,
-      type: storedEntity.type,
-      ownerId: playerId,
-      item: storedEntity.item,
-      count: storedEntity.count,
-      collectibleAtMs: storedEntity.collectibleAtMs,
     };
     room.entitiesData = {
       ...room.entitiesData,
@@ -775,59 +635,6 @@ export class GameServer {
     };
   }
 
-  private applyEntityCollection(room: WorldRoom, payload: Data, playerId: string) {
-    const entityId = String((payload as EntityCollectPayload).entityId ?? "");
-    if (!entityId) {
-      return null;
-    }
-    const entity = room.entitiesData[entityId];
-    if (!entity) {
-      return null;
-    }
-    if (entity.type !== "item") {
-      return null;
-    }
-    if (!this.isActivePlayer(room, playerId)) {
-      return null;
-    }
-    if (Date.now() < entity.collectibleAtMs) {
-      return null;
-    }
-    if (!this.isPlayerCloseEnoughToItem(room, playerId, entity)) {
-      return null;
-    }
-    delete room.entitiesData[entity.id];
-    return {
-      entitiesData: {},
-      removedEntityIds: [entity.id],
-      replaceExisting: false,
-      collectedItem: {
-        collectorId: playerId,
-        item: entity.item,
-        count: entity.count,
-      },
-    } satisfies EntitiesSnapshotPayload;
-  }
-
-  private isPlayerCloseEnoughToItem(
-    room: WorldRoom,
-    playerId: string,
-    entity: ItemEntityState,
-  ) {
-    const player = room.playersData[playerId];
-    const playerX = Number(player?.x);
-    const playerY = Number(player?.y);
-    if (!Number.isFinite(playerX) || !Number.isFinite(playerY)) {
-      return false;
-    }
-    return (
-      Math.hypot(
-        playerX + TILE_PX / 2 - (entity.x + droppedItemSize / 2),
-        playerY + TILE_PX / 2 - (entity.y + droppedItemSize / 2),
-      ) <= droppedItemCollectionDistance
-    );
-  }
-
   private playerDamagePayload(payload: Data, playerId: string) {
     const update = payload as PlayerDamageUpdate;
     const targetId = String(update.targetId ?? "");
@@ -862,9 +669,6 @@ export class GameServer {
     if (type === messageTypes.damageEntity) {
       return messageTypes.updateEntities;
     }
-    if (type === messageTypes.collectEntity) {
-      return messageTypes.updateEntities;
-    }
     return type;
   }
 
@@ -883,107 +687,9 @@ export class GameServer {
     if (type === messageTypes.damageEntity) {
       return this.applyEntityDamage(room, payload, playerId);
     }
-    if (type === messageTypes.collectEntity) {
-      return this.applyEntityCollection(room, payload, playerId);
-    }
     if (type === messageTypes.damagePlayer) {
       return this.playerDamagePayload(payload, playerId);
     }
-    if (type === messageTypes.updateBlock) {
-      return this.applyWorldBlockUpdate(room, payload, playerId);
-    }
-    if (type === messageTypes.updateBlockBreak) {
-      return this.blockBreakPayload(room, payload, playerId);
-    }
     return { ...payload, id: playerId };
-  }
-
-  private blockBreakPayload(room: WorldRoom, payload: Data, playerId: string) {
-    const update = blockBreakUpdateFromPayload(payload);
-    if (!update) {
-      return null;
-    }
-    if (!isInsideWorld(room, update.column, update.row)) {
-      return null;
-    }
-    return { ...update, id: playerId };
-  }
-
-  private applyWorldBlockUpdate(room: WorldRoom, payload: Data, playerId: string) {
-    const update = blockUpdateFromPayload(payload);
-    if (!update) {
-      return null;
-    }
-    if (!isInsideWorld(room, update.column, update.row)) {
-      return null;
-    }
-    const key = terrainTileKey(update.column, update.row);
-    const existingKind = room.worldTerrainTiles[key];
-    if (existingKind && !isBreakableTerrainTileKind(existingKind)) {
-      return null;
-    }
-    if (!update.solid) {
-      if (!existingKind) {
-        return null;
-      }
-      delete room.worldTerrainTiles[key];
-      const drops = this.createBlockDropEntities(room, update, existingKind, playerId);
-      return {
-        ...update,
-        id: playerId,
-        ...this.entitiesPayloadFor(drops),
-      };
-    }
-    const kind = update.kind ?? "dirt";
-    if (room.protectedTerrainTiles.has(key)) {
-      return null;
-    }
-    if (!isBreakableTerrainTileKind(kind)) {
-      return null;
-    }
-    room.worldTerrainTiles[key] = kind;
-    return { ...update, id: playerId, kind };
-  }
-
-  private createBlockDropEntities(
-    room: WorldRoom,
-    update: TerrainBlockUpdate,
-    existingKind: TerrainTileKind,
-    playerId: string,
-  ) {
-    if (room.playersData[playerId]?.isFlying) {
-      return [];
-    }
-    if (update.dropItems === false) {
-      return [];
-    }
-    const brokenWith = update.brokenWith ?? "none";
-    const drops: ResolvedTerrainBlockDrop[] = terrainBlockDropsForKind(
-      existingKind,
-      brokenWith,
-    );
-    return drops
-      .map((drop) => {
-        const entity = createItemEntityState(
-          `item${room.nextEntityIndex++}`,
-          update.column * TILE_PX + Math.floor((TILE_PX - droppedItemSize) / 2),
-          update.row * TILE_PX + Math.floor((TILE_PX - droppedItemSize) / 2),
-          drop.item,
-          drop.count,
-          Date.now() + droppedItemPickupDelayMs,
-          this.isActivePlayer(room, playerId) ? playerId : undefined,
-          this.itemDropHorizontalSpeed(),
-          droppedItemSpawnVerticalSpeed,
-        );
-        room.entitiesData = {
-          ...room.entitiesData,
-          [entity.id]: entity,
-        };
-        return entity;
-      });
-  }
-
-  private itemDropHorizontalSpeed() {
-    return (Math.random() * 2 - 1) * droppedItemSpawnHorizontalSpeed;
   }
 }

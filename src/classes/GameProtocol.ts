@@ -1,7 +1,3 @@
-import type { PlayerPowerup } from "./Powerups";
-
-export type { PlayerPowerup };
-
 export type Data = Record<string, any>;
 
 export type GameMessage = {
@@ -24,21 +20,15 @@ export type PlayerState = {
   keyRight?: boolean;
   keyJump?: boolean;
   keyDown?: boolean;
-  isUsingPowerup?: boolean;
   isPaused?: boolean;
   isFlying?: boolean;
   horizontalSpeed?: number;
   verticalSpeed?: number;
   health?: number;
   pingMs?: number;
-  activePowerup?: PlayerPowerup;
 };
 
-export type EntityType = "slime" | "item";
-
-export type ItemEntityItem =
-  | { type: "block"; kind: TerrainTileKind }
-  | { type: "powerup"; powerup: PlayerPowerup };
+export type EntityType = "slime";
 
 type BaseEntityState = {
   id: string;
@@ -60,26 +50,12 @@ export type SlimeEntityState = BaseEntityState & {
   targetPlayerId?: string;
 };
 
-export type ItemEntityState = BaseEntityState & {
-  type: "item";
-  item: ItemEntityItem;
-  count: number;
-  collectibleAtMs: number;
-};
-
-export type EntityState = SlimeEntityState | ItemEntityState;
-
-export type CollectedItemPayload = {
-  collectorId: string;
-  item: ItemEntityItem;
-  count: number;
-};
+export type EntityState = SlimeEntityState;
 
 export type EntitiesSnapshotPayload = {
   entitiesData: Record<string, EntityState>;
   removedEntityIds?: string[];
   replaceExisting?: boolean;
-  collectedItem?: CollectedItemPayload;
 };
 
 export type EntityUpdatePayload = {
@@ -87,13 +63,9 @@ export type EntityUpdatePayload = {
 };
 
 export type EntityCreatePayload = {
-  type: EntityType;
+  type: "slime";
   x: number;
   y: number;
-};
-
-export type EntityCollectPayload = {
-  entityId: string;
 };
 
 export type TerrainTileKind =
@@ -121,27 +93,6 @@ export type WorldTerrainPayload = {
   solidTiles?: string[];
   protectedTiles?: string[];
   terrainTiles?: Record<string, TerrainTileKind>;
-};
-
-export type TerrainBlockUpdate = {
-  id?: string;
-  column: number;
-  row: number;
-  solid: boolean;
-  kind?: TerrainTileKind;
-  brokenWith?: PlayerPowerup;
-  dropItems?: boolean;
-};
-
-export type TerrainBlockBreakUpdate = {
-  id?: string;
-  column: number;
-  row: number;
-  isBreaking: boolean;
-  breakDurationMs?: number;
-  health?: number;
-  maxHealth?: number;
-  isDamaging?: boolean;
 };
 
 export type PlayerKnockbackUpdate = {
@@ -202,15 +153,12 @@ export const messageTypes = {
   createPlayer: "create_player",
   updatePlayer: "update_player",
   updatePing: "update_ping",
-  updateBlock: "update_block",
-  updateBlockBreak: "update_block_break",
   knockbackPlayer: "knockback_player",
   damagePlayer: "damage_player",
   damageEntity: "damage_entity",
   createEntity: "create_entity",
   updateEntity: "update_entity",
   updateEntities: "update_entities",
-  collectEntity: "collect_entity",
   createParticle: "create_particle",
   ping: "ping",
   pong: "pong",

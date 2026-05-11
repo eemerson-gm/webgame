@@ -138,20 +138,7 @@ const RESOURCE_MAP = {
   PlayerWalk2: "assets/player/player_walk2.png",
   PlayerJump: "assets/player/player_jump.png",
   PlayerCrouch: "assets/player/player_crouch.png",
-  PlayerUseTool1: "assets/player/player_use_tool1.png",
-  PlayerUseTool2: "assets/player/player_use_tool2.png",
-  PlayerUseTool3: "assets/player/player_use_tool3.png",
-  PlayerUseTool4: "assets/player/player_use_tool4.png",
-  PlayerUseTool5: "assets/player/player_use_tool5.png",
-  PlayerPunch1: "assets/player/player_punch1.png",
-  PlayerPunch2: "assets/player/player_punch2.png",
-  PlayerPunch3: "assets/player/player_punch3.png",
-  BronzePickaxe: "assets/tools/bronze_pickaxe.png",
   Slime: "assets/mobs/slime.png",
-  BlockBreak1: "assets/effects/block_break1.png",
-  BlockBreak2: "assets/effects/block_break2.png",
-  BlockBreak3: "assets/effects/block_break3.png",
-  BlockBreak4: "assets/effects/block_break4.png",
   Smash1: "assets/effects/smash_1.png",
   Smash2: "assets/effects/smash_2.png",
   Smash3: "assets/effects/smash_3.png",
@@ -159,13 +146,6 @@ const RESOURCE_MAP = {
   HeartFull: "assets/ui/heart_full.png",
   HeartHalf: "assets/ui/heart_half.png",
   HeartEmpty: "assets/ui/heart_empty.png",
-  NonePowerupIcon: "assets/powerups/none_powerup_icon.png",
-  MinerPowerupIcon: "assets/powerups/miner_powerup_icon.png",
-  MinerPowerup: "assets/powerups/miner_powerup.png",
-  MinerPowerupItem: "assets/items/miner_powerup.png",
-  MinerHat: "assets/powerups/miner_powerup_hat.png",
-  PowerupSlot: "assets/ui/powerup_slot.png",
-  InventoryBlockSlot: "assets/ui/inventory_block_slot.png",
   ThoughtBubbleSleep: "assets/ui/thought_bubble_sleep.png",
   Grass: "assets/blocks/grass.png",
   Dirt: "assets/blocks/dirt.png",
@@ -310,7 +290,7 @@ const ensureAnimationData = (data) => {
   const body = data.body ?? defaultBody();
   const legacyAction = data.action;
   const actions = data.actions ?? {
-    blockBreak: legacyAction
+    action: legacyAction
       ? {
           frames: legacyAction.frames ?? [],
           frameDurationMs: legacyAction.frameDurationMs ?? 75,
@@ -323,7 +303,7 @@ const ensureAnimationData = (data) => {
               }]
             : [],
         }
-      : makeTrack([{ sprite: "PlayerPunch1" }, { sprite: "PlayerPunch2" }, { sprite: "PlayerPunch3" }], 75),
+      : makeTrack([{ sprite: "Player" }], 75),
   };
   data.body = body;
   data.actions = actions;
@@ -340,7 +320,7 @@ const ensureAnimationData = (data) => {
   });
   data.hat.poses.actions = data.hat.poses.actions ?? {};
   Object.entries(data.actions).forEach(([actionId, action]) => {
-    action.frames = action.frames?.length ? action.frames : [{ sprite: "PlayerPunch1" }];
+    action.frames = action.frames?.length ? action.frames : [{ sprite: "Player" }];
     action.frameDurationMs = action.frameDurationMs ?? 75;
     action.baseDamage = Number.isFinite(Number(action.baseDamage)) ? Number(action.baseDamage) : 1;
     action.hitboxes = action.hitboxes ?? [];
@@ -718,27 +698,6 @@ const drawAttachment = (attachment) => {
   });
 };
 const drawHat = () => {
-  const pose = currentHatPose();
-  if (!pose || pose.visible === false) return;
-  const metrics = bodyFrameMetrics();
-  const img = loadImg(spriteUrl("MinerHat"));
-  if (!img.complete || img.naturalWidth <= 0) return;
-  const bodyOffsetX = metrics?.offsetX ?? 0;
-  const bodyOffsetY = metrics?.offsetY ?? 0;
-  const x = (CENTER_OFFSET - bodyOffsetX + TILE / 2 + pose.offset.x) * SCALE;
-  const y = (CENTER_OFFSET - bodyOffsetY + pose.offset.y) * SCALE;
-  const width = img.naturalWidth * SCALE;
-  const height = img.naturalHeight * SCALE;
-  ctx.drawImage(img, x - width / 2, y - height, width, height);
-  state.renderItems.push({
-    type: "hat",
-    x: -bodyOffsetX + TILE / 2 + pose.offset.x,
-    y: -bodyOffsetY + pose.offset.y,
-    width: img.naturalWidth,
-    height: img.naturalHeight,
-    rotation: 0,
-    anchor: "bottom-center",
-  });
 };
 const drawSelection = () => {
   const item = state.renderItems.find((renderItem) => {
@@ -1235,7 +1194,7 @@ const populateAnimSelectKeeping = async (selectId) => {
   }
 };
 const createNewAnimation = async () => {
-  const raw = window.prompt("New animation id (file name, e.g. my-powerup)", "");
+  const raw = window.prompt("New animation id (file name, e.g. custom-animation)", "");
   if (raw === null) return;
   const id = sanitizeAnimationId(raw);
   if (!id) {
@@ -1292,7 +1251,7 @@ const addNewBodyClip = () => {
 };
 const addNewActionClip = () => {
   if (!state.animData) return;
-  const raw = window.prompt("New action clip id (e.g. blockBreak)", "");
+  const raw = window.prompt("New action clip id (e.g. action)", "");
   if (raw === null) return;
   const clipId = sanitizeActionClipId(raw);
   if (!clipId) {
@@ -1304,7 +1263,7 @@ const addNewActionClip = () => {
     return;
   }
   captureState();
-  state.animData.actions[clipId] = makeTrack([{ sprite: "PlayerPunch1" }], 75);
+  state.animData.actions[clipId] = makeTrack([{ sprite: "Player" }], 75);
   state.animData.hat.poses.actions = state.animData.hat.poses.actions ?? {};
   state.animData.hat.poses.actions[clipId] = ensurePoseCount([], 1, makeHatPose);
   ensureAnimationData(state.animData);
