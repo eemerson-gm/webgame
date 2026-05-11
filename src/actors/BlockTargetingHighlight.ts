@@ -496,7 +496,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     const powerup = toolbarSelection.selectedPowerupCan("mine")
       ? toolbarSelection.powerup()
       : "none";
-    if (!localPlayer.keepBreakingBlock(Number.POSITIVE_INFINITY, powerup)) {
+    if (!localPlayer.holdBlockBreakAction(powerup)) {
       return;
     }
   }
@@ -801,7 +801,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       return existingEntry;
     }
     const block = this.terrain.blockAt(target.column, target.row);
-    if (!block || !Number.isFinite(block.health)) {
+    if (!block || block.health === null) {
       return null;
     }
     const actor = this.createBreakActor();
@@ -875,10 +875,7 @@ export class BlockTargetingHighlight extends ex.Actor {
     }
     const particleState =
       entry.particleState ??
-      this.breakParticleEmitter.createState(
-        entry.target,
-        Number.POSITIVE_INFINITY,
-      );
+      this.breakParticleEmitter.createState(entry.target);
     entry.particleState = particleState;
     this.breakParticleEmitter.updateState(particleState, blockBreakFrameDurationMs);
   }
@@ -1040,7 +1037,7 @@ export class BlockTargetingHighlight extends ex.Actor {
       return false;
     }
     const block = this.terrain.blockAt(target.column, target.row);
-    return !!block && Number.isFinite(block.health);
+    return !!block && block.health !== null;
   }
 
   private boundsOverlap(a: WorldBounds, b: WorldBounds) {
@@ -1064,7 +1061,7 @@ export class BlockTargetingHighlight extends ex.Actor {
   }
 
   private damageRatioFor(health: number, maxHealth: number) {
-    if (!Number.isFinite(maxHealth) || maxHealth <= 0) {
+    if (maxHealth <= 0) {
       return 0;
     }
     return Math.max(0, Math.min(1, 1 - health / maxHealth));

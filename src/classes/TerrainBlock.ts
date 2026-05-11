@@ -6,7 +6,7 @@ import { terrainBlockDropsForKind } from "./TerrainBlockDrops";
 
 type TerrainBlockOptions = {
   kind: TerrainTileKind;
-  health: number;
+  health: number | null;
   regenPerSecond?: number;
   sprite: ex.ImageSource;
   animationFrames?: ex.ImageSource[];
@@ -15,7 +15,7 @@ type TerrainBlockOptions = {
 
 export class TerrainBlock {
   public readonly kind: TerrainTileKind;
-  public readonly health: number;
+  public readonly health: number | null;
   public readonly regenPerSecond: number;
   private readonly sprite: ex.ImageSource;
   private readonly animationFrames: ex.ImageSource[];
@@ -24,7 +24,7 @@ export class TerrainBlock {
   constructor(options: TerrainBlockOptions) {
     this.kind = options.kind;
     this.health = options.health;
-    this.regenPerSecond = options.regenPerSecond ?? options.health;
+    this.regenPerSecond = options.regenPerSecond ?? options.health ?? 0;
     this.sprite = options.sprite;
     this.animationFrames = options.animationFrames ?? [];
     this.animationFrameDurationMs = options.animationFrameDurationMs ?? 120;
@@ -73,7 +73,7 @@ export class TerrainBlock {
 const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
   bedrock: new TerrainBlock({
     kind: "bedrock",
-    health: Number.POSITIVE_INFINITY,
+    health: null,
     sprite: Resources.Bedrock,
   }),
   dirt: new TerrainBlock({
@@ -98,27 +98,27 @@ const terrainBlockByKind: Record<TerrainTileKind, TerrainBlock> = {
   }),
   pillarBottom: new TerrainBlock({
     kind: "pillarBottom",
-    health: Number.POSITIVE_INFINITY,
+    health: null,
     sprite: Resources.PillarBottom,
   }),
   pillarMiddle: new TerrainBlock({
     kind: "pillarMiddle",
-    health: Number.POSITIVE_INFINITY,
+    health: null,
     sprite: Resources.PillarMiddle,
   }),
   pillarTop: new TerrainBlock({
     kind: "pillarTop",
-    health: Number.POSITIVE_INFINITY,
+    health: null,
     sprite: Resources.PillarTop,
   }),
   spawn: new TerrainBlock({
     kind: "spawn",
-    health: Number.POSITIVE_INFINITY,
+    health: null,
     sprite: Resources.Spawn,
   }),
   spawnOrb: new TerrainBlock({
     kind: "spawnOrb",
-    health: Number.POSITIVE_INFINITY,
+    health: null,
     sprite: Resources.SpawnOrb,
     animationFrames: [
       Resources.SpawnOrb1,

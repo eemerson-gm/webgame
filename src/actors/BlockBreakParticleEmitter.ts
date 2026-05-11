@@ -11,7 +11,7 @@ export type TargetBlockPosition = {
 export type BlockBreakParticleState = {
   target: TargetBlockPosition;
   elapsedMs: number;
-  durationMs: number;
+  durationMs: number | null;
   nextParticleAtMs: number;
 };
 
@@ -142,7 +142,7 @@ export class BlockBreakParticleEmitter {
 
   public createState(
     target: TargetBlockPosition,
-    durationMs: number,
+    durationMs: number | null = null,
   ): BlockBreakParticleState {
     return {
       target: {
@@ -162,7 +162,7 @@ export class BlockBreakParticleEmitter {
     state.elapsedMs += delta;
     while (
       state.nextParticleAtMs <= state.elapsedMs &&
-      state.nextParticleAtMs < state.durationMs
+      (state.durationMs === null || state.nextParticleAtMs < state.durationMs)
     ) {
       this.emitBurst(state.target);
       state.nextParticleAtMs += blockBreakParticleIntervalMs;

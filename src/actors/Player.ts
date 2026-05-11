@@ -2,11 +2,18 @@ import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type { Data, PlayerPowerup } from "../classes/GameProtocol";
-import { isPlayerPowerup, powerupHasBehavior, type PowerupBehavior } from "../classes/Powerups";
+import {
+  isPlayerPowerup,
+  powerupHasBehavior,
+  type PowerupBehavior,
+} from "../classes/Powerups";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
-import type { EntitySeparationBody, TileCollisionWorld } from "../simulation/entityPhysics";
+import type {
+  EntitySeparationBody,
+  TileCollisionWorld,
+} from "../simulation/entityPhysics";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
 import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
@@ -19,7 +26,11 @@ const approach = (start: number, end: number, amount: number) => {
   return Math.max(start - amount, end);
 };
 
-const interpolatePosition = (start: ex.Vector, end: ex.Vector, progress: number) =>
+const interpolatePosition = (
+  start: ex.Vector,
+  end: ex.Vector,
+  progress: number,
+) =>
   ex.vec(
     start.x * (1 - progress) + end.x * progress,
     start.y * (1 - progress) + end.y * progress,
@@ -71,6 +82,7 @@ export class Player extends MovingActor {
   private damageFlash: DamageFlash;
   private activePowerup: PlayerPowerup = "none";
   private blockBreakActionTimeRemainingMs: number = 0;
+  private isBlockBreakActionHeld: boolean = false;
   private blockBreakActionInstanceId: number = 0;
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
@@ -106,12 +118,16 @@ export class Player extends MovingActor {
     this.spawnPosition = ex.vec(pos.x, pos.y);
     this.renderPreviousPosition = ex.vec(pos.x, pos.y);
     this.body.enableFixedUpdateInterpolate = false;
-    
-    this.visuals = new PlayerVisuals(this, () =>
-      !Number.isFinite(this.blockBreakActionTimeRemainingMs),
+
+    this.visuals = new PlayerVisuals(
+      this,
+      () => this.isBlockBreakActionHeld,
+    );
+    this.visuals.setRenderInterpolationBeforeDraw(() =>
+      this.updateRenderInterpolation(),
     );
     this.networkSync = new PlayerNetworkSync(client);
-    
+
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
       blinkFrameMs: playerDamageBlinkFrameMs,
@@ -223,25 +239,24 @@ export class Player extends MovingActor {
     return true;
   }
 
-  public keepBreakingBlock(
-    durationMs: number,
+  public holdBlockBreakAction(
     powerup: PlayerPowerup = this.activePowerup,
   ) {
     if (powerup !== this.activePowerup) {
       this.syncPowerupState(powerup);
     }
-    const previousRemaining = this.blockBreakActionTimeRemainingMs;
     if (!this.isBreakingBlock) {
-      return this.beginBlockBreakAction(durationMs);
+      const started = this.beginBlockBreakAction(this.visuals.blockBreakDurationMs);
+      this.isBlockBreakActionHeld = started;
+      return started;
     }
+    const wasHeld = this.isBlockBreakActionHeld;
+    this.isBlockBreakActionHeld = true;
     this.blockBreakActionTimeRemainingMs = Math.max(
       this.blockBreakActionTimeRemainingMs,
-      durationMs,
+      this.visuals.blockBreakDurationMs,
     );
-    if (
-      Number.isFinite(previousRemaining) &&
-      !Number.isFinite(this.blockBreakActionTimeRemainingMs)
-    ) {
+    if (!wasHeld) {
       this.visuals.resumeBlockBreakGraphicPlayback();
     }
     return true;
@@ -325,7 +340,10 @@ export class Player extends MovingActor {
     return this.activePowerup;
   }
 
-  public applyRemotePositionCorrection(position: ex.Vector, snapDistance: number) {
+  public applyRemotePositionCorrection(
+    position: ex.Vector,
+    snapDistance: number,
+  ) {
     this.visuals.applyRemotePositionCorrection(position, snapDistance);
     this.resetRenderInterpolation();
   }
@@ -446,7 +464,9 @@ export class Player extends MovingActor {
     if (!this.isBreakingBlock) {
       return;
     }
-    this.blockBreakActionTimeRemainingMs = this.visuals.remainingBlockBreakCycleMs();
+    this.isBlockBreakActionHeld = false;
+    this.blockBreakActionTimeRemainingMs =
+      this.visuals.remainingBlockBreakCycleMs();
   }
 
   public syncPauseState(isPaused: boolean) {
@@ -511,11 +531,13 @@ export class Player extends MovingActor {
 
   private beginBlockBreakActionVisual(durationMs: number) {
     this.blockBreakActionInstanceId += 1;
+    this.isBlockBreakActionHeld = false;
     this.blockBreakActionTimeRemainingMs = durationMs;
     this.visuals.setVisual("blockBreakAction");
   }
 
   private stopBlockBreakActionVisual() {
+    this.isBlockBreakActionHeld = false;
     this.blockBreakActionTimeRemainingMs = 0;
     this.visuals.hideBlockBreakAttachment();
     if (this.visuals.currentVisual === "blockBreakAction") {
@@ -529,6 +551,9 @@ export class Player extends MovingActor {
       return;
     }
     this.visuals.updateBlockBreakAction(delta, this.facingLeft);
+    if (this.isBlockBreakActionHeld) {
+      return;
+    }
     this.blockBreakActionTimeRemainingMs -= delta;
     if (this.blockBreakActionTimeRemainingMs > 0) {
       return;
@@ -624,7 +649,7 @@ export class Player extends MovingActor {
         : keySign !== 0
           ? "walk"
           : "idle";
-    
+
     this.visuals.setVisual(nextVisual);
     this.visuals.updateFacing(this.facingLeft);
   }
@@ -784,12 +809,16 @@ export class Player extends MovingActor {
 
     this.syncPlayerVisuals(keySign);
     this.onMove();
-    
-    this.networkSync.syncMovementPeriodically(delta, {
-      ...this.currentMovementState(),
-      isFlying: this.isFlying,
-    }, isKnockbackActive);
-    
+
+    this.networkSync.syncMovementPeriodically(
+      delta,
+      {
+        ...this.currentMovementState(),
+        isFlying: this.isFlying,
+      },
+      isKnockbackActive,
+    );
+
     this.updateBlockBreakActionTimer(delta);
   }
 

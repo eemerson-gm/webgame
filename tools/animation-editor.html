@@ -31,6 +31,7 @@
     <button type="button" class="editor-btn" id="btn-prev" aria-label="Previous frame">Prev</button>
     <span id="frame-label" class="editor-frame-label" aria-live="polite">Frame 1/1</span>
     <button type="button" class="editor-btn" id="btn-next" aria-label="Next frame">Next</button>
+    <button type="button" class="editor-btn editor-btn--danger" id="btn-remove-frame" aria-label="Remove current frame">Remove Frame</button>
     <button type="button" class="editor-btn" id="btn-play" aria-pressed="false" aria-label="Play or pause">Play</button>
     <span class="editor-toolbar__field">
       <span class="editor-label">Duration</span>
@@ -222,6 +223,7 @@ const elements = {
   animSelect: document.getElementById("anim-select"),
   trackSelect: document.getElementById("track-select"),
   frameLabel: document.getElementById("frame-label"),
+  removeFrame: document.getElementById("btn-remove-frame"),
   frameDur: document.getElementById("frame-dur"),
   baseDamage: document.getElementById("base-damage"),
   damageField: document.getElementById("damage-field"),
@@ -564,6 +566,7 @@ const syncControls = () => {
   const frame = currentFrame();
   const frameCount = track?.frames?.length ?? 0;
   elements.frameLabel.textContent = `Frame ${Math.min(state.frameIndex + 1, frameCount)}/${frameCount || 1}`;
+  elements.removeFrame.disabled = !track || frameCount <= 1;
   elements.frameDur.value = track?.frameDurationMs ?? 75;
   elements.baseDamage.value = track?.baseDamage ?? 1;
   elements.damageField.style.display = isActionTrack() ? "" : "none";
@@ -608,6 +611,25 @@ const setTrack = (trackId) => {
 const goToFrame = (index) => {
   const count = currentTrack()?.frames?.length ?? 1;
   state.frameIndex = ((index % count) + count) % count;
+  syncControls();
+  render();
+};
+const removeCurrentFrame = () => {
+  const entry = currentTrackEntry();
+  const track = entry?.track;
+  if (!entry || !track || track.frames.length <= 1) return;
+  captureState();
+  track.frames.splice(state.frameIndex, 1);
+  entry.hatPoses().splice(state.frameIndex, 1);
+  if (isActionTrack()) {
+    track.hitboxes.splice(state.frameIndex, 1);
+    entry.attachments().forEach((attachment) => {
+      attachment.poses.splice(state.frameIndex, 1);
+    });
+  }
+  state.frameIndex = Math.min(state.frameIndex, track.frames.length - 1);
+  state.selectedItem = { type: "body" };
+  stopPlay();
   syncControls();
   render();
 };
@@ -1148,6 +1170,7 @@ elements.baseDamage.oninput = () => {
 };
 document.getElementById("btn-prev").onclick = () => goToFrame(state.frameIndex - 1);
 document.getElementById("btn-next").onclick = () => goToFrame(state.frameIndex + 1);
+elements.removeFrame.onclick = removeCurrentFrame;
 btnPlay.onclick = () => {
   if (state.playTimer) {
     stopPlay();
