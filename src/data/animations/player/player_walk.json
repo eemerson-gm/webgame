@@ -1,0 +1,28 @@
+{
+  "frameDurationMs": 120,
+  "strategy": "loop",
+  "mirrorWidth": 16,
+  "frames": [
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerWalk1",
+          "offset": { "x": 8, "y": 8 },
+          "rotationDeg": 0
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerWalk2",
+          "offset": { "x": 8, "y": 8 },
+          "rotationDeg": 0
+        }
+      ]
+    }
+  ]
+}
+

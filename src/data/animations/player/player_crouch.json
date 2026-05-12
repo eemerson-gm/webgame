@@ -1,0 +1,18 @@
+{
+  "frameDurationMs": 120,
+  "strategy": "loop",
+  "mirrorWidth": 16,
+  "frames": [
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerCrouch",
+          "offset": { "x": 8, "y": 8 },
+          "rotationDeg": 0
+        }
+      ]
+    }
+  ]
+}
+
