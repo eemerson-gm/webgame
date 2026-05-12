@@ -4,8 +4,7 @@
     "start": "tsx src/server.ts",
     "sprite:dimensions": "tsx scripts/sprite-dimensions.ts",
     "build": "vite build",
-    "serve": "vite preview",
-    "anim:editor": "tsx tools/editor-server.ts"
+    "serve": "vite preview"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
