@@ -1,6 +1,5 @@
 import * as ex from "excalibur";
 import type {
-  TerrainBlockUpdate,
   TerrainTileKind,
 } from "./GameProtocol";
 import { terrainBlockForKind } from "./TerrainBlock";
@@ -21,6 +20,13 @@ import {
   isInsideTerrain,
 } from "./TerrainBorderManager";
 import { TerrainTileGrid } from "./TerrainTileGrid";
+
+type TerrainBlockUpdate = {
+  column: number;
+  row: number;
+  solid: boolean;
+  kind: TerrainTileKind;
+};
 
 type TerrainTileMapOptions = {
   pos?: ex.Vector;
@@ -216,7 +222,6 @@ class TerrainChunkRenderer extends ex.Actor {
 }
 
 export class TerrainTileMap {
-  public readonly map: ex.TileMap;
   public readonly renderer: ex.Actor;
   private readonly pos: ex.Vector;
   private readonly tileWidth: number;
@@ -268,15 +273,6 @@ export class TerrainTileMap {
       this.solidTiles,
       (column: number, row: number) => this.terrainTileGrid.kindAt(column, row),
     );
-
-    this.map = new ex.TileMap({
-      pos,
-      tileWidth,
-      tileHeight,
-      columns,
-      rows,
-      renderFromTopOfGraphic,
-    });
 
     this.chunkRenderer = new TerrainChunkRenderer(
       this,

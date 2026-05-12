@@ -557,7 +557,7 @@ export class MovingActor extends ex.Actor {
     };
   }
 
-  private tileCollisionWorld(): TileCollisionWorld {
+  protected tileCollisionWorld(): TileCollisionWorld {
     if (this.collisionWorld) {
       return this.collisionWorld;
     }

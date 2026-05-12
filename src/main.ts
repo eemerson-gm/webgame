@@ -31,6 +31,7 @@ const worldSession = {
   terrain: null as TerrainTileMap | null,
   dynamicLighting: null as TileLightingOverlay | null,
 };
+const dummyTileMapSlot = { tilemap: null as ex.TileMap | null };
 const remotePlayerPositionTolerance = 0.5;
 const remotePlayerSnapDistance = TILE_PX * 2;
 const pingIntervalMs = 2000;
@@ -75,7 +76,7 @@ const game = new ex.Engine({
   canvasElementId: "game",
   antialiasing: false,
   backgroundColor: ex.Color.fromHex("#54C0CA"),
-  pixelArt: true,
+  //pixelArt: true,
   snapToPixel: false,
   pixelRatio: 3,
   displayMode: ex.DisplayMode.FitContainer,
@@ -159,7 +160,9 @@ const renderWorldList = (worlds: WorldSummary[], client: GameClient) => {
   if (!list) {
     return;
   }
-  list.replaceChildren(...worlds.map((world) => createWorldCard(world, client)));
+  list.replaceChildren(
+    ...worlds.map((world) => createWorldCard(world, client)),
+  );
   setMenuStatus(worlds.length === 0 ? "No worlds available" : "Select a world");
 };
 
@@ -257,13 +260,14 @@ const isWorldTerrainPayload = (w: Data): w is WorldTerrainPayload => {
 const spawnPlayerAt = (
   game: ex.Engine,
   terrain: TerrainTileMap,
+  dummyTileMap: ex.TileMap,
   playerId: string,
   x: number,
   y: number,
 ) => {
   playerById[playerId] = new Player(
     ex.vec(x, y),
-    terrain.map,
+    dummyTileMap,
     undefined,
     terrain.tileCollisionWorld(),
   );
@@ -408,7 +412,8 @@ const applyRemotePlayerUpdate = (payload: Data) => {
     return;
   }
   const localPlayerId = clientSlot.client?.clientId;
-  const isLocalPlayerUpdate = localPlayerId !== undefined && playerId === localPlayerId;
+  const isLocalPlayerUpdate =
+    localPlayerId !== undefined && playerId === localPlayerId;
   if (isLocalPlayerUpdate) {
     if (playerState.isPaused !== undefined) {
       player.setPaused(playerState.isPaused);
@@ -425,6 +430,7 @@ const applyRemotePlayerUpdate = (payload: Data) => {
 const joinExistingRemotePlayers = (
   game: ex.Engine,
   terrain: TerrainTileMap,
+  dummyTileMap: ex.TileMap,
   myPlayerId: string,
   playersData: Record<string, PlayerState>,
 ) => {
@@ -434,7 +440,7 @@ const joinExistingRemotePlayers = (
     }
     const x = Number(row.x);
     const y = Number(row.y);
-    const player = spawnPlayerAt(game, terrain, peerId, x, y);
+    const player = spawnPlayerAt(game, terrain, dummyTileMap, peerId, x, y);
     syncMovementFieldsFromPayload(player, row);
   });
 };
@@ -556,17 +562,27 @@ const startWorldSession = (
     protectedTiles: world.protectedTiles,
     terrainTiles: world.terrainTiles,
   });
-  const tilemap = terrain.map;
-  const lighting = new TileLightingOverlay(terrain, ex.vec(viewWidth, viewHeight));
+  const lighting = new TileLightingOverlay(
+    terrain,
+    ex.vec(viewWidth, viewHeight),
+  );
   worldSession.terrain = terrain;
   worldSession.dynamicLighting = lighting;
   game.add(terrain.renderer);
   game.add(lighting);
 
   const playerSpawn = ex.vec(world.playerSpawn.x, world.playerSpawn.y);
+  const dummyTileMap = new ex.TileMap({
+    pos: ex.vec(0, 0),
+    tileWidth: TILE_PX,
+    tileHeight: TILE_PX,
+    columns: 1,
+    rows: 1,
+    renderFromTopOfGraphic: true,
+  });
   localPlayerSlot.player = new Player(
     playerSpawn,
-    tilemap,
+    dummyTileMap,
     client,
     terrain.tileCollisionWorld(),
   );
@@ -590,21 +606,32 @@ const startWorldSession = (
   addLocalPauseListeners();
   syncLocalPauseState();
   console.log("Players:", playersData);
-  joinExistingRemotePlayers(game, terrain, myPlayerId, playersData);
+  dummyTileMapSlot.tilemap = dummyTileMap;
+  joinExistingRemotePlayers(
+    game,
+    terrain,
+    dummyTileMap,
+    myPlayerId,
+    playersData,
+  );
   renderPlayerList();
 };
 
 const gameMessageHandlers = (client: GameClient): MessageEvents => ({
   [messageTypes.createPlayer]: (payload) => {
     const terrain = worldSession.terrain;
+    const dummyTileMap = dummyTileMapSlot.tilemap;
     if (!terrain) {
+      return;
+    }
+    if (!dummyTileMap) {
       return;
     }
     const { id, x, y } = payload as PlayerState;
     if (!id) {
       return;
     }
-    spawnPlayerAt(game, terrain, id, Number(x), Number(y));
+    spawnPlayerAt(game, terrain, dummyTileMap, id, Number(x), Number(y));
     playerPingById[id] = (payload as PlayerState).pingMs;
     renderPlayerList();
   },

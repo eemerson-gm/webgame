@@ -148,8 +148,9 @@ export class Player extends MovingActor {
     this.visuals.initialize();
     this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
-      const worldWidthPx = this.tilemap.columns * this.tilemap.tileWidth;
-      const worldHeightPx = this.tilemap.rows * this.tilemap.tileHeight;
+      const collisionWorld = this.tileCollisionWorld();
+      const worldWidthPx = collisionWorld.columns * collisionWorld.tileWidth;
+      const worldHeightPx = collisionWorld.rows * collisionWorld.tileHeight;
       const worldBounds = new ex.BoundingBox(0, 0, worldWidthPx, worldHeightPx);
       this.scene.camera.strategy.elasticToActor(
         this,
