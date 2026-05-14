@@ -582,8 +582,8 @@ export class Player extends MovingActor {
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
+    this.stepPlayerFrame(engine, delta);
     this.visuals.updateVisualCorrection(delta);
     this.updateDamageFeedback(delta);
-    this.stepPlayerFrame(engine, delta);
   }
 }
