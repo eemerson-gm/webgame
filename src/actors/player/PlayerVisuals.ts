@@ -107,7 +107,7 @@ export class PlayerVisuals {
     if (this.currentVisual === visual && !force) {
       return;
     }
-    this.activeAnimation.pause();
+    this.activeAnimation.hideAll();
 
     this.currentVisual = visual;
     const nextAnimation = this.animationFor(visual);

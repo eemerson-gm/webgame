@@ -2,6 +2,7 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"nodemon --exec tsx src/server.ts\"",
     "start": "tsx src/server.ts",
+    "editor:dev": "tsx src/animation-editor-dev-server.ts",
     "sprite:dimensions": "tsx scripts/sprite-dimensions.ts",
     "build": "vite build",
     "serve": "vite preview"

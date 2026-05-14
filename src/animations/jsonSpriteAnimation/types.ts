@@ -8,6 +8,7 @@ export type JsonSpritePose = {
     y: number;
   };
   rotationDeg: number;
+  layer?: number;
   visible?: boolean;
 };
 

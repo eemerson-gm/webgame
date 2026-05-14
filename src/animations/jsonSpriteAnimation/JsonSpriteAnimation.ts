@@ -23,6 +23,8 @@ const centeredSpriteFor = (image: ex.ImageSource) => {
 
 const degToRad = (deg: number) => (deg * Math.PI) / 180;
 
+const hiddenActorPosition = ex.vec(-100000, -100000);
+
 export class JsonSpriteAnimation {
   private readonly host: ex.Actor;
   private readonly spec: JsonSpriteAnimationSpec;
@@ -95,7 +97,7 @@ export class JsonSpriteAnimation {
     );
 
     this.childActorsById = childActorsById;
-    this.syncFrame();
+    this.hideAll();
   }
 
   public play() {
@@ -104,6 +106,17 @@ export class JsonSpriteAnimation {
 
   public pause() {
     this.isPlaying = false;
+  }
+
+  public hideAll() {
+    this.host.graphics.visible = false;
+    this.host.graphics.opacity = 0;
+    Object.keys(this.childActorsById).forEach((id) => {
+      const actor = this.childActorsById[id];
+      actor.pos = hiddenActorPosition;
+      actor.graphics.visible = false;
+      actor.graphics.opacity = 0;
+    });
   }
 
   public reset() {
@@ -167,6 +180,10 @@ export class JsonSpriteAnimation {
         this.host.graphics.opacity = 0;
       }
       if (hostPose !== undefined) {
+        const nextHostZ = hostPose.layer ?? undefined;
+        if (nextHostZ !== undefined) {
+          this.host.z = nextHostZ;
+        }
         const mirroredX = this.lastFacingLeft
           ? mirrorWidth - hostPose.offset.x
           : hostPose.offset.x;
@@ -194,6 +211,7 @@ export class JsonSpriteAnimation {
         return;
       }
 
+      actor.z = pose.layer ?? this.z;
       const x = this.lastFacingLeft ? mirrorWidth - pose.offset.x : pose.offset.x;
       const y = pose.offset.y;
       actor.pos = ex.vec(

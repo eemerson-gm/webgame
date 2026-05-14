@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Animation Editor</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+      }
+
+      #left {
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      #center {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      #sprite-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 60vh;
+        overflow: auto;
+        padding-right: 2px;
+      }
+
+      .sprite-item {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 6px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        border-radius: 6px;
+        user-select: none;
+        background: #fff;
+      }
+
+      .sprite-item img {
+        image-rendering: pixelated;
+      }
+
+      #scene-wrap {
+        position: relative;
+      }
+
+      #scene {
+        width: 900px;
+        height: 520px;
+        border: 1px solid rgba(0, 0, 0, 0.25);
+        border-radius: 6px;
+        background: #fff;
+        display: block;
+      }
+
+      #scene-hint {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 14px;
+        color: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .panel-subtitle {
+        font-size: 13px;
+        color: rgba(0, 0, 0, 0.6);
+        margin-top: -4px;
+      }
+
+      #render-help {
+        min-height: 18px;
+        font-size: 13px;
+        color: rgba(0, 0, 0, 0, 0.6);
+      }
+
+      #pose-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        border-radius: 6px;
+        padding: 10px;
+        background: #fff;
+      }
+
+      #pose-editor .row {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: flex-start;
+        gap: 6px;
+      }
+
+      #pose-editor label {
+        width: 100%;
+      }
+
+      #pose-editor input[type="number"],
+      #pose-editor input[type="text"],
+      #pose-editor select {
+        width: 100%;
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      label {
+        font-size: 13px;
+      }
+
+      input[type="number"],
+      input[type="text"],
+      select {
+        width: 160px;
+      }
+
+      textarea {
+        width: 100%;
+        height: 120px;
+      }
+
+      button {
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="left">
+      <h1>Animation Editor</h1>
+      <div id="status">Loading...</div>
+
+      <label>
+        Animation
+        <select id="animation-select"></select>
+      </label>
+
+      <div class="row">
+        <button id="frame-prev" type="button">Prev</button>
+        <label>
+          Frame
+          <input id="frame-index" type="number" min="0" step="1" />
+        </label>
+        <button id="frame-next" type="button">Next</button>
+      </div>
+
+      <div class="row">
+        <button id="save" type="button">Save</button>
+        <div id="save-status"></div>
+      </div>
+
+      <h2 class="panel-title">Sprites</h2>
+      <div id="sprite-list" aria-label="Sprites"></div>
+    </div>
+
+    <div id="center">
+      <div id="scene-wrap">
+        <canvas id="scene" aria-label="Scene" width="900" height="520"></canvas>
+        <div id="scene-hint">Drag a sprite into the canvas. Click to select.</div>
+      </div>
+        <div id="render-help"></div>
+        <h2 class="panel-title" style="font-size: 16px;">Pose</h2>
+        <div id="pose-none">No pose selected</div>
+
+        <div id="pose-editor" hidden>
+          <div class="row">
+            <label>
+              id
+              <input id="pose-id" type="text" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              spriteKey
+              <select id="pose-spriteKey"></select>
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              offsetX
+              <input id="pose-offsetX" type="number" step="1" />
+            </label>
+            <label>
+              offsetY
+              <input id="pose-offsetY" type="number" step="1" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              rotationDeg
+              <input id="pose-rotationDeg" type="number" step="1" />
+            </label>
+          </div>
+          <div class="row">
+            <label>
+              layer
+              <input id="pose-layer" type="number" step="1" />
+            </label>
+            <label>
+              visible
+              <input id="pose-visible" type="checkbox" />
+            </label>
+          </div>
+          <div class="row">
+            <button id="pose-remove" type="button">Remove pose</button>
+          </div>
+        </div>
+      </div>
+
+    <script type="module" src="/editor/animation-editor-ui.js"></script>
+  </body>
+</html>
+
