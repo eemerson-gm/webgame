@@ -158,12 +158,26 @@
       </label>
 
       <div class="row">
+        <label>
+          New animation id
+          <input id="new-animation-id" type="text" />
+        </label>
+        <button id="new-animation-create" type="button">New</button>
+      </div>
+
+      <div class="row">
         <button id="frame-prev" type="button">Prev</button>
         <label>
           Frame
           <input id="frame-index" type="number" min="0" step="1" />
         </label>
         <button id="frame-next" type="button">Next</button>
+      </div>
+
+      <div class="row">
+        <button id="frame-add-empty" type="button">Add empty</button>
+        <button id="frame-add-duplicate" type="button">Duplicate</button>
+        <button id="frame-delete" type="button">Delete</button>
       </div>
 
       <div class="row">
@@ -225,6 +239,10 @@
           </div>
           <div class="row">
             <button id="pose-remove" type="button">Remove pose</button>
+          </div>
+          <div class="row">
+            <button id="pose-copy" type="button">Copy pose</button>
+            <button id="pose-paste" type="button">Paste pose</button>
           </div>
         </div>
       </div>

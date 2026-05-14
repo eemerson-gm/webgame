@@ -7,6 +7,11 @@ export const Resources = {
   PlayerWalk2: new ex.ImageSource("./assets/player/player_walk2.png"),
   PlayerJump: new ex.ImageSource("./assets/player/player_jump.png"),
   PlayerCrouch: new ex.ImageSource("./assets/player/player_crouch.png"),
+  PlayerUseTool1: new ex.ImageSource("./assets/player/player_use_tool1.png"),
+  PlayerUseTool2: new ex.ImageSource("./assets/player/player_use_tool2.png"),
+  PlayerUseTool3: new ex.ImageSource("./assets/player/player_use_tool3.png"),
+  PlayerUseTool4: new ex.ImageSource("./assets/player/player_use_tool4.png"),
+  PlayerUseTool5: new ex.ImageSource("./assets/player/player_use_tool5.png"),
   Slime: new ex.ImageSource("./assets/mobs/slime.png"),
   Smash1: new ex.ImageSource("./assets/effects/smash_1.png"),
   Smash2: new ex.ImageSource("./assets/effects/smash_2.png"),
@@ -35,4 +40,5 @@ export const Resources = {
   Stone: new ex.ImageSource("./assets/blocks/stone.png"),
   WhiteWool: new ex.ImageSource("./assets/blocks/white_wool.png"),
   Bedrock: new ex.ImageSource("./assets/blocks/bedrock.png"),
+  WoodSword: new ex.ImageSource("./assets/weapons/wood_sword.png"),
 } as const;

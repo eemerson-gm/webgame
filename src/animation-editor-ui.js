@@ -36,6 +36,7 @@ const appState = {
   currentFrameIndex: 0,
   selectedPoseId: null,
   selectedPoseIndex: -1,
+  copiedPose: null,
   canvas: null,
   ctx: null,
   isDragging: false,
@@ -47,9 +48,14 @@ const ui = {
   status: el("status"),
   saveStatus: el("save-status"),
   animationSelect: el("animation-select"),
+  newAnimationId: el("new-animation-id"),
+  newAnimationCreate: el("new-animation-create"),
   frameIndex: el("frame-index"),
   framePrev: el("frame-prev"),
   frameNext: el("frame-next"),
+  frameAddEmpty: el("frame-add-empty"),
+  frameAddDuplicate: el("frame-add-duplicate"),
+  frameDelete: el("frame-delete"),
   save: el("save"),
   spriteList: el("sprite-list"),
   scene: el("scene"),
@@ -64,6 +70,8 @@ const ui = {
   poseLayer: el("pose-layer"),
   poseVisible: el("pose-visible"),
   poseRemove: el("pose-remove"),
+  poseCopy: el("pose-copy"),
+  posePaste: el("pose-paste"),
   renderHelp: el("render-help"),
 };
 
@@ -182,8 +190,8 @@ const render = () => {
     const img = meta.img;
     const w2 = meta.width;
     const h2 = meta.height;
-    const pxPos = o.x + centered.centerX * appState.zoom;
-    const pyPos = o.y + centered.centerY * appState.zoom;
+    const pxPos = Math.round(o.x + centered.centerX * appState.zoom);
+    const pyPos = Math.round(o.y + centered.centerY * appState.zoom);
     const rot = degToRad(pose.rotationDeg ?? 0);
 
     ctx.save();
@@ -208,8 +216,8 @@ const render = () => {
         const centered = centerForPose(pose, meta);
         const r =
           (Math.max(meta.width, meta.height) / 2) * appState.zoom;
-        const cx = o.x + centered.centerX * appState.zoom;
-        const cy = o.y + centered.centerY * appState.zoom;
+        const cx = Math.round(o.x + centered.centerX * appState.zoom);
+        const cy = Math.round(o.y + centered.centerY * appState.zoom);
         ctx.save();
         ctx.strokeStyle = "rgba(220,0,0,0.85)";
         ctx.lineWidth = 2;
@@ -331,7 +339,10 @@ const poseUpdateForDrag = (point) => {
   const pointerRelY = (point.y - o.y) / appState.zoom;
   const nextCenterX = pointerRelX + appState.drag.pointerOffsetX;
   const nextCenterY = pointerRelY + appState.drag.pointerOffsetY;
-  pose.offset = runtimeOffsetForEditor({ x: nextCenterX, y: nextCenterY }, meta);
+  pose.offset = runtimeOffsetForEditor(
+    { x: Math.round(nextCenterX), y: Math.round(nextCenterY) },
+    meta,
+  );
 };
 
 const startDragForSelection = (point) => {
@@ -391,6 +402,66 @@ const removeSelectedPose = () => {
   syncPoseEditorToSelection();
 };
 
+const clonePoseForCopy = (pose) => {
+  const nextOffset = pose.offset ?? { x: 0, y: 0 };
+  return {
+    spriteKey: pose.spriteKey,
+    offset: { x: nextOffset.x, y: nextOffset.y },
+    rotationDeg: pose.rotationDeg ?? 0,
+    layer: pose.layer ?? 0,
+    visible: pose.visible !== false,
+  };
+};
+
+const copySelectedPose = () => {
+  const frame = currentFrame();
+  if (frame === null) {
+    return;
+  }
+  updateSelectedFromId();
+  const idx = appState.selectedPoseIndex;
+  if (idx < 0) {
+    return;
+  }
+  const pose = frame.sprites[idx];
+  appState.copiedPose = clonePoseForCopy(pose);
+  ui.status.textContent = "Copied pose";
+};
+
+const pasteCopiedPose = () => {
+  const frame = currentFrame();
+  if (frame === null) {
+    return;
+  }
+  const copied = appState.copiedPose;
+  if (copied === null) {
+    ui.status.textContent = "Copy a pose first";
+    return;
+  }
+  const meta = spriteMetaForKey(copied.spriteKey);
+  if (meta === null) {
+    ui.status.textContent = "Unknown spriteKey";
+    return;
+  }
+  const existing = existingPoseIds();
+  const suffix = frame.sprites.length + 1;
+  const nextId = uniqueIdFor(copied.spriteKey, existing, suffix);
+  const pose = {
+    id: nextId,
+    spriteKey: copied.spriteKey,
+    offset: { x: copied.offset.x, y: copied.offset.y },
+    rotationDeg: copied.rotationDeg ?? 0,
+    layer: copied.layer ?? 0,
+    visible: copied.visible !== false,
+  };
+  frame.sprites.push(pose);
+  appState.selectedPoseId = pose.id;
+  updateSelectedFromId();
+  syncPoseEditorToSelection();
+  render();
+  ui.status.textContent = "Pasted pose";
+};
+
 const ensureIdConsistency = (oldId, newId) => {
   if (appState.spec === null) {
     return;
@@ -426,8 +497,8 @@ const addPoseFromSpriteKey = (spriteKey, point) => {
     return;
   }
   const o = origin();
-  const editorX = (point.x - o.x) / appState.zoom;
-  const editorY = (point.y - o.y) / appState.zoom;
+  const editorX = Math.round((point.x - o.x) / appState.zoom);
+  const editorY = Math.round((point.y - o.y) / appState.zoom);
   const existing = existingPoseIds();
   const suffix = frame.sprites.length + 1;
   const nextId = uniqueIdFor(spriteKey, existing, suffix);
@@ -537,7 +608,10 @@ const loadAnimationSpec = async (animationId) => {
   appState.selectedPoseId = null;
   appState.selectedPoseIndex = -1;
   ui.frameIndex.value = "0";
-  ui.frameIndex.max = String((appState.spec.frames.length ?? 1) - 1);
+  if (appState.spec.frames.length === 0) {
+    appState.spec.frames = [{ sprites: [] }];
+  }
+  ui.frameIndex.max = String(appState.spec.frames.length - 1);
   ui.status.textContent = `Loaded frames: ${appState.spec.frames.length}`;
   syncPoseEditorToSelection();
   render();
@@ -563,6 +637,116 @@ const saveAnimation = async () => {
     return;
   }
   ui.saveStatus.textContent = "Saved";
+};
+
+const animationTemplateSpec = () => {
+  const frameDurationMs = appState.spec?.frameDurationMs ?? 120;
+  const strategy = appState.spec?.strategy ?? "loop";
+  const mirrorWidth = appState.spec?.mirrorWidth ?? 16;
+  return {
+    frameDurationMs,
+    strategy,
+    mirrorWidth,
+    frames: [{ sprites: [] }],
+  };
+};
+
+const ensureAnimationIdEndsWithJson = (id) => {
+  const trimmed = String(id ?? "").trim();
+  if (!trimmed) {
+    return "";
+  }
+  const hasJson = trimmed.toLowerCase().endsWith(".json");
+  return hasJson ? trimmed : `${trimmed}.json`;
+};
+
+const createAnimation = async () => {
+  const rawId = ui.newAnimationId.value;
+  const animationId = ensureAnimationIdEndsWithJson(rawId);
+  if (!animationId) {
+    ui.status.textContent = "Enter animation id";
+    return;
+  }
+
+  ui.status.textContent = "Creating animation...";
+  ui.saveStatus.textContent = "";
+
+  const spec = animationTemplateSpec();
+  const res = await fetch(`/api/animations/${encodeURIComponent(animationId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(spec),
+  });
+
+  if (!res.ok) {
+    ui.status.textContent = "Create failed";
+    return;
+  }
+
+  await loadAnimationsList();
+  ui.animationSelect.value = animationId;
+  await loadAnimationSpec(animationId);
+  ui.newAnimationId.value = "";
+  ui.status.textContent = "Animation created";
+};
+
+const setFrameIndexMaxFromSpec = () => {
+  if (appState.spec === null) {
+    ui.frameIndex.max = "0";
+    return;
+  }
+  const framesCount = appState.spec.frames.length;
+  const max = Math.max(0, framesCount - 1);
+  ui.frameIndex.max = String(max);
+};
+
+const addFrameEmpty = () => {
+  if (appState.spec === null) {
+    return;
+  }
+  appState.spec.frames.push({ sprites: [] });
+  setFrameIndexMaxFromSpec();
+  setFrameIndex(appState.spec.frames.length - 1);
+};
+
+const clonePose = (pose) => {
+  const nextOffset = pose.offset ?? { x: 0, y: 0 };
+  return {
+    ...pose,
+    offset: { x: nextOffset.x, y: nextOffset.y },
+  };
+};
+
+const addFrameDuplicate = () => {
+  if (appState.spec === null) {
+    return;
+  }
+  const frame = currentFrame();
+  if (frame === null) {
+    return;
+  }
+  const nextSprites = frame.sprites.map((p) => clonePose(p));
+  appState.spec.frames.push({ sprites: nextSprites });
+  setFrameIndexMaxFromSpec();
+  setFrameIndex(appState.spec.frames.length - 1);
+};
+
+const deleteCurrentFrame = () => {
+  if (appState.spec === null) {
+    return;
+  }
+  const framesCount = appState.spec.frames.length;
+  if (framesCount <= 1) {
+    ui.status.textContent = "Need at least one frame";
+    return;
+  }
+  appState.spec.frames.splice(appState.currentFrameIndex, 1);
+  setFrameIndexMaxFromSpec();
+  const nextIndex = Math.min(
+    appState.currentFrameIndex,
+    appState.spec.frames.length - 1,
+  );
+  setFrameIndex(nextIndex);
 };
 
 const setFrameIndex = (nextIndex) => {
@@ -682,6 +866,18 @@ const bindUiHandlers = () => {
     setFrameIndex(Number(ui.frameIndex.value ?? 0));
   });
 
+  ui.frameAddEmpty.addEventListener("click", () => {
+    addFrameEmpty();
+  });
+
+  ui.frameAddDuplicate.addEventListener("click", () => {
+    addFrameDuplicate();
+  });
+
+  ui.frameDelete.addEventListener("click", () => {
+    deleteCurrentFrame();
+  });
+
   ui.save.addEventListener("click", () => {
     saveAnimation();
   });
@@ -690,8 +886,20 @@ const bindUiHandlers = () => {
     loadAnimationSpec(ui.animationSelect.value);
   });
 
+  ui.newAnimationCreate.addEventListener("click", () => {
+    createAnimation();
+  });
+
   ui.poseRemove.addEventListener("click", () => {
     removeSelectedPose();
+  });
+
+  ui.poseCopy.addEventListener("click", () => {
+    copySelectedPose();
+  });
+
+  ui.posePaste.addEventListener("click", () => {
+    pasteCopiedPose();
   });
 
   ui.poseId.addEventListener("change", () => {
@@ -736,7 +944,7 @@ const bindUiHandlers = () => {
     const oldMeta = spriteMetaForKey(oldSpriteKey);
     const editorOffset =
       oldMeta === null ? null : editorOffsetForRuntime(frame.sprites[idx].offset, oldMeta);
-    ensureSpriteKeyConsistency(poseId, spriteKey);
+    frame.sprites[idx].spriteKey = spriteKey;
     if (editorOffset !== null) {
       const updatedFrame = currentFrame();
       if (updatedFrame !== null) {
@@ -819,6 +1027,57 @@ const bindUiHandlers = () => {
   });
 };
 
+const isEditableTarget = (target) => {
+  if (target === null || target === undefined) {
+    return false;
+  }
+  const node = target;
+  const tagName = String(node.tagName ?? "").toUpperCase();
+  if (tagName === "INPUT") {
+    return true;
+  }
+  if (tagName === "TEXTAREA") {
+    return true;
+  }
+  if (tagName === "SELECT") {
+    return true;
+  }
+  if (node.isContentEditable === true) {
+    return true;
+  }
+  return false;
+};
+
+const bindCopyPasteHandlers = () => {
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (isEditableTarget(event.target)) {
+      return;
+    }
+    const key = String(event.key ?? "").toLowerCase();
+    if (key === "delete") {
+      event.preventDefault();
+      removeSelectedPose();
+      return;
+    }
+    if (event.ctrlKey !== true && event.metaKey !== true) {
+      return;
+    }
+    if (key === "c") {
+      event.preventDefault();
+      copySelectedPose();
+      return;
+    }
+    if (key === "v") {
+      event.preventDefault();
+      pasteCopiedPose();
+      return;
+    }
+  });
+};
+
 const init = async () => {
   appState.canvas = ui.scene;
   appState.ctx = ui.scene.getContext("2d");
@@ -831,6 +1090,7 @@ const init = async () => {
   ui.status.textContent = "Loading animations...";
   await loadAnimationsList();
   bindUiHandlers();
+  bindCopyPasteHandlers();
   initCanvasInteractions();
   ui.status.textContent = "Loading first animation...";
   const first = appState.animations[0]?.id ?? "";

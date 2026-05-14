@@ -1,0 +1,137 @@
+{
+  "frameDurationMs": 120,
+  "strategy": "loop",
+  "mirrorWidth": 16,
+  "frames": [
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerUseTool1",
+          "offset": {
+            "x": 8,
+            "y": 8
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WoodSword",
+          "spriteKey": "WoodSword",
+          "offset": {
+            "x": 12,
+            "y": 2
+          },
+          "rotationDeg": -45,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerUseTool2",
+          "offset": {
+            "x": 8,
+            "y": 8
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WoodSword_2",
+          "spriteKey": "WoodSword",
+          "offset": {
+            "x": 17,
+            "y": 0
+          },
+          "rotationDeg": -15,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerUseTool3",
+          "offset": {
+            "x": 8,
+            "y": 8
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WoodSword_2",
+          "spriteKey": "WoodSword",
+          "offset": {
+            "x": 21,
+            "y": 11
+          },
+          "rotationDeg": 45,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerUseTool4",
+          "offset": {
+            "x": 8,
+            "y": 8
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WoodSword_2",
+          "spriteKey": "WoodSword",
+          "offset": {
+            "x": 21,
+            "y": 12
+          },
+          "rotationDeg": 45,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerUseTool5",
+          "offset": {
+            "x": 8,
+            "y": 8
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WoodSword_2",
+          "spriteKey": "WoodSword",
+          "offset": {
+            "x": 20,
+            "y": 12
+          },
+          "rotationDeg": 45,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    }
+  ]
+}
