@@ -7,7 +7,6 @@ import { GameClient, type MessageEvents } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
 import type {
   Data,
-  EntitiesSnapshotPayload,
   EntityState,
   ParticleCreatePayload,
   PlayerDamageUpdate,
@@ -313,40 +312,6 @@ const syncMovementFieldsFromPayload = (
   player.hspeed = payload.horizontalSpeed ?? player.hspeed;
   player.vspeed = payload.verticalSpeed ?? player.vspeed;
 };
-
-const playerStateFromActor = (
-  playerId: string,
-  player: Player,
-): [string, PlayerState] => [
-  playerId,
-  {
-    id: playerId,
-    x: player.pos.x,
-    y: player.pos.y,
-    isPaused: player.isPaused,
-    horizontalSpeed: player.hspeed,
-    verticalSpeed: player.vspeed,
-    health: player.health,
-    pingMs: playerPingById[playerId],
-  },
-];
-
-const localPlayerStateEntries = (): [string, PlayerState][] => {
-  const localPlayer = localPlayerSlot.player;
-  const localPlayerId = clientSlot.client?.clientId;
-  if (!localPlayer || !localPlayerId) {
-    return [];
-  }
-  return [playerStateFromActor(localPlayerId, localPlayer)];
-};
-
-const currentPlayersData = () =>
-  Object.fromEntries([
-    ...localPlayerStateEntries(),
-    ...Object.entries(playerById).map(([playerId, player]) =>
-      playerStateFromActor(playerId, player),
-    ),
-  ]);
 
 const localPlayerSeparationEntries = (): EntitySeparationEntry[] => {
   const localPlayer = localPlayerSlot.player;

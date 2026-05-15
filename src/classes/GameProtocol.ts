@@ -28,7 +28,7 @@ export type PlayerState = {
   pingMs?: number;
 };
 
-export type EntityState = {};
+export type EntityState = object;
 
 export type EntitiesSnapshotPayload = {
   entitiesData: Record<string, EntityState>;

@@ -4,6 +4,7 @@
     "start": "tsx src/server.ts",
     "editor:dev": "tsx src/animation-editor-dev-server.ts",
     "sprite:dimensions": "tsx scripts/sprite-dimensions.ts",
+    "lint": "npx eslint src/**/*.ts",
     "build": "vite build",
     "serve": "vite preview"
   },

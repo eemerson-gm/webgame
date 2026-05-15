@@ -35,6 +35,7 @@ export class HUDManager extends ex.ScreenElement {
       return;
     }
 
+    void delta;
     this.syncHearts();
   }
 

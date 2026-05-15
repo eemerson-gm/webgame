@@ -9,6 +9,7 @@
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
 - Avoid running `git diff` or `git status` after edits unless you explicitly ask.
 - When you need sprite dimensions, always run `npm run sprite:dimensions -- <sprite-path>` instead of guessing.
+- Always run `npm run lint` after making changes to files and fix all the errors.
 
 ## MCPs
 
