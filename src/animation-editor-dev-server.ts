@@ -118,6 +118,5 @@ app.put("/api/animations/:id", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`[Editor] Listening on port ${port}`);
+  console.log(`[Editor] Listening on http://localhost:${port}`);
 });
-

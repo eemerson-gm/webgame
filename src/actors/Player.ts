@@ -77,6 +77,7 @@ export class Player extends MovingActor {
   private attackForceRestart: boolean = false;
   private isAttackHeld: boolean = false;
   private physicsAccumulatorMs: number = 0;
+  private physicsPosition: ex.Vector = ex.vec(0, 0);
   private renderPreviousPosition: ex.Vector = ex.vec(0, 0);
 
   private visuals: PlayerVisuals;
@@ -105,6 +106,7 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
+    this.physicsPosition = ex.vec(pos.x, pos.y);
     this.renderPreviousPosition = ex.vec(pos.x, pos.y);
     this.body.enableFixedUpdateInterpolate = false;
 
@@ -288,8 +290,10 @@ export class Player extends MovingActor {
     if (this.pos.x === x) {
       return;
     }
-    this.moveRenderHistoryBy(x - this.pos.x, 0);
+    const deltaX = x - this.pos.x;
+    this.moveRenderHistoryBy(deltaX, 0);
     this.pos.x = x;
+    this.physicsPosition.x = x;
     this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
     this.playerNetwork.markPositionChanged();
     this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
@@ -557,17 +561,20 @@ export class Player extends MovingActor {
 
   private resetRenderInterpolation() {
     this.physicsAccumulatorMs = 0;
-    this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
+    this.physicsPosition = ex.vec(this.pos.x, this.pos.y);
+    this.renderPreviousPosition = ex.vec(this.physicsPosition.x, this.physicsPosition.y);
     this.visuals.applyRenderOffset(ex.vec(0, 0));
   }
 
   private updateRenderInterpolation(progress: number) {
     const renderPosition = interpolatePosition(
       this.renderPreviousPosition,
-      this.pos,
+      this.physicsPosition,
       progress,
     );
-    this.visuals.applyRenderOffset(renderPosition.sub(this.pos));
+    this.pos.x = renderPosition.x;
+    this.pos.y = renderPosition.y;
+    this.visuals.applyRenderOffset(ex.vec(0, 0));
   }
 
   private stepPlayerFrame(engine: ex.Engine, delta: number) {
@@ -577,16 +584,21 @@ export class Player extends MovingActor {
       this.stepPausedPlayerFrame();
       return;
     }
+    this.pos.x = this.physicsPosition.x;
+    this.pos.y = this.physicsPosition.y;
     this.updateControls(engine);
     const keySign = this.inputState.horizontalSign();
     this.consumeFixedPlayerSteps(keySign);
     this.onMove();
+    this.physicsPosition = ex.vec(this.pos.x, this.pos.y);
     this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
   }
 
   private stepPausedPlayerFrame() {
     this.consumePausedFixedSteps();
-    this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
+    this.pos.x = this.physicsPosition.x;
+    this.pos.y = this.physicsPosition.y;
+    this.renderPreviousPosition = ex.vec(this.physicsPosition.x, this.physicsPosition.y);
     this.updateRenderInterpolation(0);
   }
 
@@ -628,7 +640,7 @@ export class Player extends MovingActor {
         }
         if (!this.isAttackHeld) {
           this.attackVisual = null;
-          this.attackForceRestart = false;
+          this.attackForceRestart = true;
         }
       }
     }

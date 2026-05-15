@@ -108,6 +108,10 @@ export class JsonSpriteAnimation {
     this.isPlaying = false;
   }
 
+  public isFinished() {
+    return this.spec.strategy === "freeze" && !this.isPlaying;
+  }
+
   public hideAll() {
     this.host.graphics.visible = false;
     this.host.graphics.opacity = 0;
@@ -169,9 +173,12 @@ export class JsonSpriteAnimation {
       return 0;
     }
     const strategy: JsonSpriteAnimationStrategy = this.spec.strategy;
+    const loopElapsedMs = elapsedMs % durationMs;
     const effectiveElapsedMs =
       strategy === "loop"
-        ? elapsedMs % durationMs
+        ? loopElapsedMs === 0 && elapsedMs > 0
+          ? durationMs - 0.0001
+          : loopElapsedMs
         : Math.min(elapsedMs, Math.max(durationMs - 0.0001, 0));
     const index = Math.floor(
       effectiveElapsedMs /

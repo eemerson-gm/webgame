@@ -208,4 +208,8 @@ export class PlayerVisuals {
       this.visualCorrectionOffset.add(this.renderOffset),
     );
   }
+
+  public isCurrentAnimationFinished() {
+    return this.activeAnimation.isFinished();
+  }
 }
