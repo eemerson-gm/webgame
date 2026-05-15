@@ -27,11 +27,16 @@ export class JsonSpriteAnimation {
   private readonly spritesByKey: Record<string, ex.ImageSource>;
   private readonly hostSpriteId?: string;
   private readonly z: number;
+  private readonly overlayActor: ex.Actor;
 
   private readonly posesByFrameIndex: readonly PoseById[];
   private readonly spriteKeyById: Record<string, string>;
   private readonly childActorsById: Record<string, ex.Actor>;
   private readonly spriteOverrideByPartId: Record<string, ex.ImageSource> = {};
+  private readonly spriteByPixelDataUrl: Record<string, ex.Sprite | undefined> = {};
+  private readonly imageSourceByPixelDataUrl: Record<string, ex.ImageSource> = {};
+  private readonly loadingByPixelDataUrl: Record<string, Promise<void> | undefined> = {};
+  private static readonly overlaySizePx = 128;
 
   private elapsedMs = 0;
   private isPlaying = false;
@@ -94,6 +99,18 @@ export class JsonSpriteAnimation {
     );
 
     this.childActorsById = childActorsById;
+
+    const overlayActor = new ex.Actor({
+      pos: ex.vec(0, 0),
+      anchor: ex.vec(0.5, 0.5),
+      width: JsonSpriteAnimation.overlaySizePx,
+      height: JsonSpriteAnimation.overlaySizePx,
+      z: 0,
+    });
+    overlayActor.graphics.visible = false;
+    overlayActor.graphics.opacity = 0;
+    this.host.addChild(overlayActor);
+    this.overlayActor = overlayActor;
     this.hideAll();
   }
 
@@ -102,6 +119,35 @@ export class JsonSpriteAnimation {
       return this.host;
     }
     return this.childActorsById[partId];
+  }
+
+  private spriteMaybeForPixelDataUrl(dataUrl: string): ex.Sprite | undefined {
+    const cached = this.spriteByPixelDataUrl[dataUrl];
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const existing = this.imageSourceByPixelDataUrl[dataUrl];
+    const imageSource =
+      existing !== undefined ? existing : new ex.ImageSource(dataUrl);
+
+    if (existing === undefined) {
+      this.imageSourceByPixelDataUrl[dataUrl] = imageSource;
+    }
+
+    if (!imageSource.isLoaded()) {
+      if (this.loadingByPixelDataUrl[dataUrl] === undefined) {
+        this.loadingByPixelDataUrl[dataUrl] = imageSource.load().then(() => {
+          const sprite = centeredSpriteFor(imageSource);
+          this.spriteByPixelDataUrl[dataUrl] = sprite;
+        });
+      }
+      return undefined;
+    }
+
+    const sprite = centeredSpriteFor(imageSource);
+    this.spriteByPixelDataUrl[dataUrl] = sprite;
+    return sprite;
   }
 
   public setPartSprite(partId: string, imageSource: ex.ImageSource): void {
@@ -135,6 +181,8 @@ export class JsonSpriteAnimation {
   public hideAll() {
     this.host.graphics.visible = false;
     this.host.graphics.opacity = 0;
+    this.overlayActor.graphics.visible = false;
+    this.overlayActor.graphics.opacity = 0;
     Object.keys(this.childActorsById).forEach((id) => {
       const actor = this.childActorsById[id];
       actor.pos = hiddenActorPosition;
@@ -197,30 +245,75 @@ export class JsonSpriteAnimation {
     const framePoses: PoseById | undefined =
       this.posesByFrameIndex[this.currentFrameIndex];
     const mirrorWidth = this.spec.mirrorWidth;
+    const frame = this.spec.frames[this.currentFrameIndex];
+    const overlayPixelDataUrl = frame.overlayPixelDataUrl;
+    const overlayVisible = frame.overlayVisible !== false;
 
     if (this.hostSpriteId !== undefined) {
       const hostPose = framePoses?.[this.hostSpriteId];
       if (hostPose === undefined) {
         this.host.graphics.visible = false;
         this.host.graphics.opacity = 0;
+        this.overlayActor.graphics.visible = false;
+        this.overlayActor.graphics.opacity = 0;
       }
       if (hostPose !== undefined) {
         this.host.z = this.z + (hostPose.layer ?? 0);
         const mirroredX = this.lastFacingLeft
           ? mirrorWidth - hostPose.offset.x
           : hostPose.offset.x;
+        const sprite =
+          hostPose.pixelDataUrl !== undefined
+            ? this.spriteMaybeForPixelDataUrl(hostPose.pixelDataUrl)
+            : centeredSpriteFor(this.spritesByKey[hostPose.spriteKey]);
         const override = this.spriteOverrideByPartId[this.hostSpriteId];
-        const sprite = centeredSpriteFor(
-          override ?? this.spritesByKey[hostPose.spriteKey],
-        );
-        this.host.graphics.use(sprite);
-        this.host.graphics.flipHorizontal = this.lastFacingLeft;
-        this.host.graphics.offset = ex.vec(
-          this.lastBaseOffset.x + mirroredX,
-          this.lastBaseOffset.y + hostPose.offset.y,
-        );
-        this.host.graphics.visible = hostPose.visible !== false;
-        this.host.graphics.opacity = hostPose.visible === false ? 0 : 1;
+        const resolvedOverride = override !== undefined ? override : null;
+        const spriteWithOverride =
+          resolvedOverride !== null
+            ? centeredSpriteFor(resolvedOverride)
+            : sprite;
+        const finalSprite =
+          hostPose.pixelDataUrl !== undefined ? sprite : spriteWithOverride;
+        if (finalSprite === undefined) {
+          this.host.graphics.visible = false;
+          this.host.graphics.opacity = 0;
+        } else {
+          this.host.graphics.use(finalSprite);
+          this.host.graphics.flipHorizontal = this.lastFacingLeft;
+          this.host.graphics.offset = ex.vec(
+            this.lastBaseOffset.x + mirroredX,
+            this.lastBaseOffset.y + hostPose.offset.y,
+          );
+          this.host.graphics.visible = hostPose.visible !== false;
+          this.host.graphics.opacity = hostPose.visible === false ? 0 : 1;
+        }
+
+        if (overlayPixelDataUrl !== undefined) {
+          const overlaySprite =
+            this.spriteMaybeForPixelDataUrl(overlayPixelDataUrl);
+          if (overlaySprite === undefined) {
+            this.overlayActor.graphics.visible = false;
+            this.overlayActor.graphics.opacity = 0;
+          } else {
+            this.overlayActor.graphics.use(overlaySprite);
+            this.overlayActor.graphics.flipHorizontal = this.lastFacingLeft;
+
+            const overlayMirroredX = this.lastFacingLeft
+              ? mirrorWidth - hostPose.offset.x
+              : hostPose.offset.x;
+            this.overlayActor.pos = ex.vec(
+              this.lastBaseOffset.x + overlayMirroredX,
+              this.lastBaseOffset.y + hostPose.offset.y,
+            );
+            this.overlayActor.z = this.z + 10000 + (hostPose.layer ?? 0);
+
+            this.overlayActor.graphics.visible = overlayVisible;
+            this.overlayActor.graphics.opacity = overlayVisible ? 1 : 0;
+          }
+        } else {
+          this.overlayActor.graphics.visible = false;
+          this.overlayActor.graphics.opacity = 0;
+        }
       }
     }
 
@@ -244,6 +337,16 @@ export class JsonSpriteAnimation {
         ? -degToRad(pose.rotationDeg)
         : degToRad(pose.rotationDeg);
       actor.graphics.flipHorizontal = this.lastFacingLeft;
+      const spriteMaybe =
+        pose.pixelDataUrl !== undefined
+          ? this.spriteMaybeForPixelDataUrl(pose.pixelDataUrl)
+          : centeredSpriteFor(this.spritesByKey[pose.spriteKey]);
+      if (spriteMaybe === undefined) {
+        actor.graphics.visible = false;
+        actor.graphics.opacity = 0;
+        return;
+      }
+      actor.graphics.use(spriteMaybe);
       actor.graphics.visible = pose.visible !== false;
       actor.graphics.opacity = pose.visible === false ? 0 : 1;
     });

@@ -184,6 +184,13 @@
       </div>
 
       <div class="row">
+        <label>
+          Brush
+          <input id="brush-size" type="number" min="1" step="1" value="3" />
+        </label>
+      </div>
+
+      <div class="row">
         <button id="frame-add-empty" type="button">Add empty</button>
         <button id="frame-add-duplicate" type="button">Duplicate</button>
         <button id="frame-delete" type="button">Delete</button>
@@ -194,6 +201,10 @@
         <div id="save-status"></div>
       </div>
 
+      <div class="row">
+        <button id="undo-overlay" type="button">Undo</button>
+      </div>
+
       <h2 class="panel-title">Sprites</h2>
       <div id="sprite-list" aria-label="Sprites"></div>
     </div>
@@ -202,6 +213,10 @@
       <div id="scene-wrap">
         <canvas id="scene" aria-label="Scene" width="900" height="520"></canvas>
         <div id="scene-hint">Drag a sprite into the canvas. Click to select.</div>
+      </div>
+      <div class="row">
+        <button id="mode-select" type="button">Select</button>
+        <button id="mode-draw" type="button" disabled>Draw</button>
       </div>
         <div id="render-help"></div>
         <h2 class="panel-title" style="font-size: 16px;">Pose</h2>

@@ -8,10 +8,13 @@ export type JsonSpritePose = {
   rotationDeg: number;
   layer?: number;
   visible?: boolean;
+  pixelDataUrl?: string;
 };
 
 export type JsonSpriteAnimationFrame = {
   sprites: readonly JsonSpritePose[];
+  overlayPixelDataUrl?: string;
+  overlayVisible?: boolean;
 };
 
 export type JsonSpriteAnimationSpec = {

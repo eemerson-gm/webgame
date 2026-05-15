@@ -46,6 +46,17 @@ const appState = {
   playbackTimerId: null,
   drag: { active: false, pointerOffsetX: 0, pointerOffsetY: 0 },
   zoom: 2,
+  pixelDraw: {
+    active: false,
+    poseId: null,
+    frameIndex: null,
+    canvas: null,
+    ctx: null,
+    brushDirty: false,
+  },
+  pixelCanvasByDataUrl: {},
+  overlayUndoStackByFrameIndex: {},
+  editorMode: "select",
 };
 
 const ui = {
@@ -67,6 +78,7 @@ const ui = {
   play: el("play"),
   stop: el("stop"),
   animationSpeed: el("animation-speed"),
+  brushSize: el("brush-size"),
   poseNone: el("pose-none"),
   poseEditor: el("pose-editor"),
   poseId: el("pose-id"),
@@ -79,6 +91,9 @@ const ui = {
   poseRemove: el("pose-remove"),
   poseCopy: el("pose-copy"),
   posePaste: el("pose-paste"),
+  undoOverlay: el("undo-overlay"),
+  modeSelect: el("mode-select"),
+  modeDraw: el("mode-draw"),
   renderHelp: el("render-help"),
 };
 
@@ -149,6 +164,40 @@ const editorOffsetForRuntime = (runtimeOffset, meta) => {
   return next;
 };
 
+const imgForPosePreview = (pose, meta) => {
+  const pixelDraw = appState.pixelDraw;
+  const matchesPixelDraw =
+    pixelDraw.active === true &&
+    pixelDraw.frameIndex === appState.currentFrameIndex &&
+    pixelDraw.poseId === pose.id &&
+    pixelDraw.canvas !== null;
+  if (matchesPixelDraw) {
+    return pixelDraw.canvas;
+  }
+  if (pose.pixelDataUrl === undefined) {
+    return meta.img;
+  }
+  const cached = appState.pixelCanvasByDataUrl[pose.pixelDataUrl];
+  if (cached !== undefined && cached !== null) {
+    return cached;
+  }
+  if (cached === undefined) {
+    appState.pixelCanvasByDataUrl[pose.pixelDataUrl] = null;
+    const img = new Image();
+    img.src = pose.pixelDataUrl;
+    img.onload = () => {
+      appState.pixelCanvasByDataUrl[pose.pixelDataUrl] = img;
+      render();
+    };
+    img.onerror = () => {
+      delete appState.pixelCanvasByDataUrl[pose.pixelDataUrl];
+      render();
+    };
+    return meta.img;
+  }
+  return meta.img;
+};
+
 const render = () => {
   const ctx = appState.ctx;
   if (ctx === null) {
@@ -195,7 +244,7 @@ const render = () => {
       return;
     }
     const centered = centerForPose(pose, meta);
-    const img = meta.img;
+    const img = imgForPosePreview(pose, meta);
     const w2 = meta.width;
     const h2 = meta.height;
     const pxPos = Math.round(o.x + centered.centerX * appState.zoom);
@@ -214,6 +263,84 @@ const render = () => {
     );
     ctx.restore();
   });
+
+  const frameForOverlay = frame;
+  const overlayVisible = frameForOverlay.overlayVisible !== false;
+  if (overlayVisible) {
+    const hostPoseForOverlay =
+      frameForOverlay.sprites.find((p) => p.id === "body") ??
+      frameForOverlay.sprites[0] ??
+      null;
+    const overlayMeta =
+      hostPoseForOverlay === null
+        ? null
+        : spriteMetaForKey(hostPoseForOverlay.spriteKey);
+    const centered = overlayMeta === null
+      ? null
+      : centerForPose(hostPoseForOverlay, overlayMeta);
+    const overlayCenterX =
+      centered === null ? o.x : o.x + centered.centerX * appState.zoom;
+    const overlayCenterY =
+      centered === null ? o.y : o.y + centered.centerY * appState.zoom;
+
+    const overlayIsInProgress =
+      appState.pixelDraw.active === true &&
+      appState.pixelDraw.frameIndex === appState.currentFrameIndex &&
+      appState.pixelDraw.canvas !== null;
+    const overlayDrawable = overlayIsInProgress
+      ? appState.pixelDraw.canvas
+      : null;
+
+    if (overlayDrawable !== null) {
+      ctx.save();
+      ctx.translate(
+        Math.round(overlayCenterX),
+        Math.round(overlayCenterY),
+      );
+      ctx.drawImage(
+        overlayDrawable,
+        (-64 / 1) * appState.zoom,
+        (-64 / 1) * appState.zoom,
+        128 * appState.zoom,
+        128 * appState.zoom,
+      );
+      ctx.restore();
+    }
+
+    if (overlayDrawable === null && frameForOverlay.overlayPixelDataUrl !== undefined) {
+      const overlayDataUrl = frameForOverlay.overlayPixelDataUrl;
+      const cached = appState.pixelCanvasByDataUrl[overlayDataUrl];
+      if (cached !== undefined && cached !== null) {
+        ctx.save();
+        ctx.translate(
+          Math.round(overlayCenterX),
+          Math.round(overlayCenterY),
+        );
+        ctx.drawImage(
+          cached,
+          (-64 / 1) * appState.zoom,
+          (-64 / 1) * appState.zoom,
+          128 * appState.zoom,
+          128 * appState.zoom,
+        );
+        ctx.restore();
+      }
+
+      if (cached === undefined) {
+        appState.pixelCanvasByDataUrl[overlayDataUrl] = null;
+        const img = new Image();
+        img.src = overlayDataUrl;
+        img.onload = () => {
+          appState.pixelCanvasByDataUrl[overlayDataUrl] = img;
+          render();
+        };
+        img.onerror = () => {
+          delete appState.pixelCanvasByDataUrl[overlayDataUrl];
+          render();
+        };
+      }
+    }
+  }
 
   const selected = appState.selectedPoseId;
   if (selected) {
@@ -774,18 +901,219 @@ const setFrameIndex = (nextIndex) => {
   render();
 };
 
+const brushRadius = () => Math.max(1, Number(ui.brushSize.value ?? 3));
+const defaultBrushColor = "rgba(255,0,0,1)";
+
+const isDrawMode = () => appState.editorMode === "draw";
+
+const setModeDraw = () => {
+  appState.editorMode = "draw";
+  ui.modeDraw.disabled = true;
+  ui.modeSelect.disabled = false;
+  ui.poseEditor.hidden = true;
+  ui.poseNone.hidden = false;
+};
+
+const setModeSelect = () => {
+  appState.editorMode = "select";
+  ui.modeDraw.disabled = false;
+  ui.modeSelect.disabled = true;
+  ui.poseEditor.hidden = false;
+  ui.poseNone.hidden = false;
+  syncPoseEditorToSelection();
+  render();
+};
+
+const spritePixelPointForEditorPoint = (point, overlayCenterX, overlayCenterY) => {
+  const dx = (point.x - overlayCenterX) / appState.zoom;
+  const dy = (point.y - overlayCenterY) / appState.zoom;
+  return { u: dx + 64, v: dy + 64 };
+};
+
+const ensurePixelCanvasForPose = async () => {
+  const frameIndex = appState.currentFrameIndex;
+  const pixelDraw = appState.pixelDraw;
+  const canvasAlreadyReady =
+    pixelDraw.active === true &&
+    pixelDraw.frameIndex === frameIndex &&
+    pixelDraw.canvas !== null &&
+    pixelDraw.ctx !== null;
+  if (canvasAlreadyReady) {
+    return;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  if (ctx === null) {
+    return;
+  }
+  ctx.imageSmoothingEnabled = false;
+
+  const frame = currentFrame();
+  if (frame === null) {
+    return;
+  }
+
+  const overlayDataUrl = frame.overlayPixelDataUrl;
+  if (overlayDataUrl !== undefined) {
+    const cached = appState.pixelCanvasByDataUrl[overlayDataUrl];
+    if (cached !== undefined && cached !== null) {
+      ctx.drawImage(cached, 0, 0, 128, 128);
+    }
+    if (cached === undefined) {
+      const img = new Image();
+      img.src = overlayDataUrl;
+      await new Promise((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+      });
+      ctx.drawImage(img, 0, 0, 128, 128);
+    }
+  }
+
+  pixelDraw.active = true;
+  pixelDraw.poseId = null;
+  pixelDraw.frameIndex = frameIndex;
+  pixelDraw.canvas = canvas;
+  pixelDraw.ctx = ctx;
+  pixelDraw.brushDirty = false;
+};
+
+const stampBrushOnPixelCanvas = (pixelCtx, pixelPoint) => {
+  const r = brushRadius();
+  pixelCtx.fillStyle = defaultBrushColor;
+  pixelCtx.beginPath();
+  pixelCtx.arc(pixelPoint.u, pixelPoint.v, r, 0, Math.PI * 2);
+  pixelCtx.fill();
+};
+
+const commitPixelDraw = () => {
+  const pixelDraw = appState.pixelDraw;
+  if (pixelDraw.active !== true) {
+    return;
+  }
+  const frame = currentFrame();
+  if (frame === null) {
+    return;
+  }
+  if (pixelDraw.canvas === null) {
+    return;
+  }
+
+  const dataUrl = pixelDraw.canvas.toDataURL("image/png");
+  const frameIndex = appState.currentFrameIndex;
+  const prevToken = frame.overlayPixelDataUrl ?? "";
+  const stack =
+    appState.overlayUndoStackByFrameIndex[frameIndex] ?? [];
+  appState.overlayUndoStackByFrameIndex[frameIndex] = stack;
+  stack.push(prevToken);
+  frame.overlayPixelDataUrl = dataUrl;
+  appState.pixelCanvasByDataUrl[dataUrl] = pixelDraw.canvas;
+  pixelDraw.active = false;
+  pixelDraw.poseId = null;
+  pixelDraw.frameIndex = null;
+  pixelDraw.canvas = null;
+  pixelDraw.ctx = null;
+  pixelDraw.brushDirty = false;
+  render();
+  syncPoseEditorToSelection();
+};
+
+const undoOverlayDraw = () => {
+  if (appState.pixelDraw.active === true) {
+    commitPixelDraw();
+  }
+  const frame = currentFrame();
+  if (frame === null) {
+    ui.status.textContent = "Undo: no frame";
+    return;
+  }
+  const frameIndex = appState.currentFrameIndex;
+  const stack = appState.overlayUndoStackByFrameIndex[frameIndex];
+  if (stack === undefined) {
+    ui.status.textContent = "Undo: no stack for frame";
+    return;
+  }
+  if (stack.length <= 0) {
+    ui.status.textContent = "Undo: stack empty";
+    return;
+  }
+  const token = stack.pop() ?? "";
+  const nextOverlay = token === "" ? undefined : token;
+  frame.overlayPixelDataUrl = nextOverlay;
+  if (nextOverlay === undefined) {
+    frame.overlayVisible = undefined;
+  }
+  if (nextOverlay !== undefined) {
+    frame.overlayVisible = frame.overlayVisible === undefined ? true : frame.overlayVisible;
+  }
+  ui.status.textContent = `Undo: overlay ${nextOverlay === undefined ? "cleared" : "restored"}`;
+  render();
+  syncPoseEditorToSelection();
+};
+
+const paintPixelAtEditorPoint = async (point) => {
+  const frame = currentFrame();
+  if (frame === null) {
+    return;
+  }
+  const overlayCenter = (() => {
+    const hostPoseForOverlay =
+      frame.sprites.find((p) => p.id === "body") ??
+      frame.sprites[0] ??
+      null;
+    if (hostPoseForOverlay === null) {
+      return origin();
+    }
+    const meta = spriteMetaForKey(hostPoseForOverlay.spriteKey);
+    if (meta === null) {
+      return origin();
+    }
+    const centered = centerForPose(hostPoseForOverlay, meta);
+    return {
+      x: origin().x + centered.centerX * appState.zoom,
+      y: origin().y + centered.centerY * appState.zoom,
+    };
+  })();
+
+  await ensurePixelCanvasForPose();
+
+  const pixelDraw = appState.pixelDraw;
+  if (pixelDraw.ctx === null || pixelDraw.canvas === null) {
+    return;
+  }
+
+  const pixelPoint = spritePixelPointForEditorPoint(
+    point,
+    overlayCenter.x,
+    overlayCenter.y,
+  );
+  stampBrushOnPixelCanvas(pixelDraw.ctx, pixelPoint);
+  pixelDraw.brushDirty = true;
+  render();
+};
+
 const initCanvasInteractions = () => {
   const pointerState = { down: false };
-  ui.scene.addEventListener("pointerdown", (event) => {
+  ui.scene.addEventListener("pointerdown", async (event) => {
     pointerState.down = true;
     ui.scene.setPointerCapture(event.pointerId);
     const point = canvasPointForEvent(event);
+    if (isDrawMode() === true) {
+      appState.isDragging = true;
+      appState.drag.active = false;
+      await paintPixelAtEditorPoint(point);
+      return;
+    }
+
     setSelectedPoseByCanvasHit(point);
     appState.isDragging = true;
     updateSelectedFromId();
-    startDragForSelection(point);
     syncPoseEditorToSelection();
     render();
+    startDragForSelection(point);
   });
 
   ui.scene.addEventListener("pointermove", (event) => {
@@ -793,6 +1121,10 @@ const initCanvasInteractions = () => {
       return;
     }
     const point = canvasPointForEvent(event);
+    if (isDrawMode() === true) {
+      void paintPixelAtEditorPoint(point);
+      return;
+    }
     poseUpdateForDrag(point);
     syncPoseEditorToSelection();
     render();
@@ -801,6 +1133,10 @@ const initCanvasInteractions = () => {
   ui.scene.addEventListener("pointerup", () => {
     pointerState.down = false;
     appState.isDragging = false;
+    if (isDrawMode() === true) {
+      commitPixelDraw();
+      return;
+    }
     appState.drag.active = false;
     appState.drag.pointerOffsetX = 0;
     appState.drag.pointerOffsetY = 0;
@@ -811,6 +1147,10 @@ const initCanvasInteractions = () => {
   ui.scene.addEventListener("pointercancel", () => {
     pointerState.down = false;
     appState.isDragging = false;
+    if (isDrawMode() === true) {
+      commitPixelDraw();
+      return;
+    }
     appState.drag.active = false;
     appState.drag.pointerOffsetX = 0;
     appState.drag.pointerOffsetY = 0;
@@ -820,6 +1160,9 @@ const initCanvasInteractions = () => {
 
   ui.scene.addEventListener("click", (event) => {
     if (pointerState.down) {
+      return;
+    }
+    if (isDrawMode() === true) {
       return;
     }
     const point = canvasPointForEvent(event);
@@ -895,6 +1238,13 @@ const startPlayback = () => {
 };
 
 const bindUiHandlers = () => {
+  ui.modeDraw.addEventListener("click", () => {
+    setModeDraw();
+  });
+  ui.modeSelect.addEventListener("click", () => {
+    setModeSelect();
+  });
+
   ui.play.addEventListener("click", () => {
     startPlayback();
   });
@@ -947,6 +1297,10 @@ const bindUiHandlers = () => {
 
   ui.save.addEventListener("click", () => {
     saveAnimation();
+  });
+
+  ui.undoOverlay.addEventListener("click", () => {
+    undoOverlayDraw();
   });
 
   ui.animationSelect.addEventListener("change", () => {
@@ -1118,7 +1472,7 @@ const isEditableTarget = (target) => {
 };
 
 const bindCopyPasteHandlers = () => {
-  document.addEventListener("keydown", (event) => {
+  window.addEventListener("keydown", (event) => {
     if (event.defaultPrevented) {
       return;
     }
@@ -1129,6 +1483,13 @@ const bindCopyPasteHandlers = () => {
     if (key === "delete") {
       event.preventDefault();
       removeSelectedPose();
+      return;
+    }
+    if (key === "z") {
+      if (event.ctrlKey === true || event.metaKey === true) {
+        event.preventDefault();
+        undoOverlayDraw();
+      }
       return;
     }
     if (event.ctrlKey !== true && event.metaKey !== true) {
@@ -1153,6 +1514,7 @@ const init = async () => {
   if (appState.ctx !== null) {
     appState.ctx.imageSmoothingEnabled = false;
   }
+  setModeSelect();
   ui.status.textContent = "Loading sprites...";
   await loadSprites();
   renderSpriteList();
