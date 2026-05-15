@@ -54,7 +54,7 @@ const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
 const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
-const attackDurationMsEpsilon = 0;
+const attackDurationMsEpsilon = 0.0001;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>

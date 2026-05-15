@@ -42,7 +42,8 @@ export class PlayerVisuals {
     const walkSpec = walkJson as unknown as JsonSpriteAnimationSpec;
     const jumpSpec = jumpJson as unknown as JsonSpriteAnimationSpec;
     const crouchSpec = crouchJson as unknown as JsonSpriteAnimationSpec;
-    const groundSwordSpec = groundSwordJson as unknown as JsonSpriteAnimationSpec;
+    const groundSwordSpec =
+      groundSwordJson as unknown as JsonSpriteAnimationSpec;
 
     this.sleepBubbleActor = new ex.Actor({
       pos: sleepBubbleOffset,
@@ -162,7 +163,10 @@ export class PlayerVisuals {
     return animation.durationMs();
   }
 
-  public applyRemotePositionCorrection(position: ex.Vector, snapDistance: number) {
+  public applyRemotePositionCorrection(
+    position: ex.Vector,
+    snapDistance: number,
+  ) {
     const visualWorldPosition = this.visualWorldPosition();
     this.actor.pos = ex.vec(position.x, position.y);
     const nextOffset = visualWorldPosition.sub(this.actor.pos);
@@ -173,7 +177,9 @@ export class PlayerVisuals {
   }
 
   private visualWorldPosition() {
-    return this.actor.pos.add(this.visualCorrectionOffset).add(this.renderOffset);
+    return this.actor.pos
+      .add(this.visualCorrectionOffset)
+      .add(this.renderOffset);
   }
 
   public applyRenderOffset(offset: ex.Vector) {
@@ -209,10 +215,6 @@ export class PlayerVisuals {
       this.facingLeft,
       this.visualCorrectionOffset.add(this.renderOffset),
     );
-  }
-
-  public isCurrentAnimationFinished() {
-    return this.activeAnimation.isFinished();
   }
 
   public setEquippedWeaponSprite(sprite: ex.ImageSource): void {
