@@ -1,7 +1,6 @@
 {
   "frameDurationMs": 120,
   "speed": 2,
-  "strategy": "freeze",
   "mirrorWidth": 16,
   "frames": [
     {

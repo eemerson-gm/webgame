@@ -1,9 +1,5 @@
 import * as ex from "excalibur";
-import type {
-  JsonSpriteAnimationSpec,
-  JsonSpritePose,
-  JsonSpriteAnimationStrategy,
-} from "./types";
+import type { JsonSpriteAnimationSpec, JsonSpritePose } from "./types";
 
 type JsonSpriteAnimationOptions = {
   host: ex.Actor;
@@ -136,10 +132,6 @@ export class JsonSpriteAnimation {
     this.isPlaying = false;
   }
 
-  public isFinished() {
-    return this.spec.strategy === "freeze" && !this.isPlaying;
-  }
-
   public hideAll() {
     this.host.graphics.visible = false;
     this.host.graphics.opacity = 0;
@@ -162,19 +154,9 @@ export class JsonSpriteAnimation {
     this.lastBaseOffset = baseOffset;
 
     if (this.isPlaying) {
-      const durationMs = this.durationMs();
       const nextElapsedMs = this.elapsedMs + deltaMs;
-      const shouldFreeze =
-        this.spec.strategy === "freeze" && nextElapsedMs >= durationMs;
-      if (shouldFreeze) {
-        this.elapsedMs = durationMs;
-        this.currentFrameIndex = Math.max(this.spec.frames.length - 1, 0);
-        this.isPlaying = false;
-      }
-      if (!shouldFreeze) {
-        this.elapsedMs = nextElapsedMs;
-        this.currentFrameIndex = this.frameIndexForElapsedMs(this.elapsedMs);
-      }
+      this.elapsedMs = nextElapsedMs;
+      this.currentFrameIndex = this.frameIndexForElapsedMs(this.elapsedMs);
     }
 
     this.syncFrame();
@@ -200,17 +182,13 @@ export class JsonSpriteAnimation {
     if (durationMs <= 0) {
       return 0;
     }
-    const strategy: JsonSpriteAnimationStrategy = this.spec.strategy;
     const loopElapsedMs = elapsedMs % durationMs;
     const effectiveElapsedMs =
-      strategy === "loop"
-        ? loopElapsedMs === 0 && elapsedMs > 0
-          ? durationMs - 0.0001
-          : loopElapsedMs
-        : Math.min(elapsedMs, Math.max(durationMs - 0.0001, 0));
+      loopElapsedMs === 0 && elapsedMs > 0
+        ? durationMs - 0.0001
+        : loopElapsedMs;
     const index = Math.floor(
-      effectiveElapsedMs /
-        Math.max(this.effectiveFrameDurationMs(), 0.0001),
+      effectiveElapsedMs / Math.max(this.effectiveFrameDurationMs(), 0.0001),
     );
     return Math.min(index, Math.max(this.spec.frames.length - 1, 0));
   }
@@ -257,12 +235,11 @@ export class JsonSpriteAnimation {
       }
 
       actor.z = pose.layer ?? 0;
-      const x = this.lastFacingLeft ? mirrorWidth - pose.offset.x : pose.offset.x;
+      const x = this.lastFacingLeft
+        ? mirrorWidth - pose.offset.x
+        : pose.offset.x;
       const y = pose.offset.y;
-      actor.pos = ex.vec(
-        this.lastBaseOffset.x + x,
-        this.lastBaseOffset.y + y,
-      );
+      actor.pos = ex.vec(this.lastBaseOffset.x + x, this.lastBaseOffset.y + y);
       actor.rotation = this.lastFacingLeft
         ? -degToRad(pose.rotationDeg)
         : degToRad(pose.rotationDeg);
@@ -272,4 +249,3 @@ export class JsonSpriteAnimation {
     });
   }
 }
-

@@ -3,13 +3,14 @@
 ## Environment and workflow
 
 - This repo is developed on a **Windows operating system**.
+- **DO not run `rg`** it will not work, and is not a command.
 - **Do not run `npm run build`** or any Vite production build unless the user explicitly asks.
 - **Do not run `tsc`** or TypeScript no-emit checks unless the user explicitly asks.
 - **Do not start the game** unless the user explicitly asks.
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
 - Avoid running `git diff` or `git status` after edits unless you explicitly ask.
 - When you need sprite dimensions, always run `npm run sprite:dimensions -- <sprite-path>` instead of guessing.
-- Always run `npm run lint` after making changes to files and fix all the errors.
+- Always run `npm run lint` after making changes to files and fix all the errors. Ignore errors on other files.
 
 ## MCPs
 

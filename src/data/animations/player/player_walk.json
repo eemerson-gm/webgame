@@ -1,6 +1,5 @@
 {
   "frameDurationMs": 120,
-  "strategy": "loop",
   "mirrorWidth": 16,
   "frames": [
     {

@@ -124,7 +124,8 @@ const existingPoseIds = () => {
   return new Set(ids);
 };
 
-const spriteMetaForKey = (spriteKey) => appState.spritesByKey[spriteKey] ?? null;
+const spriteMetaForKey = (spriteKey) =>
+  appState.spritesByKey[spriteKey] ?? null;
 
 const centerForPose = (pose, meta) => {
   const centerX = pose.offset.x - meta.width / 2;
@@ -221,8 +222,7 @@ const render = () => {
       const meta = spriteMetaForKey(pose.spriteKey);
       if (meta !== null) {
         const centered = centerForPose(pose, meta);
-        const r =
-          (Math.max(meta.width, meta.height) / 2) * appState.zoom;
+        const r = (Math.max(meta.width, meta.height) / 2) * appState.zoom;
         const cx = Math.round(o.x + centered.centerX * appState.zoom);
         const cy = Math.round(o.y + centered.centerY * appState.zoom);
         ctx.save();
@@ -242,8 +242,8 @@ const render = () => {
     return;
   }
   const selectedPose = appState.selectedPoseId
-    ? frameForHelp.sprites.find((p) => p.id === appState.selectedPoseId) ??
-      null
+    ? (frameForHelp.sprites.find((p) => p.id === appState.selectedPoseId) ??
+      null)
     : null;
   if (selectedPose === null) {
     ui.renderHelp.textContent = `Frame ${appState.currentFrameIndex}. Drag to add a pose. Click to select.`;
@@ -482,18 +482,6 @@ const ensureIdConsistency = (oldId, newId) => {
   });
 };
 
-const ensureSpriteKeyConsistency = (poseId, spriteKey) => {
-  if (appState.spec === null) {
-    return;
-  }
-  appState.spec.frames = appState.spec.frames.map((frame) => {
-    const updated = frame.sprites.map((p) =>
-      p.id === poseId ? { ...p, spriteKey } : p,
-    );
-    return { ...frame, sprites: updated };
-  });
-};
-
 const addPoseFromSpriteKey = (spriteKey, point) => {
   const frame = currentFrame();
   if (frame === null) {
@@ -655,12 +643,10 @@ const saveAnimation = async () => {
 const animationTemplateSpec = () => {
   const frameDurationMs = appState.spec?.frameDurationMs ?? 120;
   const speed = appState.spec?.speed ?? 1;
-  const strategy = appState.spec?.strategy ?? "loop";
   const mirrorWidth = appState.spec?.mirrorWidth ?? 16;
   return {
     frameDurationMs,
     speed,
-    strategy,
     mirrorWidth,
     frames: [{ sprites: [] }],
   };
@@ -687,11 +673,14 @@ const createAnimation = async () => {
   ui.saveStatus.textContent = "";
 
   const spec = animationTemplateSpec();
-  const res = await fetch(`/api/animations/${encodeURIComponent(animationId)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(spec),
-  });
+  const res = await fetch(
+    `/api/animations/${encodeURIComponent(animationId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(spec),
+    },
+  );
 
   if (!res.ok) {
     ui.status.textContent = "Create failed";
@@ -772,7 +761,9 @@ const setFrameIndex = (nextIndex) => {
   const clamped = Math.max(0, Math.min(framesCount - 1, nextIndex));
   appState.currentFrameIndex = clamped;
   appState.selectedPoseId = appState.selectedPoseId
-    ? appState.spec.frames[clamped].sprites.find((p) => p.id === appState.selectedPoseId)
+    ? appState.spec.frames[clamped].sprites.find(
+        (p) => p.id === appState.selectedPoseId,
+      )
       ? appState.selectedPoseId
       : null
     : null;
@@ -898,15 +889,8 @@ const startPlayback = () => {
 
   appState.playbackTimerId = window.setInterval(() => {
     const nextCandidate = appState.currentFrameIndex + 1;
-    const nextIndex = nextCandidate > lastIndex
-      ? spec.strategy === "loop"
-        ? 0
-        : lastIndex
-      : nextCandidate;
+    const nextIndex = nextCandidate > lastIndex ? 0 : nextCandidate;
     setFrameIndex(nextIndex);
-    if (nextCandidate > lastIndex && spec.strategy !== "loop") {
-      stopPlayback();
-    }
   }, intervalMs);
 };
 
@@ -925,8 +909,7 @@ const bindUiHandlers = () => {
       return;
     }
     const rawSpeed = Number(ui.animationSpeed.value ?? 1);
-    const nextSpeed =
-      Number.isFinite(rawSpeed) && rawSpeed > 0 ? rawSpeed : 1;
+    const nextSpeed = Number.isFinite(rawSpeed) && rawSpeed > 0 ? rawSpeed : 1;
     spec.speed = nextSpeed;
     appState.spec = normalizeSpec(spec);
     if (appState.isPlaying) {
@@ -1027,7 +1010,9 @@ const bindUiHandlers = () => {
     const spriteKey = ui.poseSpriteKey.value;
     const oldMeta = spriteMetaForKey(oldSpriteKey);
     const editorOffset =
-      oldMeta === null ? null : editorOffsetForRuntime(frame.sprites[idx].offset, oldMeta);
+      oldMeta === null
+        ? null
+        : editorOffsetForRuntime(frame.sprites[idx].offset, oldMeta);
     frame.sprites[idx].spriteKey = spriteKey;
     if (editorOffset !== null) {
       const updatedFrame = currentFrame();
@@ -1188,4 +1173,3 @@ const init = async () => {
 };
 
 void init();
-
