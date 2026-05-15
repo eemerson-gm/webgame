@@ -10,30 +10,82 @@
         padding: 12px;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
-        display: flex;
+        display: grid;
+        grid-template-columns: 320px minmax(900px, 1fr) 300px;
         gap: 12px;
         align-items: flex-start;
+        background: #f7f7f7;
       }
 
-      #left {
-        width: 320px;
+      h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      input[type="number"],
+      input[type="text"],
+      select {
+        width: 160px;
+      }
+
+      label {
+        font-size: 13px;
+      }
+
+      .column {
         display: flex;
         flex-direction: column;
         gap: 10px;
       }
 
-      #center {
-        flex: 1;
+      .panel {
         display: flex;
         flex-direction: column;
         gap: 8px;
+        padding: 10px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        border-radius: 6px;
+        background: #fff;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .panel-subtitle,
+      .hint {
+        font-size: 12px;
+        color: rgba(0, 0, 0, 0.62);
+      }
+
+      .row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .button-row {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .tool-button.is-active {
+        font-weight: 700;
+        outline: 2px solid rgba(0, 0, 0, 0.2);
       }
 
       #sprite-list {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        max-height: 60vh;
+        max-height: calc(100vh - 190px);
         overflow: auto;
         padding-right: 2px;
       }
@@ -60,9 +112,9 @@
       #scene {
         width: 900px;
         height: 520px;
-        border: 1px solid rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(0, 0, 0, 0.35);
         border-radius: 6px;
-        background: #fff;
+        background: linear-gradient(180deg, #bdbdbd 0%, #4a4a4a 100%);
         display: block;
       }
 
@@ -71,36 +123,20 @@
         top: 10px;
         left: 10px;
         font-size: 14px;
-        color: rgba(0, 0, 0, 0.6);
+        color: rgba(0, 0, 0, 0.65);
         pointer-events: none;
-      }
-
-      .panel-title {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 700;
-      }
-
-      .panel-subtitle {
-        font-size: 13px;
-        color: rgba(0, 0, 0, 0.6);
-        margin-top: -4px;
       }
 
       #render-help {
         min-height: 18px;
         font-size: 13px;
-        color: rgba(0, 0, 0, 0, 0.6);
+        color: rgba(0, 0, 0, 0.65);
       }
 
       #pose-editor {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        border: 1px solid rgba(0, 0, 0, 0.15);
-        border-radius: 6px;
-        padding: 10px;
-        background: #fff;
       }
 
       #pose-editor .row {
@@ -110,116 +146,135 @@
         gap: 6px;
       }
 
-      #pose-editor label {
-        width: 100%;
-      }
-
+      #pose-editor label,
       #pose-editor input[type="number"],
       #pose-editor input[type="text"],
       #pose-editor select {
         width: 100%;
       }
 
-      .row {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        justify-content: space-between;
-      }
-
-      label {
-        font-size: 13px;
-      }
-
-      input[type="number"],
-      input[type="text"],
-      select {
-        width: 160px;
-      }
-
-      textarea {
-        width: 100%;
-        height: 120px;
-      }
-
-      button {
-        cursor: pointer;
+      #brush-color {
+        width: 44px;
+        height: 28px;
+        padding: 0;
       }
     </style>
   </head>
   <body>
-    <div id="left">
-      <h1>Animation Editor</h1>
-      <div id="status">Loading...</div>
+    <div id="left" class="column">
+      <section class="panel">
+        <h1>Animation Editor</h1>
+        <div id="status">Loading...</div>
+      </section>
 
-      <label>
-        Animation
-        <select id="animation-select"></select>
-      </label>
-
-      <div class="row">
+      <section class="panel">
+        <h2 class="panel-title">Animation</h2>
         <label>
-          New animation id
-          <input id="new-animation-id" type="text" />
+          Animation
+          <select id="animation-select"></select>
         </label>
-        <button id="new-animation-create" type="button">New</button>
-      </div>
+        <div class="row">
+          <label>
+            New animation id
+            <input id="new-animation-id" type="text" />
+          </label>
+          <button id="new-animation-create" type="button">New</button>
+        </div>
+        <div class="row">
+          <button id="save" type="button">Save</button>
+          <div id="save-status"></div>
+        </div>
+      </section>
 
-      <div class="row">
-        <button id="frame-prev" type="button">Prev</button>
-        <label>
-          Frame
-          <input id="frame-index" type="number" min="0" step="1" />
-        </label>
-        <button id="frame-next" type="button">Next</button>
-      </div>
+      <section class="panel">
+        <h2 class="panel-title">Timeline</h2>
+        <div class="row">
+          <button id="frame-prev" type="button">Prev</button>
+          <label>
+            Frame
+            <input id="frame-index" type="number" min="0" step="1" />
+          </label>
+          <button id="frame-next" type="button">Next</button>
+        </div>
+        <div class="row button-row">
+          <button id="frame-add-empty" type="button">Add empty</button>
+          <button id="frame-add-duplicate" type="button">Duplicate</button>
+          <button id="frame-delete" type="button">Delete</button>
+        </div>
+        <div class="row">
+          <div class="row button-row">
+            <button id="play" type="button">Play</button>
+            <button id="stop" type="button" disabled>Stop</button>
+          </div>
+          <label>
+            Speed
+            <input id="animation-speed" type="number" min="0.1" step="0.1" value="1" />
+          </label>
+        </div>
+      </section>
 
-      <div class="row">
-        <button id="play" type="button">Play</button>
-        <button id="stop" type="button" disabled>Stop</button>
-        <label>
-          Speed
-          <input id="animation-speed" type="number" min="0.1" step="0.1" value="1" />
-        </label>
-      </div>
-
-      <div class="row">
-        <label>
-          Brush
-          <input id="brush-size" type="number" min="1" step="1" value="3" />
-        </label>
-      </div>
-
-      <div class="row">
-        <button id="frame-add-empty" type="button">Add empty</button>
-        <button id="frame-add-duplicate" type="button">Duplicate</button>
-        <button id="frame-delete" type="button">Delete</button>
-      </div>
-
-      <div class="row">
-        <button id="save" type="button">Save</button>
-        <div id="save-status"></div>
-      </div>
-
-      <div class="row">
-        <button id="undo-overlay" type="button">Undo</button>
-      </div>
-
-      <h2 class="panel-title">Sprites</h2>
-      <div id="sprite-list" aria-label="Sprites"></div>
+      <section class="panel">
+        <h2 class="panel-title">Sprites</h2>
+        <div class="panel-subtitle">Drag onto the canvas to add poses.</div>
+        <div id="sprite-list" aria-label="Sprites"></div>
+      </section>
     </div>
 
-    <div id="center">
-      <div id="scene-wrap">
-        <canvas id="scene" aria-label="Scene" width="900" height="520"></canvas>
-        <div id="scene-hint">Drag a sprite into the canvas. Click to select.</div>
-      </div>
-      <div class="row">
-        <button id="mode-select" type="button">Select</button>
-        <button id="mode-draw" type="button" disabled>Draw</button>
-      </div>
+    <div id="center" class="column">
+      <section class="panel">
+        <h2 class="panel-title">Canvas</h2>
+        <div id="scene-wrap">
+          <canvas id="scene" aria-label="Scene" width="900" height="520"></canvas>
+          <div id="scene-hint">Drag a sprite into the canvas. Click to select.</div>
+        </div>
         <div id="render-help"></div>
-        <h2 class="panel-title" style="font-size: 16px;">Pose</h2>
+      </section>
+    </div>
+
+    <div id="right" class="column">
+      <section class="panel">
+        <h2 class="panel-title">Tools</h2>
+        <div class="row button-row">
+          <button id="mode-select" class="tool-button" type="button">Select</button>
+          <button id="mode-draw" class="tool-button" type="button" disabled>Brush</button>
+          <button id="mode-erase" class="tool-button" type="button">Eraser</button>
+          <button id="mode-eyedropper" class="tool-button" type="button">Pick</button>
+        </div>
+        <div class="row">
+          <label>
+            Brush
+            <input id="brush-size" type="number" min="1" step="1" value="3" />
+          </label>
+          <label>
+            Color
+            <input id="brush-color" type="color" value="#ff0000" />
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            Onion skin
+            <input id="onion-skin-prev" type="checkbox" />
+          </label>
+          <label>
+            Opacity
+            <input
+              id="onion-skin-opacity"
+              type="number"
+              min="0"
+              max="1"
+              step="0.05"
+              value="0.25"
+            />
+          </label>
+        </div>
+        <div class="row">
+          <button id="undo-overlay" type="button">Undo overlay</button>
+        </div>
+        <div class="hint">V/S select, B brush, E erase, I pick, [ ] brush size, Space play, Ctrl+S save.</div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Pose</h2>
         <div id="pose-none">No pose selected</div>
 
         <div id="pose-editor" hidden>
@@ -261,15 +316,14 @@
               <input id="pose-visible" type="checkbox" />
             </label>
           </div>
-          <div class="row">
-            <button id="pose-remove" type="button">Remove pose</button>
-          </div>
-          <div class="row">
+          <div class="row button-row">
             <button id="pose-copy" type="button">Copy pose</button>
             <button id="pose-paste" type="button">Paste pose</button>
+            <button id="pose-remove" type="button">Remove pose</button>
           </div>
         </div>
-      </div>
+      </section>
+    </div>
 
     <script type="module" src="/editor/animation-editor-ui.js"></script>
   </body>
