@@ -85,7 +85,7 @@ export class JsonSpriteAnimation {
           anchor: ex.vec(0.5, 0.5),
           width: sprite.width,
           height: sprite.height,
-          z: this.z,
+          z: 0,
         });
         actor.graphics.use(sprite);
         actor.graphics.visible = false;
@@ -227,10 +227,7 @@ export class JsonSpriteAnimation {
         this.host.graphics.opacity = 0;
       }
       if (hostPose !== undefined) {
-        const nextHostZ = hostPose.layer ?? undefined;
-        if (nextHostZ !== undefined) {
-          this.host.z = nextHostZ;
-        }
+        this.host.z = this.z + (hostPose.layer ?? 0);
         const mirroredX = this.lastFacingLeft
           ? mirrorWidth - hostPose.offset.x
           : hostPose.offset.x;
@@ -259,7 +256,7 @@ export class JsonSpriteAnimation {
         return;
       }
 
-      actor.z = pose.layer ?? this.z;
+      actor.z = pose.layer ?? 0;
       const x = this.lastFacingLeft ? mirrorWidth - pose.offset.x : pose.offset.x;
       const y = pose.offset.y;
       actor.pos = ex.vec(
