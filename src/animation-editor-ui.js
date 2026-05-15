@@ -15,6 +15,8 @@ const normalizeSpec = (spec) => {
     const sprites = frame.sprites ?? [];
     return { ...frame, sprites };
   });
+  const rawSpeed = Number(next.speed ?? 1);
+  next.speed = Number.isFinite(rawSpeed) && rawSpeed > 0 ? rawSpeed : 1;
   return next;
 };
 
@@ -40,6 +42,8 @@ const appState = {
   canvas: null,
   ctx: null,
   isDragging: false,
+  isPlaying: false,
+  playbackTimerId: null,
   drag: { active: false, pointerOffsetX: 0, pointerOffsetY: 0 },
   zoom: 2,
 };
@@ -60,6 +64,9 @@ const ui = {
   spriteList: el("sprite-list"),
   scene: el("scene"),
   sceneHint: el("scene-hint"),
+  play: el("play"),
+  stop: el("stop"),
+  animationSpeed: el("animation-speed"),
   poseNone: el("pose-none"),
   poseEditor: el("pose-editor"),
   poseId: el("pose-id"),
@@ -604,10 +611,16 @@ const loadAnimationSpec = async (animationId) => {
   const json = await res.json();
   appState.spec = normalizeSpec(json);
   appState.animationId = animationId;
+  appState.isPlaying = false;
+  if (appState.playbackTimerId !== null) {
+    window.clearInterval(appState.playbackTimerId);
+    appState.playbackTimerId = null;
+  }
   appState.currentFrameIndex = 0;
   appState.selectedPoseId = null;
   appState.selectedPoseIndex = -1;
   ui.frameIndex.value = "0";
+  ui.animationSpeed.value = String(appState.spec?.speed ?? 1);
   if (appState.spec.frames.length === 0) {
     appState.spec.frames = [{ sprites: [] }];
   }
@@ -641,10 +654,12 @@ const saveAnimation = async () => {
 
 const animationTemplateSpec = () => {
   const frameDurationMs = appState.spec?.frameDurationMs ?? 120;
+  const speed = appState.spec?.speed ?? 1;
   const strategy = appState.spec?.strategy ?? "loop";
   const mirrorWidth = appState.spec?.mirrorWidth ?? 16;
   return {
     frameDurationMs,
+    speed,
     strategy,
     mirrorWidth,
     frames: [{ sprites: [] }],
@@ -854,15 +869,84 @@ const initCanvasInteractions = () => {
   });
 };
 
+const stopPlayback = () => {
+  appState.isPlaying = false;
+  if (appState.playbackTimerId !== null) {
+    window.clearInterval(appState.playbackTimerId);
+    appState.playbackTimerId = null;
+  }
+  ui.play.disabled = false;
+  ui.stop.disabled = true;
+};
+
+const startPlayback = () => {
+  const spec = appState.spec;
+  if (spec === null) {
+    return;
+  }
+
+  stopPlayback();
+
+  const rawSpeed = Number(spec.speed ?? 1);
+  const speed = Number.isFinite(rawSpeed) && rawSpeed > 0 ? rawSpeed : 1;
+  const intervalMs = Math.max(spec.frameDurationMs / speed, 1);
+  const lastIndex = Math.max(spec.frames.length - 1, 0);
+
+  appState.isPlaying = true;
+  ui.play.disabled = true;
+  ui.stop.disabled = false;
+
+  appState.playbackTimerId = window.setInterval(() => {
+    const nextCandidate = appState.currentFrameIndex + 1;
+    const nextIndex = nextCandidate > lastIndex
+      ? spec.strategy === "loop"
+        ? 0
+        : lastIndex
+      : nextCandidate;
+    setFrameIndex(nextIndex);
+    if (nextCandidate > lastIndex && spec.strategy !== "loop") {
+      stopPlayback();
+    }
+  }, intervalMs);
+};
+
 const bindUiHandlers = () => {
+  ui.play.addEventListener("click", () => {
+    startPlayback();
+  });
+
+  ui.stop.addEventListener("click", () => {
+    stopPlayback();
+  });
+
+  ui.animationSpeed.addEventListener("change", () => {
+    const spec = appState.spec;
+    if (spec === null) {
+      return;
+    }
+    const rawSpeed = Number(ui.animationSpeed.value ?? 1);
+    const nextSpeed =
+      Number.isFinite(rawSpeed) && rawSpeed > 0 ? rawSpeed : 1;
+    spec.speed = nextSpeed;
+    appState.spec = normalizeSpec(spec);
+    if (appState.isPlaying) {
+      startPlayback();
+      return;
+    }
+    render();
+  });
+
   ui.framePrev.addEventListener("click", () => {
+    stopPlayback();
     setFrameIndex(appState.currentFrameIndex - 1);
   });
   ui.frameNext.addEventListener("click", () => {
+    stopPlayback();
     setFrameIndex(appState.currentFrameIndex + 1);
   });
 
   ui.frameIndex.addEventListener("change", () => {
+    stopPlayback();
     setFrameIndex(Number(ui.frameIndex.value ?? 0));
   });
 

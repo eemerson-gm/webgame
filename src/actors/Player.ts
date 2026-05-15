@@ -54,6 +54,7 @@ const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
 const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
+const attackDurationMsEpsilon = 0;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -71,6 +72,10 @@ export class Player extends MovingActor {
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
+  private attackVisual: PlayerVisual | null = null;
+  private attackTimeRemainingMs: number = 0;
+  private attackForceRestart: boolean = false;
+  private isAttackHeld: boolean = false;
   private physicsAccumulatorMs: number = 0;
   private renderPreviousPosition: ex.Vector = ex.vec(0, 0);
 
@@ -179,6 +184,45 @@ export class Player extends MovingActor {
     this.pos.x = roundedX;
     this.pos.y = roundedY;
     this.syncPosition();
+  }
+
+  public triggerAttackAnimation(visual: PlayerVisual) {
+    if (this.isPaused) {
+      return;
+    }
+    if (!this.isAlive()) {
+      return;
+    }
+    if (this.attackTimeRemainingMs > 0) {
+      return;
+    }
+    this.attackVisual = visual;
+    const durationMs = this.visuals.durationMsForVisual(visual);
+    const effectiveDurationMs = Math.max(durationMs - attackDurationMsEpsilon, 0);
+    this.attackTimeRemainingMs = effectiveDurationMs;
+    this.attackForceRestart = true;
+  }
+
+  public setAttackHeld(held: boolean, visual: PlayerVisual) {
+    if (this.isPaused) {
+      this.isAttackHeld = false;
+      return;
+    }
+    this.isAttackHeld = held;
+    if (!held) {
+      return;
+    }
+    if (this.attackVisual === null || this.attackTimeRemainingMs <= 0) {
+      this.triggerAttackAnimation(visual);
+    }
+  }
+
+  public triggerSwordGroundAnimation() {
+    this.triggerAttackAnimation("ground_sword");
+  }
+
+  public setSwordGroundHeld(held: boolean) {
+    this.setAttackHeld(held, "ground_sword");
   }
 
   public knockBackFrom(actor: ex.Actor) {
@@ -308,6 +352,10 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
+    this.attackVisual = null;
+    this.attackTimeRemainingMs = 0;
+    this.attackForceRestart = false;
+    this.isAttackHeld = false;
     this.syncHealthState();
   }
 
@@ -332,6 +380,7 @@ export class Player extends MovingActor {
     if (!isPaused) {
       return;
     }
+    this.isAttackHeld = false;
     this.keyLeft = false;
     this.keyRight = false;
     this.keyJump = false;
@@ -340,6 +389,9 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
+    this.attackVisual = null;
+    this.attackTimeRemainingMs = 0;
+    this.attackForceRestart = false;
     this.visuals.setVisual("idle");
   }
 
@@ -402,7 +454,7 @@ export class Player extends MovingActor {
     if (this.canTurnFromInput()) {
       this.syncFacingFromHorizontalSign(keySign);
     }
-    const nextVisual: PlayerVisual = !this.isGrounded
+    const baseVisual: PlayerVisual = !this.isGrounded
       ? "jump"
       : this.keyDown
         ? "crouch"
@@ -410,7 +462,16 @@ export class Player extends MovingActor {
           ? "walk"
           : "idle";
 
-    this.visuals.setVisual(nextVisual);
+    const hasAttack =
+      this.attackVisual !== null && this.attackTimeRemainingMs > 0;
+    let nextVisual: PlayerVisual = baseVisual;
+    if (hasAttack) {
+      nextVisual = this.attackVisual as PlayerVisual;
+    }
+    const force = this.attackForceRestart;
+    this.attackForceRestart = false;
+
+    this.visuals.setVisual(nextVisual, force);
     this.visuals.updateFacing(this.facingLeft);
   }
 
@@ -549,6 +610,28 @@ export class Player extends MovingActor {
 
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
+    if (this.attackVisual !== null) {
+      this.attackTimeRemainingMs = Math.max(
+        this.attackTimeRemainingMs - delta,
+        0,
+      );
+      if (this.attackTimeRemainingMs === 0) {
+        if (this.isAttackHeld) {
+          const visual = this.attackVisual;
+          const durationMs = this.visuals.durationMsForVisual(visual);
+          const effectiveDurationMs = Math.max(
+            durationMs - attackDurationMsEpsilon,
+            0,
+          );
+          this.attackTimeRemainingMs = effectiveDurationMs;
+          this.attackForceRestart = true;
+        }
+        if (!this.isAttackHeld) {
+          this.attackVisual = null;
+          this.attackForceRestart = false;
+        }
+      }
+    }
 
     const previousGrounded = this.isGrounded;
     const isKnockbackActive = this.knockbackTimeRemainingMs > 0;

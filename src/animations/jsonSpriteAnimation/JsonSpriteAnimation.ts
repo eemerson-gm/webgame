@@ -148,8 +148,19 @@ export class JsonSpriteAnimation {
     this.syncFrame();
   }
 
-  private durationMs(): number {
-    return this.spec.frames.length * this.spec.frameDurationMs;
+  public durationMs(): number {
+    return this.spec.frames.length * this.effectiveFrameDurationMs();
+  }
+
+  private speedMultiplier(): number {
+    const speed = this.spec.speed ?? 1;
+    return speed > 0 ? speed : 1;
+  }
+
+  private effectiveFrameDurationMs(): number {
+    const frameDurationMs = this.spec.frameDurationMs;
+    const speed = this.speedMultiplier();
+    return frameDurationMs / speed;
   }
 
   private frameIndexForElapsedMs(elapsedMs: number) {
@@ -163,7 +174,8 @@ export class JsonSpriteAnimation {
         ? elapsedMs % durationMs
         : Math.min(elapsedMs, Math.max(durationMs - 0.0001, 0));
     const index = Math.floor(
-      effectiveElapsedMs / Math.max(this.spec.frameDurationMs, 0.0001),
+      effectiveElapsedMs /
+        Math.max(this.effectiveFrameDurationMs(), 0.0001),
     );
     return Math.min(index, Math.max(this.spec.frames.length - 1, 0));
   }

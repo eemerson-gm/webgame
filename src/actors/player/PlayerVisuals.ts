@@ -7,8 +7,9 @@ import idleJson from "../../data/animations/player/player_idle.json";
 import walkJson from "../../data/animations/player/player_walk.json";
 import jumpJson from "../../data/animations/player/player_jump.json";
 import crouchJson from "../../data/animations/player/player_crouch.json";
+import groundSwordJson from "../../data/animations/player_ground_sword_side.json";
 
-export type PlayerVisual = "idle" | "walk" | "jump" | "crouch";
+export type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "ground_sword";
 
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
@@ -22,6 +23,7 @@ export class PlayerVisuals {
   private readonly jumpAnimation: JsonSpriteAnimation;
   private readonly crouchAnimation: JsonSpriteAnimation;
   private readonly walkAnimation: JsonSpriteAnimation;
+  private readonly groundSwordAnimation: JsonSpriteAnimation;
   private activeAnimation: JsonSpriteAnimation;
 
   private facingLeft = false;
@@ -39,6 +41,7 @@ export class PlayerVisuals {
     const walkSpec = walkJson as unknown as JsonSpriteAnimationSpec;
     const jumpSpec = jumpJson as unknown as JsonSpriteAnimationSpec;
     const crouchSpec = crouchJson as unknown as JsonSpriteAnimationSpec;
+    const groundSwordSpec = groundSwordJson as unknown as JsonSpriteAnimationSpec;
 
     this.sleepBubbleActor = new ex.Actor({
       pos: sleepBubbleOffset,
@@ -76,6 +79,12 @@ export class PlayerVisuals {
     this.walkAnimation = new JsonSpriteAnimation({
       host: this.actor,
       spec: walkSpec,
+      spritesByKey,
+      hostSpriteId: "body",
+    });
+    this.groundSwordAnimation = new JsonSpriteAnimation({
+      host: this.actor,
+      spec: groundSwordSpec,
       spritesByKey,
       hostSpriteId: "body",
     });
@@ -140,7 +149,15 @@ export class PlayerVisuals {
     if (visual === "crouch") {
       return this.crouchAnimation;
     }
+    if (visual === "ground_sword") {
+      return this.groundSwordAnimation;
+    }
     return this.idleAnimation;
+  }
+
+  public durationMsForVisual(visual: PlayerVisual): number {
+    const animation = this.animationFor(visual);
+    return animation.durationMs();
   }
 
   public applyRemotePositionCorrection(position: ex.Vector, snapDistance: number) {

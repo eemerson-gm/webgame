@@ -18,6 +18,7 @@ export type JsonSpriteAnimationFrame = {
 
 export type JsonSpriteAnimationSpec = {
   frameDurationMs: number;
+  speed?: number;
   strategy: JsonSpriteAnimationStrategy;
   mirrorWidth: number;
   frames: readonly JsonSpriteAnimationFrame[];

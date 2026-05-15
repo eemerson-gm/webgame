@@ -676,6 +676,36 @@ const wireGameClient = (client: GameClient) => {
 
 game.start(loader).then(() => {
   focusGameCanvas(game);
+  game.canvas.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const player = localPlayerSlot.player;
+    if (!player) {
+      return;
+    }
+    player.setSwordGroundHeld(true);
+  });
+  game.canvas.addEventListener("pointerup", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const player = localPlayerSlot.player;
+    if (!player) {
+      return;
+    }
+    player.setSwordGroundHeld(false);
+  });
+  game.canvas.addEventListener("pointercancel", (event) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const player = localPlayerSlot.player;
+    if (!player) {
+      return;
+    }
+    player.setSwordGroundHeld(false);
+  });
   showMainMenu();
   const client = new GameClient();
   clientSlot.client = client;

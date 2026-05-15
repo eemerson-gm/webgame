@@ -1,5 +1,6 @@
 {
   "frameDurationMs": 120,
+  "speed": 2,
   "strategy": "loop",
   "mirrorWidth": 16,
   "frames": [
@@ -46,10 +47,10 @@
           "id": "WoodSword_2",
           "spriteKey": "WoodSword",
           "offset": {
-            "x": 17,
+            "x": 14,
             "y": 0
           },
-          "rotationDeg": -15,
+          "rotationDeg": -45,
           "layer": -1,
           "visible": true
         }
@@ -72,10 +73,10 @@
           "id": "WoodSword_2",
           "spriteKey": "WoodSword",
           "offset": {
-            "x": 21,
-            "y": 11
+            "x": 19,
+            "y": 6
           },
-          "rotationDeg": 45,
+          "rotationDeg": 0,
           "layer": -1,
           "visible": true
         }
