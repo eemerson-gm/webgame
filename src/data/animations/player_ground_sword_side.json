@@ -18,7 +18,7 @@
           "visible": true
         },
         {
-          "id": "WoodSword",
+          "id": "weapon",
           "spriteKey": "WoodSword",
           "offset": {
             "x": 8,
@@ -44,7 +44,7 @@
           "visible": true
         },
         {
-          "id": "WoodSword_2",
+          "id": "weapon",
           "spriteKey": "WoodSword",
           "offset": {
             "x": 14,
@@ -70,7 +70,7 @@
           "visible": true
         },
         {
-          "id": "WoodSword_2",
+          "id": "weapon",
           "spriteKey": "WoodSword",
           "offset": {
             "x": 19,
@@ -96,7 +96,7 @@
           "visible": true
         },
         {
-          "id": "WoodSword_2",
+          "id": "weapon",
           "spriteKey": "WoodSword",
           "offset": {
             "x": 21,
@@ -122,7 +122,7 @@
           "visible": true
         },
         {
-          "id": "WoodSword_2",
+          "id": "weapon",
           "spriteKey": "WoodSword",
           "offset": {
             "x": 20,

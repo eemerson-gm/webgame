@@ -27,6 +27,7 @@ export class PlayerVisuals {
   private activeAnimation: JsonSpriteAnimation;
 
   private facingLeft = false;
+  private equippedWeaponSprite: ex.ImageSource = Resources.WoodSword;
 
   public readonly sleepBubbleActor: ex.Actor;
 
@@ -128,6 +129,7 @@ export class PlayerVisuals {
       this.facingLeft,
       this.visualCorrectionOffset.add(this.renderOffset),
     );
+    this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
   }
 
   public updateFacing(facingLeft: boolean) {
@@ -211,5 +213,10 @@ export class PlayerVisuals {
 
   public isCurrentAnimationFinished() {
     return this.activeAnimation.isFinished();
+  }
+
+  public setEquippedWeaponSprite(sprite: ex.ImageSource): void {
+    this.equippedWeaponSprite = sprite;
+    this.activeAnimation.setPartSprite("weapon", sprite);
   }
 }

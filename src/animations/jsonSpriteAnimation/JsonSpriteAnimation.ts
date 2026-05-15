@@ -35,6 +35,7 @@ export class JsonSpriteAnimation {
   private readonly posesByFrameIndex: readonly PoseById[];
   private readonly spriteKeyById: Record<string, string>;
   private readonly childActorsById: Record<string, ex.Actor>;
+  private readonly spriteOverrideByPartId: Record<string, ex.ImageSource> = {};
 
   private elapsedMs = 0;
   private isPlaying = false;
@@ -98,6 +99,33 @@ export class JsonSpriteAnimation {
 
     this.childActorsById = childActorsById;
     this.hideAll();
+  }
+
+  public actorForPart(partId: string): ex.Actor | undefined {
+    if (this.hostSpriteId !== undefined && partId === this.hostSpriteId) {
+      return this.host;
+    }
+    return this.childActorsById[partId];
+  }
+
+  public setPartSprite(partId: string, imageSource: ex.ImageSource): void {
+    this.spriteOverrideByPartId[partId] = imageSource;
+
+    if (this.hostSpriteId !== undefined && partId === this.hostSpriteId) {
+      const sprite = centeredSpriteFor(imageSource);
+      this.host.graphics.use(sprite);
+      this.syncFrame();
+      return;
+    }
+
+    const actor = this.childActorsById[partId];
+    if (actor === undefined) {
+      return;
+    }
+
+    const sprite = centeredSpriteFor(imageSource);
+    actor.graphics.use(sprite);
+    this.syncFrame();
   }
 
   public play() {
@@ -206,8 +234,9 @@ export class JsonSpriteAnimation {
         const mirroredX = this.lastFacingLeft
           ? mirrorWidth - hostPose.offset.x
           : hostPose.offset.x;
+        const override = this.spriteOverrideByPartId[this.hostSpriteId];
         const sprite = centeredSpriteFor(
-          this.spritesByKey[hostPose.spriteKey],
+          override ?? this.spritesByKey[hostPose.spriteKey],
         );
         this.host.graphics.use(sprite);
         this.host.graphics.flipHorizontal = this.lastFacingLeft;

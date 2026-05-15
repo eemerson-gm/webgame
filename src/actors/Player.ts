@@ -227,6 +227,10 @@ export class Player extends MovingActor {
     this.setAttackHeld(held, "ground_sword");
   }
 
+  public setEquippedWeaponSprite(sprite: ex.ImageSource) {
+    this.visuals.setEquippedWeaponSprite(sprite);
+  }
+
   public knockBackFrom(actor: ex.Actor) {
     if (this.isPaused) {
       return;
