@@ -38,6 +38,7 @@ export const Resources = {
   PlayerUseTool3: new ex.ImageSource("./assets/player_use_tool3.png"),
   PlayerUseTool4: new ex.ImageSource("./assets/player_use_tool4.png"),
   PlayerUseTool5: new ex.ImageSource("./assets/player_use_tool5.png"),
+  PlayerUseTool6: new ex.ImageSource("./assets/player_use_tool6.png"),
   PlayerWalk1: new ex.ImageSource("./assets/player_walk1.png"),
   PlayerWalk2: new ex.ImageSource("./assets/player_walk2.png"),
   PowerupSlot: new ex.ImageSource("./assets/powerup_slot.png"),
@@ -59,5 +60,5 @@ export const Resources = {
   Stone: new ex.ImageSource("./assets/stone.png"),
   ThoughtBubbleSleep: new ex.ImageSource("./assets/thought_bubble_sleep.png"),
   WhiteWool: new ex.ImageSource("./assets/white_wool.png"),
-  WoodSword: new ex.ImageSource("./assets/wood_sword.png")
+  WoodSword: new ex.ImageSource("./assets/wood_sword.png"),
 } as const;

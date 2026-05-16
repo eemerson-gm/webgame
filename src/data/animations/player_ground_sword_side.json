@@ -9,7 +9,7 @@
           "id": "body",
           "spriteKey": "PlayerUseTool1",
           "offset": {
-            "x": 8,
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0,
@@ -20,7 +20,7 @@
           "id": "weapon",
           "spriteKey": "WoodSword",
           "offset": {
-            "x": 8,
+            "x": 9,
             "y": 2
           },
           "rotationDeg": -75,
@@ -35,7 +35,7 @@
           "id": "body",
           "spriteKey": "PlayerUseTool2",
           "offset": {
-            "x": 8,
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0,
@@ -63,7 +63,7 @@
           "id": "body",
           "spriteKey": "PlayerUseTool3",
           "offset": {
-            "x": 8,
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0,
@@ -91,7 +91,7 @@
           "id": "body",
           "spriteKey": "PlayerUseTool4",
           "offset": {
-            "x": 8,
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0,
@@ -119,7 +119,35 @@
           "id": "body",
           "spriteKey": "PlayerUseTool5",
           "offset": {
-            "x": 8,
+            "x": 10,
+            "y": 8
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "weapon",
+          "spriteKey": "WoodSword",
+          "offset": {
+            "x": 22,
+            "y": 14
+          },
+          "rotationDeg": 55,
+          "layer": -1,
+          "visible": true
+        }
+      ],
+      "overlayPixelDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAC9UlEQVR4Xu2ZwW7bUAwEJef/PzmS+ewguUsLOIMdo2hPZpfD6cpu9s1XNYG9enuX3xSgXAIFUIByAuXr2wAKUE6gfH0bQAHKCZSvbwMoQDmB8vVtAAUoJ1C+vg2gAOUEyte3ARSgnED5+jaAApQTKF/fBlCAcgLl69sAClBOoHx9G0ABygmUr28DKEA5gfL1bQAFKCdQvr4NoADlBMrXtwEUoJxA+fo2gAKUEyhf3wZQgHIC5evbAApQTqB8fRtAAcoJlK9vAyhAOYHy9W0ABSgnUL6+DaAA5QTK17cBFKCcQPn6NoAClBMoX98GUIByAuXr2wAKUE6gfH0bQAHKCZSvbwNcFOCc1z6vi2//N2/DL/BJkud5jAQPNEN0+E8ef/3dqwW27dj2/QvLERv808f/E2AbAbiPAgW4adK7Bc6RgPkoUIC7AhwjwA9FYhMowF0Bzu9pgMdrigLchEl8+6kAxLPlMs83wd9HALEFfATccGH9P8B2DMLHMd8G5zEwv2iPAQW4KMD69D8P//n89/59fRNYfyrARaDUt708mAI4179+4AdBGyBoHvHnAwoQFIA4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmfgIvtT6Bzew4XwAAAABJRU5ErkJggg==",
+      "overlayVisible": true
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "PlayerUseTool6",
+          "offset": {
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0,
@@ -137,9 +165,7 @@
           "layer": -1,
           "visible": true
         }
-      ],
-      "overlayPixelDataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAC9UlEQVR4Xu2ZwW7bUAwEJef/PzmS+ewguUsLOIMdo2hPZpfD6cpu9s1XNYG9enuX3xSgXAIFUIByAuXr2wAKUE6gfH0bQAHKCZSvbwMoQDmB8vVtAAUoJ1C+vg2gAOUEyte3ARSgnED5+jaAApQTKF/fBlCAcgLl69sAClBOoHx9G0ABygmUr28DKEA5gfL1bQAFKCdQvr4NoADlBMrXtwEUoJxA+fo2gAKUEyhf3wZQgHIC5evbAApQTqB8fRtAAcoJlK9vAyhAOYHy9W0ABSgnUL6+DaAA5QTK17cBFKCcQPn6NoAClBMoX98GUIByAuXr2wAKUE6gfH0bQAHKCZSvbwNcFOCc1z6vi2//N2/DL/BJkud5jAQPNEN0+E8ef/3dqwW27dj2/QvLERv808f/E2AbAbiPAgW4adK7Bc6RgPkoUIC7AhwjwA9FYhMowF0Bzu9pgMdrigLchEl8+6kAxLPlMs83wd9HALEFfATccGH9P8B2DMLHMd8G5zEwv2iPAQW4KMD69D8P//n89/59fRNYfyrARaDUt708mAI4179+4AdBGyBoHvHnAwoQFIA4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmVoAgTOIoBSBeLZhZAYIwiaMUgHi1YGYFCMIkjlIA4tWCmRUgCJM4SgGIVwtmfgIvtT6Bzew4XwAAAABJRU5ErkJggg==",
-      "overlayVisible": true
+      ]
     }
   ]
 }

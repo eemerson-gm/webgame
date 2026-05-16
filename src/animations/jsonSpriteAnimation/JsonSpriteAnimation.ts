@@ -241,6 +241,22 @@ export class JsonSpriteAnimation {
     return Math.min(index, Math.max(this.spec.frames.length - 1, 0));
   }
 
+  private placementForStoredPose(
+    pose: JsonSpritePose,
+    spriteWidth: number,
+    spriteHeight: number,
+    mirrorWidth: number,
+    facingLeft: boolean,
+    base: ex.Vector,
+  ): ex.Vector {
+    const half = mirrorWidth / 2;
+    const px = facingLeft
+      ? half - pose.offset.x + spriteWidth / 2
+      : pose.offset.x - spriteWidth / 2 + half;
+    const py = pose.offset.y - spriteHeight / 2 + half;
+    return ex.vec(base.x + px, base.y + py);
+  }
+
   private syncFrame() {
     const framePoses: PoseById | undefined =
       this.posesByFrameIndex[this.currentFrameIndex];
@@ -259,9 +275,6 @@ export class JsonSpriteAnimation {
       }
       if (hostPose !== undefined) {
         this.host.z = this.z + (hostPose.layer ?? 0);
-        const mirroredX = this.lastFacingLeft
-          ? mirrorWidth - hostPose.offset.x
-          : hostPose.offset.x;
         const sprite =
           hostPose.pixelDataUrl !== undefined
             ? this.spriteMaybeForPixelDataUrl(hostPose.pixelDataUrl)
@@ -274,16 +287,25 @@ export class JsonSpriteAnimation {
             : sprite;
         const finalSprite =
           hostPose.pixelDataUrl !== undefined ? sprite : spriteWithOverride;
+        const bodyW =
+          finalSprite !== undefined ? finalSprite.width : mirrorWidth;
+        const bodyH =
+          finalSprite !== undefined ? finalSprite.height : mirrorWidth;
+        const hostPlacement = this.placementForStoredPose(
+          hostPose,
+          bodyW,
+          bodyH,
+          mirrorWidth,
+          this.lastFacingLeft,
+          this.lastBaseOffset,
+        );
         if (finalSprite === undefined) {
           this.host.graphics.visible = false;
           this.host.graphics.opacity = 0;
         } else {
           this.host.graphics.use(finalSprite);
           this.host.graphics.flipHorizontal = this.lastFacingLeft;
-          this.host.graphics.offset = ex.vec(
-            this.lastBaseOffset.x + mirroredX,
-            this.lastBaseOffset.y + hostPose.offset.y,
-          );
+          this.host.graphics.offset = hostPlacement;
           this.host.graphics.visible = hostPose.visible !== false;
           this.host.graphics.opacity = hostPose.visible === false ? 0 : 1;
         }
@@ -298,13 +320,7 @@ export class JsonSpriteAnimation {
             this.overlayActor.graphics.use(overlaySprite);
             this.overlayActor.graphics.flipHorizontal = this.lastFacingLeft;
 
-            const overlayMirroredX = this.lastFacingLeft
-              ? mirrorWidth - hostPose.offset.x
-              : hostPose.offset.x;
-            this.overlayActor.pos = ex.vec(
-              this.lastBaseOffset.x + overlayMirroredX,
-              this.lastBaseOffset.y + hostPose.offset.y,
-            );
+            this.overlayActor.pos = hostPlacement;
             this.overlayActor.z = this.z + 10000 + (hostPose.layer ?? 0);
 
             this.overlayActor.graphics.visible = overlayVisible;
@@ -328,11 +344,6 @@ export class JsonSpriteAnimation {
       }
 
       actor.z = pose.layer ?? 0;
-      const x = this.lastFacingLeft
-        ? mirrorWidth - pose.offset.x
-        : pose.offset.x;
-      const y = pose.offset.y;
-      actor.pos = ex.vec(this.lastBaseOffset.x + x, this.lastBaseOffset.y + y);
       actor.rotation = this.lastFacingLeft
         ? -degToRad(pose.rotationDeg)
         : degToRad(pose.rotationDeg);
@@ -346,6 +357,16 @@ export class JsonSpriteAnimation {
         actor.graphics.opacity = 0;
         return;
       }
+
+      const partPlacement = this.placementForStoredPose(
+        pose,
+        spriteMaybe.width,
+        spriteMaybe.height,
+        mirrorWidth,
+        this.lastFacingLeft,
+        this.lastBaseOffset,
+      );
+      actor.pos = partPlacement;
       actor.graphics.use(spriteMaybe);
       actor.graphics.visible = pose.visible !== false;
       actor.graphics.opacity = pose.visible === false ? 0 : 1;

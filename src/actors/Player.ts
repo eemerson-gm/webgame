@@ -298,6 +298,9 @@ export class Player extends MovingActor {
     this.moveRenderHistoryBy(deltaX, 0);
     this.pos.x = x;
     this.physicsPosition.x = x;
+    if (this.knockbackTimeRemainingMs <= 0) {
+      this.hspeed = 0;
+    }
     this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
     this.playerNetwork.markPositionChanged();
     this.playerNetwork.setShouldBroadcastSeparatedPosition(true);

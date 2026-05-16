@@ -244,6 +244,7 @@ export const createPoseActions = ({ state, ui, render }) => {
   const clonePoseForCopy = (pose) => {
     const nextOffset = pose.offset ?? { x: 0, y: 0 };
     return {
+      id: pose.id,
       spriteKey: pose.spriteKey,
       offset: { x: nextOffset.x, y: nextOffset.y },
       rotationDeg: pose.rotationDeg ?? 0,
@@ -284,7 +285,9 @@ export const createPoseActions = ({ state, ui, render }) => {
     }
     const existing = existingPoseIds(state);
     const suffix = frame.sprites.length + 1;
-    const nextId = uniqueIdFor(copied.spriteKey, existing, suffix);
+    const nextId = copied.id && !existing.has(copied.id)
+      ? copied.id
+      : uniqueIdFor(copied.spriteKey, existing, suffix);
     const pose = {
       id: nextId,
       spriteKey: copied.spriteKey,
@@ -302,16 +305,21 @@ export const createPoseActions = ({ state, ui, render }) => {
   };
 
   const ensureIdConsistency = (oldId, newId) => {
-    if (state.spec === null) {
+    const frame = currentFrame(state);
+    if (frame === null) {
       return;
     }
-    state.spec.frames = state.spec.frames.map((frame) => {
-      const withoutNew = frame.sprites.filter((p) => p.id !== newId);
-      const updated = withoutNew.map((p) =>
-        p.id === oldId ? { ...p, id: newId } : p,
-      );
-      return { ...frame, sprites: updated };
-    });
+    const hasConflictInFrame = frame.sprites.some(
+      (p) => p.id === newId && p.id !== oldId,
+    );
+    if (hasConflictInFrame) {
+      ui.status.textContent = "Id already exists in this frame";
+      ui.poseId.value = oldId;
+      return;
+    }
+    frame.sprites = frame.sprites.map((p) =>
+      p.id === oldId ? { ...p, id: newId } : p,
+    );
   };
 
   const addPoseFromSpriteKey = (spriteKey, point) => {
