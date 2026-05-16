@@ -649,7 +649,7 @@ game.start(loader).then(() => {
     if (!player) {
       return;
     }
-    player.setSwordGroundHeld(true);
+    player.triggerSwordGroundAnimation();
   });
   game.canvas.addEventListener("pointerup", (event) => {
     if (event.button !== 0) {

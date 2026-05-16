@@ -55,6 +55,7 @@ const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
 const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
 const attackDurationMsEpsilon = 0.0001;
+const attackFacingLockRemainingFraction = 0.75;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -74,6 +75,7 @@ export class Player extends MovingActor {
   private jumpHoldTimeRemainingMs: number = 0;
   private attackVisual: PlayerVisual | null = null;
   private attackTimeRemainingMs: number = 0;
+  private attackDurationTotalMs: number = 0;
   private attackForceRestart: boolean = false;
   private isAttackHeld: boolean = false;
   private physicsAccumulatorMs: number = 0;
@@ -202,6 +204,7 @@ export class Player extends MovingActor {
     const durationMs = this.visuals.durationMsForVisual(visual);
     const effectiveDurationMs = Math.max(durationMs - attackDurationMsEpsilon, 0);
     this.attackTimeRemainingMs = effectiveDurationMs;
+    this.attackDurationTotalMs = effectiveDurationMs;
     this.attackForceRestart = true;
   }
 
@@ -365,6 +368,7 @@ export class Player extends MovingActor {
     this.jumpHoldTimeRemainingMs = 0;
     this.attackVisual = null;
     this.attackTimeRemainingMs = 0;
+    this.attackDurationTotalMs = 0;
     this.attackForceRestart = false;
     this.isAttackHeld = false;
     this.syncHealthState();
@@ -402,6 +406,7 @@ export class Player extends MovingActor {
     this.jumpHoldTimeRemainingMs = 0;
     this.attackVisual = null;
     this.attackTimeRemainingMs = 0;
+    this.attackDurationTotalMs = 0;
     this.attackForceRestart = false;
     this.visuals.setVisual("idle");
   }
@@ -458,7 +463,16 @@ export class Player extends MovingActor {
   }
 
   private canTurnFromInput() {
-    return true;
+    if (this.attackDurationTotalMs <= 0) {
+      return true;
+    }
+    if (this.attackVisual === null || this.attackTimeRemainingMs <= 0) {
+      return true;
+    }
+    return (
+      this.attackTimeRemainingMs >=
+      this.attackDurationTotalMs * attackFacingLockRemainingFraction
+    );
   }
 
   private syncPlayerVisuals(keySign: number) {
@@ -643,10 +657,12 @@ export class Player extends MovingActor {
             0,
           );
           this.attackTimeRemainingMs = effectiveDurationMs;
+          this.attackDurationTotalMs = effectiveDurationMs;
           this.attackForceRestart = true;
         }
         if (!this.isAttackHeld) {
           this.attackVisual = null;
+          this.attackDurationTotalMs = 0;
           this.attackForceRestart = true;
         }
       }
