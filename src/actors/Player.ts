@@ -7,6 +7,11 @@ import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import { DamageFlash } from "./DamageableActor";
 import { SmashParticleActor } from "./SmashParticleActor";
 import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
+import {
+  groundJabMovementRulesForPhase,
+  resolveGroundJabAttackPhase,
+  type GroundJabMovementPhaseRules,
+} from "./player/GroundJabAttackMovementPhase";
 import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
 
 const approach = (start: number, end: number, amount: number) => {
@@ -222,12 +227,12 @@ export class Player extends MovingActor {
     }
   }
 
-  public triggerSwordGroundAnimation() {
-    this.triggerAttackAnimation("ground_sword");
+  public triggerGroundJabAnimation() {
+    this.triggerAttackAnimation("ground_jab");
   }
 
-  public setSwordGroundHeld(held: boolean) {
-    this.setAttackHeld(held, "ground_sword");
+  public setGroundJabHeld(held: boolean) {
+    this.setAttackHeld(held, "ground_jab");
   }
 
   public setEquippedWeaponSprite(sprite: ex.ImageSource) {
@@ -510,10 +515,52 @@ export class Player extends MovingActor {
     return walkAcceleration;
   }
 
+  private groundJabAttackElapsedMs(): number {
+    const total = this.attackDurationTotalMs;
+    const raw = total - this.attackTimeRemainingMs;
+    if (raw < 0) {
+      return 0;
+    }
+    if (raw > total) {
+      return total;
+    }
+    return raw;
+  }
+
+  private groundJabMovementRules(): GroundJabMovementPhaseRules | null {
+    if (this.attackVisual !== "ground_jab") {
+      return null;
+    }
+    if (this.attackDurationTotalMs <= 0) {
+      return null;
+    }
+    if (this.attackTimeRemainingMs <= 0) {
+      return null;
+    }
+    const phase = resolveGroundJabAttackPhase(
+      this.groundJabAttackElapsedMs(),
+      this.attackDurationTotalMs,
+    );
+    return groundJabMovementRulesForPhase(phase);
+  }
+
   private moveWithGravity(delta: number, dt: number, keySign: number) {
-    const targetHspeed =
-      keySign * walkSpeed * (this.isRunning ? runSpeedMultiplier : 1);
-    const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
+    const runMult = this.isRunning ? runSpeedMultiplier : 1;
+    const baseTargetHspeed = keySign * walkSpeed * runMult;
+    const jabRules = this.isGrounded ? this.groundJabMovementRules() : null;
+    let targetHspeed = baseTargetHspeed;
+    let accelKeySign = keySign;
+    if (jabRules !== null) {
+      if (jabRules.horizontalPlant) {
+        targetHspeed = 0;
+        accelKeySign = 0;
+      }
+      if (!jabRules.horizontalPlant) {
+        targetHspeed = baseTargetHspeed * jabRules.horizontalTargetMultiplier;
+        accelKeySign = keySign;
+      }
+    }
+    const horizontalAcceleration = this.horizontalAccelerationFor(accelKeySign);
 
     this.hspeed = approach(
       this.hspeed,
@@ -677,11 +724,10 @@ export class Player extends MovingActor {
       this.moveWithGravity(delta, dt, keySign);
     }
 
-    if (
-      !isKnockbackActive &&
-      this.isGrounded &&
-      this.keyJump
-    ) {
+    const jabJumpRules = this.isGrounded ? this.groundJabMovementRules() : null;
+    const jumpAllowedByJab =
+      jabJumpRules === null ? true : jabJumpRules.jumpAllowed;
+    if (!isKnockbackActive && this.isGrounded && this.keyJump && jumpAllowedByJab) {
       this.onJump();
     }
     if (!isKnockbackActive && !previousGrounded && this.isGrounded) {

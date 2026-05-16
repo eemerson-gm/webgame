@@ -7,9 +7,9 @@ import idleJson from "../../data/animations/player/player_idle.json";
 import walkJson from "../../data/animations/player/player_walk.json";
 import jumpJson from "../../data/animations/player/player_jump.json";
 import crouchJson from "../../data/animations/player/player_crouch.json";
-import groundSwordJson from "../../data/animations/player_ground_sword_side.json";
+import groundJabJson from "../../data/animations/player_ground_jab_side.json";
 
-export type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "ground_sword";
+export type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "ground_jab";
 
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
@@ -23,7 +23,7 @@ export class PlayerVisuals {
   private readonly jumpAnimation: JsonSpriteAnimation;
   private readonly crouchAnimation: JsonSpriteAnimation;
   private readonly walkAnimation: JsonSpriteAnimation;
-  private readonly groundSwordAnimation: JsonSpriteAnimation;
+  private readonly groundJabAnimation: JsonSpriteAnimation;
   private activeAnimation: JsonSpriteAnimation;
 
   private facingLeft = false;
@@ -42,8 +42,7 @@ export class PlayerVisuals {
     const walkSpec = walkJson as unknown as JsonSpriteAnimationSpec;
     const jumpSpec = jumpJson as unknown as JsonSpriteAnimationSpec;
     const crouchSpec = crouchJson as unknown as JsonSpriteAnimationSpec;
-    const groundSwordSpec =
-      groundSwordJson as unknown as JsonSpriteAnimationSpec;
+    const groundJabSpec = groundJabJson as unknown as JsonSpriteAnimationSpec;
 
     this.sleepBubbleActor = new ex.Actor({
       pos: sleepBubbleOffset,
@@ -84,9 +83,9 @@ export class PlayerVisuals {
       spritesByKey,
       hostSpriteId: "body",
     });
-    this.groundSwordAnimation = new JsonSpriteAnimation({
+    this.groundJabAnimation = new JsonSpriteAnimation({
       host: this.actor,
-      spec: groundSwordSpec,
+      spec: groundJabSpec,
       spritesByKey,
       hostSpriteId: "body",
     });
@@ -152,8 +151,8 @@ export class PlayerVisuals {
     if (visual === "crouch") {
       return this.crouchAnimation;
     }
-    if (visual === "ground_sword") {
-      return this.groundSwordAnimation;
+    if (visual === "ground_jab") {
+      return this.groundJabAnimation;
     }
     return this.idleAnimation;
   }

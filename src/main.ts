@@ -649,7 +649,7 @@ game.start(loader).then(() => {
     if (!player) {
       return;
     }
-    player.triggerSwordGroundAnimation();
+    player.triggerGroundJabAnimation();
   });
   game.canvas.addEventListener("pointerup", (event) => {
     if (event.button !== 0) {
@@ -659,7 +659,7 @@ game.start(loader).then(() => {
     if (!player) {
       return;
     }
-    player.setSwordGroundHeld(false);
+    player.setGroundJabHeld(false);
   });
   game.canvas.addEventListener("pointercancel", (event) => {
     if (event.button !== 0) {
@@ -669,7 +669,7 @@ game.start(loader).then(() => {
     if (!player) {
       return;
     }
-    player.setSwordGroundHeld(false);
+    player.setGroundJabHeld(false);
   });
   showMainMenu();
   const client = new GameClient();
