@@ -21,16 +21,6 @@ const approach = (start: number, end: number, amount: number) => {
   return Math.max(start - amount, end);
 };
 
-const interpolatePosition = (
-  start: ex.Vector,
-  end: ex.Vector,
-  progress: number,
-) =>
-  ex.vec(
-    start.x * (1 - progress) + end.x * progress,
-    start.y * (1 - progress) + end.y * progress,
-  );
-
 const localCameraFollowElasticity = 0.14;
 const localCameraFollowFriction = 0.22;
 const collisionWidth = TILE_PX - 4;
@@ -83,9 +73,6 @@ export class Player extends MovingActor {
   private attackDurationTotalMs: number = 0;
   private attackForceRestart: boolean = false;
   private isAttackHeld: boolean = false;
-  private physicsAccumulatorMs: number = 0;
-  private physicsPosition: ex.Vector = ex.vec(0, 0);
-  private renderPreviousPosition: ex.Vector = ex.vec(0, 0);
 
   private visuals: PlayerVisuals;
   private playerNetwork: PlayerNetworkClient;
@@ -113,11 +100,15 @@ export class Player extends MovingActor {
     );
     this.client = client;
     this.spawnPosition = ex.vec(pos.x, pos.y);
-    this.physicsPosition = ex.vec(pos.x, pos.y);
-    this.renderPreviousPosition = ex.vec(pos.x, pos.y);
-    this.body.enableFixedUpdateInterpolate = false;
+    this.body.enableFixedUpdateInterpolate = true;
 
     this.visuals = new PlayerVisuals(this);
+    this.graphics.onPostDraw = (
+      _ctx: ex.ExcaliburGraphicsContext,
+      renderDeltaMs: number,
+    ) => {
+      this.visuals.updateVisualCorrection(renderDeltaMs);
+    };
     this.playerNetwork = new PlayerNetworkClient(client);
 
     this.damageFlash = new DamageFlash(this, {
@@ -189,7 +180,6 @@ export class Player extends MovingActor {
     this.jumpHoldTimeRemainingMs = 0;
     const roundedX = Math.round(this.pos.x);
     const roundedY = Math.round(this.pos.y);
-    this.moveRenderHistoryBy(roundedX - this.pos.x, roundedY - this.pos.y);
     this.pos.x = roundedX;
     this.pos.y = roundedY;
     this.syncPosition();
@@ -302,14 +292,10 @@ export class Player extends MovingActor {
     if (this.pos.x === x) {
       return;
     }
-    const deltaX = x - this.pos.x;
-    this.moveRenderHistoryBy(deltaX, 0);
     this.pos.x = x;
-    this.physicsPosition.x = x;
     if (this.knockbackTimeRemainingMs <= 0) {
       this.hspeed = 0;
     }
-    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
     this.playerNetwork.markPositionChanged();
     this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
   }
@@ -319,7 +305,6 @@ export class Player extends MovingActor {
     snapDistance: number,
   ) {
     this.visuals.applyRemotePositionCorrection(position, snapDistance);
-    this.resetRenderInterpolation();
   }
 
   public isFacingLeft() {
@@ -366,7 +351,6 @@ export class Player extends MovingActor {
   private respawnAtJoinPosition() {
     this.health = this.maxHealth;
     this.pos = ex.vec(this.spawnPosition.x, this.spawnPosition.y);
-    this.resetRenderInterpolation();
     this.hspeed = 0;
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
@@ -622,72 +606,6 @@ export class Player extends MovingActor {
     this.damageFlash.tick(delta);
   }
 
-  private moveRenderHistoryBy(deltaX: number, deltaY: number) {
-    this.renderPreviousPosition.x += deltaX;
-    this.renderPreviousPosition.y += deltaY;
-  }
-
-  private resetRenderInterpolation() {
-    this.physicsAccumulatorMs = 0;
-    this.physicsPosition = ex.vec(this.pos.x, this.pos.y);
-    this.renderPreviousPosition = ex.vec(this.physicsPosition.x, this.physicsPosition.y);
-    this.visuals.applyRenderOffset(ex.vec(0, 0));
-  }
-
-  private updateRenderInterpolation(progress: number) {
-    const renderPosition = interpolatePosition(
-      this.renderPreviousPosition,
-      this.physicsPosition,
-      progress,
-    );
-    this.pos.x = renderPosition.x;
-    this.pos.y = renderPosition.y;
-    this.visuals.applyRenderOffset(ex.vec(0, 0));
-  }
-
-  private stepPlayerFrame(engine: ex.Engine, delta: number) {
-    const frameDelta = Math.min(delta, playerMaxFrameDeltaMs);
-    this.physicsAccumulatorMs += frameDelta;
-    if (this.isPaused) {
-      this.stepPausedPlayerFrame();
-      return;
-    }
-    this.pos.x = this.physicsPosition.x;
-    this.pos.y = this.physicsPosition.y;
-    this.updateControls(engine);
-    const keySign = this.inputState.horizontalSign();
-    this.consumeFixedPlayerSteps(keySign);
-    this.onMove();
-    this.physicsPosition = ex.vec(this.pos.x, this.pos.y);
-    this.updateRenderInterpolation(this.physicsAccumulatorMs / playerFixedStepMs);
-  }
-
-  private stepPausedPlayerFrame() {
-    this.consumePausedFixedSteps();
-    this.pos.x = this.physicsPosition.x;
-    this.pos.y = this.physicsPosition.y;
-    this.renderPreviousPosition = ex.vec(this.physicsPosition.x, this.physicsPosition.y);
-    this.updateRenderInterpolation(0);
-  }
-
-  private consumePausedFixedSteps() {
-    if (this.physicsAccumulatorMs < playerFixedStepMs) {
-      return;
-    }
-    this.physicsAccumulatorMs -= playerFixedStepMs;
-    this.consumePausedFixedSteps();
-  }
-
-  private consumeFixedPlayerSteps(keySign: number) {
-    if (this.physicsAccumulatorMs < playerFixedStepMs) {
-      return;
-    }
-    this.renderPreviousPosition = ex.vec(this.pos.x, this.pos.y);
-    this.physicsAccumulatorMs -= playerFixedStepMs;
-    this.stepPlayerPhysics(keySign, playerFixedStepMs);
-    this.consumeFixedPlayerSteps(keySign);
-  }
-
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
     if (this.attackVisual !== null) {
@@ -746,8 +664,13 @@ export class Player extends MovingActor {
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
-    this.stepPlayerFrame(engine, delta);
-    this.visuals.updateVisualCorrection(delta);
-    this.updateDamageFeedback(delta);
+    const frameDelta = Math.min(delta, playerMaxFrameDeltaMs);
+    if (!this.isPaused) {
+      this.updateControls(engine);
+      const keySign = this.inputState.horizontalSign();
+      this.stepPlayerPhysics(keySign, frameDelta);
+      this.onMove();
+    }
+    this.updateDamageFeedback(frameDelta);
   }
 }
