@@ -5,13 +5,7 @@ import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor } from "./MovingActor";
 import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import { DamageFlash } from "./DamageableActor";
-import { SmashParticleActor } from "./SmashParticleActor";
 import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
-import {
-  groundJabMovementRulesForPhase,
-  resolveGroundJabAttackPhase,
-  type GroundJabMovementPhaseRules,
-} from "./player/GroundJabAttackMovementPhase";
 import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
 
 const approach = (start: number, end: number, amount: number) => {
@@ -49,8 +43,6 @@ const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
 const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
-const attackDurationMsEpsilon = 0.0001;
-const attackFacingLockRemainingFraction = 0.75;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -68,11 +60,6 @@ export class Player extends MovingActor {
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
-  private attackVisual: PlayerVisual | null = null;
-  private attackTimeRemainingMs: number = 0;
-  private attackDurationTotalMs: number = 0;
-  private attackForceRestart: boolean = false;
-  private isAttackHeld: boolean = false;
 
   private visuals: PlayerVisuals;
   private playerNetwork: PlayerNetworkClient;
@@ -185,46 +172,6 @@ export class Player extends MovingActor {
     this.syncPosition();
   }
 
-  public triggerAttackAnimation(visual: PlayerVisual) {
-    if (this.isPaused) {
-      return;
-    }
-    if (!this.isAlive()) {
-      return;
-    }
-    if (this.attackTimeRemainingMs > 0) {
-      return;
-    }
-    this.attackVisual = visual;
-    const durationMs = this.visuals.durationMsForVisual(visual);
-    const effectiveDurationMs = Math.max(durationMs - attackDurationMsEpsilon, 0);
-    this.attackTimeRemainingMs = effectiveDurationMs;
-    this.attackDurationTotalMs = effectiveDurationMs;
-    this.attackForceRestart = true;
-  }
-
-  public setAttackHeld(held: boolean, visual: PlayerVisual) {
-    if (this.isPaused) {
-      this.isAttackHeld = false;
-      return;
-    }
-    this.isAttackHeld = held;
-    if (!held) {
-      return;
-    }
-    if (this.attackVisual === null || this.attackTimeRemainingMs <= 0) {
-      this.triggerAttackAnimation(visual);
-    }
-  }
-
-  public triggerGroundJabAnimation() {
-    this.triggerAttackAnimation("ground_jab");
-  }
-
-  public setGroundJabHeld(held: boolean) {
-    this.setAttackHeld(held, "ground_jab");
-  }
-
   public setEquippedWeaponSprite(sprite: ex.ImageSource) {
     this.visuals.setEquippedWeaponSprite(sprite);
   }
@@ -245,17 +192,13 @@ export class Player extends MovingActor {
     this.playerNetwork.sendUpdate(movementState);
   }
 
-  public takeDamageFrom(
-    actor: ex.Actor,
-    damage: number = 1,
-    damageFeedback: "full" | "flash" = "full",
-  ) {
+  public takeDamageFrom(actor: ex.Actor, damage: number = 1) {
     if (!this.canTakeDamage()) {
       return false;
     }
     this.health = Math.max(this.health - damage, 0);
     this.damageImmunityTimeRemainingMs = playerDamageImmunityDurationMs;
-    this.showDamageFeedback(this.damageParticlePosition(), damageFeedback);
+    this.damageFlash.start();
     if (this.health <= 0) {
       this.respawnAtJoinPosition();
       return true;
@@ -323,21 +266,6 @@ export class Player extends MovingActor {
     }
   }
 
-  private damageParticlePosition() {
-    return ex.vec(this.pos.x + this.width / 2, this.pos.y + this.height / 2);
-  }
-
-  private showDamageFeedback(
-    position: ex.Vector,
-    damageFeedback: "full" | "flash" = "full",
-  ) {
-    this.damageFlash.start();
-    if (damageFeedback === "flash") {
-      return;
-    }
-    this.scene?.add(new SmashParticleActor(position));
-  }
-
   private canTakeDamage() {
     if (this.isPaused) {
       return false;
@@ -355,11 +283,6 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
-    this.attackVisual = null;
-    this.attackTimeRemainingMs = 0;
-    this.attackDurationTotalMs = 0;
-    this.attackForceRestart = false;
-    this.isAttackHeld = false;
     this.syncHealthState();
   }
 
@@ -384,7 +307,6 @@ export class Player extends MovingActor {
     if (!isPaused) {
       return;
     }
-    this.isAttackHeld = false;
     this.keyLeft = false;
     this.keyRight = false;
     this.keyJump = false;
@@ -393,10 +315,6 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
-    this.attackVisual = null;
-    this.attackTimeRemainingMs = 0;
-    this.attackDurationTotalMs = 0;
-    this.attackForceRestart = false;
     this.visuals.setVisual("idle");
   }
 
@@ -451,24 +369,9 @@ export class Player extends MovingActor {
     this.inputState.readKeyboard(engine);
   }
 
-  private canTurnFromInput() {
-    if (this.attackDurationTotalMs <= 0) {
-      return true;
-    }
-    if (this.attackVisual === null || this.attackTimeRemainingMs <= 0) {
-      return true;
-    }
-    return (
-      this.attackTimeRemainingMs >=
-      this.attackDurationTotalMs * attackFacingLockRemainingFraction
-    );
-  }
-
   private syncPlayerVisuals(keySign: number) {
-    if (this.canTurnFromInput()) {
-      this.syncFacingFromHorizontalSign(keySign);
-    }
-    const baseVisual: PlayerVisual = !this.isGrounded
+    this.syncFacingFromHorizontalSign(keySign);
+    const nextVisual: PlayerVisual = !this.isGrounded
       ? "jump"
       : this.keyDown
         ? "crouch"
@@ -476,16 +379,7 @@ export class Player extends MovingActor {
           ? "walk"
           : "idle";
 
-    const hasAttack =
-      this.attackVisual !== null && this.attackTimeRemainingMs > 0;
-    let nextVisual: PlayerVisual = baseVisual;
-    if (hasAttack) {
-      nextVisual = this.attackVisual as PlayerVisual;
-    }
-    const force = this.attackForceRestart;
-    this.attackForceRestart = false;
-
-    this.visuals.setVisual(nextVisual, force);
+    this.visuals.setVisual(nextVisual);
     this.visuals.updateFacing(this.facingLeft);
   }
 
@@ -499,52 +393,10 @@ export class Player extends MovingActor {
     return walkAcceleration;
   }
 
-  private groundJabAttackElapsedMs(): number {
-    const total = this.attackDurationTotalMs;
-    const raw = total - this.attackTimeRemainingMs;
-    if (raw < 0) {
-      return 0;
-    }
-    if (raw > total) {
-      return total;
-    }
-    return raw;
-  }
-
-  private groundJabMovementRules(): GroundJabMovementPhaseRules | null {
-    if (this.attackVisual !== "ground_jab") {
-      return null;
-    }
-    if (this.attackDurationTotalMs <= 0) {
-      return null;
-    }
-    if (this.attackTimeRemainingMs <= 0) {
-      return null;
-    }
-    const phase = resolveGroundJabAttackPhase(
-      this.groundJabAttackElapsedMs(),
-      this.attackDurationTotalMs,
-    );
-    return groundJabMovementRulesForPhase(phase);
-  }
-
   private moveWithGravity(delta: number, dt: number, keySign: number) {
     const runMult = this.isRunning ? runSpeedMultiplier : 1;
-    const baseTargetHspeed = keySign * walkSpeed * runMult;
-    const jabRules = this.isGrounded ? this.groundJabMovementRules() : null;
-    let targetHspeed = baseTargetHspeed;
-    let accelKeySign = keySign;
-    if (jabRules !== null) {
-      if (jabRules.horizontalPlant) {
-        targetHspeed = 0;
-        accelKeySign = 0;
-      }
-      if (!jabRules.horizontalPlant) {
-        targetHspeed = baseTargetHspeed * jabRules.horizontalTargetMultiplier;
-        accelKeySign = keySign;
-      }
-    }
-    const horizontalAcceleration = this.horizontalAccelerationFor(accelKeySign);
+    const targetHspeed = keySign * walkSpeed * runMult;
+    const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
 
     this.hspeed = approach(
       this.hspeed,
@@ -608,30 +460,6 @@ export class Player extends MovingActor {
 
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
-    if (this.attackVisual !== null) {
-      this.attackTimeRemainingMs = Math.max(
-        this.attackTimeRemainingMs - delta,
-        0,
-      );
-      if (this.attackTimeRemainingMs === 0) {
-        if (this.isAttackHeld) {
-          const visual = this.attackVisual;
-          const durationMs = this.visuals.durationMsForVisual(visual);
-          const effectiveDurationMs = Math.max(
-            durationMs - attackDurationMsEpsilon,
-            0,
-          );
-          this.attackTimeRemainingMs = effectiveDurationMs;
-          this.attackDurationTotalMs = effectiveDurationMs;
-          this.attackForceRestart = true;
-        }
-        if (!this.isAttackHeld) {
-          this.attackVisual = null;
-          this.attackDurationTotalMs = 0;
-          this.attackForceRestart = true;
-        }
-      }
-    }
 
     const previousGrounded = this.isGrounded;
     const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
@@ -642,10 +470,7 @@ export class Player extends MovingActor {
       this.moveWithGravity(delta, dt, keySign);
     }
 
-    const jabJumpRules = this.isGrounded ? this.groundJabMovementRules() : null;
-    const jumpAllowedByJab =
-      jabJumpRules === null ? true : jabJumpRules.jumpAllowed;
-    if (!isKnockbackActive && this.isGrounded && this.keyJump && jumpAllowedByJab) {
+    if (!isKnockbackActive && this.isGrounded && this.keyJump) {
       this.onJump();
     }
     if (!isKnockbackActive && !previousGrounded && this.isGrounded) {

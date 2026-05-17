@@ -46,6 +46,5 @@ gameServer.listen({
   [messageTypes.damageEntity]: "all",
   [messageTypes.createEntity]: "all",
   [messageTypes.updateEntity]: "all",
-  [messageTypes.createParticle]: "others",
   [messageTypes.ping]: "player",
 });

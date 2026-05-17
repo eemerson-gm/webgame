@@ -1,14 +1,12 @@
 import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { HUDManager } from "./ui/HUDManager";
-import { SmashParticleActor } from "./actors/SmashParticleActor";
 import { Resources } from "./resource";
 import { GameClient, type MessageEvents } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
 import type {
   Data,
   EntityState,
-  ParticleCreatePayload,
   PlayerDamageUpdate,
   PlayerKnockbackUpdate,
   PlayerState,
@@ -414,19 +412,6 @@ const applyEntitiesSnapshot = (_payload: Data) => {
   void _payload;
 };
 
-const applyParticleCreate = (payload: Data) => {
-  const particle = payload as ParticleCreatePayload;
-  const x = Number(particle.x);
-  const y = Number(particle.y);
-  if (particle.kind !== "smash") {
-    return;
-  }
-  if (!Number.isFinite(x) || !Number.isFinite(y)) {
-    return;
-  }
-  game.add(new SmashParticleActor(ex.vec(x, y)));
-};
-
 const playerForKnockbackId = (playerId: string) => {
   if (clientSlot.client?.clientId === playerId) {
     return localPlayerSlot.player;
@@ -457,7 +442,7 @@ const applyPlayerDamageUpdate = (payload: Data) => {
   if (!attacker || !target) {
     return;
   }
-  target.takeDamageFrom(attacker, update.damage, "flash");
+  target.takeDamageFrom(attacker, update.damage);
 };
 
 const applyPlayerPingUpdate = (payload: Data) => {
@@ -605,7 +590,6 @@ const gameMessageHandlers = (client: GameClient): MessageEvents => ({
   [messageTypes.knockbackPlayer]: applyPlayerKnockbackUpdate,
   [messageTypes.damagePlayer]: applyPlayerDamageUpdate,
   [messageTypes.updateEntities]: applyEntitiesSnapshot,
-  [messageTypes.createParticle]: applyParticleCreate,
   [messageTypes.pong]: (payload) => applyPongUpdate(client, payload),
 });
 
@@ -641,36 +625,6 @@ const wireGameClient = (client: GameClient) => {
 
 game.start(loader).then(() => {
   focusGameCanvas(game);
-  game.canvas.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const player = localPlayerSlot.player;
-    if (!player) {
-      return;
-    }
-    player.triggerGroundJabAnimation();
-  });
-  game.canvas.addEventListener("pointerup", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const player = localPlayerSlot.player;
-    if (!player) {
-      return;
-    }
-    player.setGroundJabHeld(false);
-  });
-  game.canvas.addEventListener("pointercancel", (event) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const player = localPlayerSlot.player;
-    if (!player) {
-      return;
-    }
-    player.setGroundJabHeld(false);
-  });
   showMainMenu();
   const client = new GameClient();
   clientSlot.client = client;

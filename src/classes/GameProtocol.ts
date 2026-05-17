@@ -90,15 +90,6 @@ export type EntityDamageUpdate = {
   damage?: number;
 };
 
-export type ParticleKind = "smash";
-
-export type ParticleCreatePayload = {
-  id?: string;
-  kind: ParticleKind;
-  x: number;
-  y: number;
-};
-
 export type ConnectedPayload = {
   id: string;
   playersData: Record<string, PlayerState>;
@@ -137,7 +128,6 @@ export const messageTypes = {
   createEntity: "create_entity",
   updateEntity: "update_entity",
   updateEntities: "update_entities",
-  createParticle: "create_particle",
   ping: "ping",
   pong: "pong",
 } as const;
