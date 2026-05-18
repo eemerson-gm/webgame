@@ -6,7 +6,7 @@
       "sprites": [
         {
           "id": "body",
-          "spriteKey": "Player",
+          "spriteKey": "CharacterJamesIdle",
           "offset": {
             "x": 8,
             "y": 8

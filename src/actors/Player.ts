@@ -86,6 +86,7 @@ export class Player extends MovingActor {
       collisionWorld,
     );
     this.client = client;
+    this.isLocal = client !== undefined;
     this.spawnPosition = ex.vec(pos.x, pos.y);
     this.body.enableFixedUpdateInterpolate = true;
 
@@ -236,9 +237,6 @@ export class Player extends MovingActor {
       return;
     }
     this.pos.x = x;
-    if (this.knockbackTimeRemainingMs <= 0) {
-      this.hspeed = 0;
-    }
     this.playerNetwork.markPositionChanged();
     this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
   }
@@ -247,6 +245,9 @@ export class Player extends MovingActor {
     position: ex.Vector,
     snapDistance: number,
   ) {
+    if (this.isLocal) {
+      return;
+    }
     this.visuals.applyRemotePositionCorrection(position, snapDistance);
   }
 

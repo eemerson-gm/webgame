@@ -6,12 +6,54 @@
       "sprites": [
         {
           "id": "body",
-          "spriteKey": "PlayerJump",
-          "offset": { "x": 8, "y": 8 },
+          "spriteKey": "CharacterJamesJump1",
+          "offset": {
+            "x": 9,
+            "y": 8
+          },
+          "rotationDeg": 0
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "CharacterJamesJump2",
+          "offset": {
+            "x": 9,
+            "y": 8
+          },
+          "rotationDeg": 0
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "CharacterJamesJump3",
+          "offset": {
+            "x": 9,
+            "y": 8
+          },
+          "rotationDeg": 0
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "CharacterJamesJump4",
+          "offset": {
+            "x": 9,
+            "y": 8
+          },
           "rotationDeg": 0
         }
       ]
     }
-  ]
+  ],
+  "speed": 1
 }
-

@@ -6,7 +6,7 @@
       "sprites": [
         {
           "id": "body",
-          "spriteKey": "PlayerCrouch",
+          "spriteKey": "CharacterJamesIdle",
           "offset": { "x": 8, "y": 8 },
           "rotationDeg": 0
         }
@@ -14,4 +14,3 @@
     }
   ]
 }
-

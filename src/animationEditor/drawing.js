@@ -110,7 +110,9 @@ export const createDrawingActions = ({ state, ui, render, syncPoseEditorToSelect
       if (cached !== undefined && cached !== null) {
         ctx.drawImage(cached, 0, 0, overlaySizePx, overlaySizePx);
       }
-      if (cached === undefined) {
+      const needsDecodeFromDataUrl =
+        cached === undefined || cached === null;
+      if (needsDecodeFromDataUrl === true) {
         const img = new Image();
         img.src = overlayDataUrl;
         await new Promise((resolve) => {

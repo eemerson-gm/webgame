@@ -6,9 +6,9 @@
       "sprites": [
         {
           "id": "body",
-          "spriteKey": "PlayerWalk1",
+          "spriteKey": "CharacterJamesWalk1",
           "offset": {
-            "x": 8,
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0
@@ -19,14 +19,15 @@
       "sprites": [
         {
           "id": "body",
-          "spriteKey": "PlayerWalk2",
+          "spriteKey": "CharacterJamesWalk2",
           "offset": {
-            "x": 8,
+            "x": 10,
             "y": 8
           },
           "rotationDeg": 0
         }
       ]
     }
-  ]
+  ],
+  "speed": 1
 }

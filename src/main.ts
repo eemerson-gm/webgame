@@ -33,8 +33,8 @@ const remotePlayerPositionTolerance = 0.5;
 const remotePlayerSnapDistance = TILE_PX * 2;
 const pingIntervalMs = 2000;
 const entitySeparationPadding = 1;
-const entitySeparationMaxMoveX = 0.5;
-const entitySeparationPasses = 1;
+const entitySeparationMaxMoveX = 0.3;
+const entitySeparationPasses = 2;
 
 type EntitySeparationEntry = {
   body: EntitySeparationBody;
@@ -277,6 +277,10 @@ const applyPositionFromPayloadIfPresent = (
   payload: PlayerState,
   tolerance: number = remotePlayerPositionTolerance,
 ) => {
+  const localPlayer = localPlayerSlot.player;
+  if (localPlayer !== null && player === localPlayer) {
+    return;
+  }
   if (payload.x === undefined && payload.y === undefined) {
     return;
   }

@@ -1,5 +1,10 @@
 # Agent Information
 
+## Commands
+
+- Use `npm run sprite:dimensions -- <sprite-path>` to get the dimensions of a sprite.
+- Use `npm run sprite:list` to get all the available sprites in the `public/assets/` folder.
+
 ## Environment and workflow
 
 - This repo is developed on a **Windows operating system**.
@@ -10,7 +15,6 @@
 - **Do not start the game** unless the user explicitly asks.
 - **Do not review your own changes after editing** unless the user explicitly asks for a review.
 - **Do not run** `git diff` or `git status`.
-- When you need sprite dimensions, always run `npm run sprite:dimensions -- <sprite-path>` instead of guessing.
 - Always run `npm run lint` after making changes to files and fix all the errors. Ignore errors on other files.
 
 ## MCPs

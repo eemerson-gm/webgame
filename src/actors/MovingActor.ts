@@ -101,9 +101,10 @@ export const tileMeeting = (
   x: number,
   y: number,
   { collisionBounds, world }: EntityPhysicsOptions,
-) => collisionTilePositionsAt(x, y, collisionBounds, world).some(
-  ([column, row]) => world.isSolidTile(column, row),
-);
+) =>
+  collisionTilePositionsAt(x, y, collisionBounds, world).some(([column, row]) =>
+    world.isSolidTile(column, row),
+  );
 
 export const moveHorizontallyUntilBlocked = (
   x: number,
@@ -188,7 +189,9 @@ export const stepEntityWithVelocity = (
   const afterVerticalMove = {
     ...afterHorizontalMove,
     y: verticalMove.y,
-    verticalSpeed: verticalMove.isBlocked ? 0 : afterHorizontalMove.verticalSpeed,
+    verticalSpeed: verticalMove.isBlocked
+      ? 0
+      : afterHorizontalMove.verticalSpeed,
   };
   const bounded = stayInsideWorldBounds(afterVerticalMove, options);
   const isGrounded = tileMeeting(bounded.x, bounded.y + 1, options);
@@ -202,15 +205,16 @@ export const stepEntityWithVelocity = (
 export const stepEntityFreely = (
   entity: EntityPhysicsState,
   options: EntityStepOptions,
-) => stayInsideWorldBounds(
-  {
-    ...entity,
-    x: entity.x + entity.horizontalSpeed * options.positionScale * options.dt,
-    y: entity.y + entity.verticalSpeed * options.positionScale * options.dt,
-    isGrounded: false,
-  },
-  options,
-);
+) =>
+  stayInsideWorldBounds(
+    {
+      ...entity,
+      x: entity.x + entity.horizontalSpeed * options.positionScale * options.dt,
+      y: entity.y + entity.verticalSpeed * options.positionScale * options.dt,
+      isGrounded: false,
+    },
+    options,
+  );
 
 const resolveSeparationPasses = (
   bodies: EntitySeparationBody[],
@@ -230,10 +234,11 @@ const resolveSeparationPasses = (
 const resolveSeparationPass = (
   bodies: EntitySeparationBody[],
   options: EntitySeparationOptions,
-) => separationPairs(bodies).reduce(
-  (currentBodies, pair) => separateBodyPair(currentBodies, pair, options),
-  bodies,
-);
+) =>
+  separationPairs(bodies).reduce(
+    (currentBodies, pair) => separateBodyPair(currentBodies, pair, options),
+    bodies,
+  );
 
 const separationPairs = (bodies: EntitySeparationBody[]) =>
   bodies.flatMap((_body, index) =>
@@ -272,10 +277,7 @@ const shouldSeparateBodies = (
   rightBody: EntitySeparationBody,
   padding: number,
 ) => {
-  if (
-    !canBodySeparateInPair(leftBody) &&
-    !canBodySeparateInPair(rightBody)
-  ) {
+  if (!canBodySeparateInPair(leftBody) && !canBodySeparateInPair(rightBody)) {
     return false;
   }
   if (horizontalOverlap(leftBody, rightBody, padding) <= 0) {
@@ -285,6 +287,21 @@ const shouldSeparateBodies = (
 };
 
 const canBodySeparateInPair = (body: EntitySeparationBody) => body.canSeparate;
+
+const separationStrengthFromCenterProximity = (
+  leftBody: EntitySeparationBody,
+  rightBody: EntitySeparationBody,
+) => {
+  const dx = entityCenterX(leftBody) - entityCenterX(rightBody);
+  const dy = entityCenterY(leftBody) - entityCenterY(rightBody);
+  const centerDist = Math.hypot(dx, dy);
+  const spanX = (leftBody.width + rightBody.width) / 2;
+  const spanY = (leftBody.height + rightBody.height) / 2;
+  const span = Math.hypot(spanX, spanY);
+  const normalized = Math.min(1, centerDist / Math.max(span, 0.001));
+  const depth = 1 - normalized;
+  return 0.15 + 0.85 * depth;
+};
 
 const separationMoves = (
   leftBody: EntitySeparationBody,
@@ -296,21 +313,26 @@ const separationMoves = (
   const canSeparateLeft = canBodySeparateInPair(leftBody);
   const canSeparateRight = canBodySeparateInPair(rightBody);
   const movableCount = Number(canSeparateLeft) + Number(canSeparateRight);
-  const sharedMove = Math.min(overlap / movableCount, options.maxMoveX);
-  const soloMove = Math.min(overlap, options.maxMoveX);
+  const centerStrength = separationStrengthFromCenterProximity(
+    leftBody,
+    rightBody,
+  );
+  const sharedMove =
+    Math.min(overlap / movableCount, options.maxMoveX) * centerStrength;
+  const soloMove = Math.min(overlap, options.maxMoveX) * centerStrength;
   const leftMove = canSeparateLeft
     ? safeSeparationMoveX(
-      leftBody,
-      direction * (canSeparateRight ? sharedMove : soloMove),
-      options,
-    )
+        leftBody,
+        direction * (canSeparateRight ? sharedMove : soloMove),
+        options,
+      )
     : 0;
   const rightMove = canSeparateRight
     ? safeSeparationMoveX(
-      rightBody,
-      -direction * (canSeparateLeft ? sharedMove : soloMove),
-      options,
-    )
+        rightBody,
+        -direction * (canSeparateLeft ? sharedMove : soloMove),
+        options,
+      )
     : 0;
   return {
     left: leftMove,
@@ -356,14 +378,16 @@ const horizontalOverlap = (
   leftBody: EntitySeparationBody,
   rightBody: EntitySeparationBody,
   padding: number,
-) => Math.min(leftBody.x + leftBody.width, rightBody.x + rightBody.width) -
+) =>
+  Math.min(leftBody.x + leftBody.width, rightBody.x + rightBody.width) -
   Math.max(leftBody.x, rightBody.x) +
   padding;
 
 const verticalOverlap = (
   leftBody: EntitySeparationBody,
   rightBody: EntitySeparationBody,
-) => Math.min(leftBody.y + leftBody.height, rightBody.y + rightBody.height) -
+) =>
+  Math.min(leftBody.y + leftBody.height, rightBody.y + rightBody.height) -
   Math.max(leftBody.y, rightBody.y);
 
 const collisionTilePositionsAt = (
@@ -374,9 +398,17 @@ const collisionTilePositionsAt = (
 ) => {
   const bounds = {
     left: x + collisionBounds.offsetX,
-    right: x + collisionBounds.offsetX + collisionBounds.width - collisionBounds.edgeInset,
+    right:
+      x +
+      collisionBounds.offsetX +
+      collisionBounds.width -
+      collisionBounds.edgeInset,
     top: y + collisionBounds.offsetY,
-    bottom: y + collisionBounds.offsetY + collisionBounds.height - collisionBounds.edgeInset,
+    bottom:
+      y +
+      collisionBounds.offsetY +
+      collisionBounds.height -
+      collisionBounds.edgeInset,
   };
   return [
     [bounds.left, bounds.top],

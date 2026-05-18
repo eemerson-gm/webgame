@@ -1,6 +1,7 @@
 import express from "express";
 import * as fs from "fs";
 import path from "path";
+import { extractImageSpritesFromResourceTs } from "./extractImageSpritesFromResourceTs";
 
 const port = 8081;
 const app = express();
@@ -19,24 +20,6 @@ const safeResolveUnder = (baseDir: string, relativeId: string) => {
   const resolved = path.resolve(baseDir, relativeId);
   const normalizedBase = path.resolve(baseDir);
   return resolved.startsWith(normalizedBase) ? resolved : null;
-};
-
-const extractSpriteMapFromResourceTs = async () => {
-  const resourceTsPath = path.join(workspaceRoot, "src", "resource.ts");
-  const text = await fs.promises.readFile(resourceTsPath, "utf8");
-  const pattern =
-    /(\w+)\s*:\s*new\s+ex\.ImageSource\(\s*["'](\.\/assets\/[^"']+)["']\s*\)/g;
-  const matches = [...text.matchAll(pattern)];
-  const result = matches
-    .map((m) => {
-      const key = String(m[1] ?? "");
-      const assetPath = String(m[2] ?? "");
-      const clean = assetPath.replace("./assets/", "assets/");
-      const url = "/" + clean;
-      return { key, url };
-    })
-    .filter((x) => x.key.length > 0 && x.url.startsWith("/assets/"));
-  return result;
 };
 
 const listJsonFiles = async (dir: string): Promise<string[]> => {
@@ -69,7 +52,7 @@ app.use("/assets", express.static(assetsDir));
 app.use("/editor", express.static(editorStaticDir));
 
 app.get("/api/sprites", async (_req, res) => {
-  const sprites = await extractSpriteMapFromResourceTs();
+  const sprites = await extractImageSpritesFromResourceTs(workspaceRoot);
   res.json({ sprites });
 });
 
