@@ -1,5 +1,6 @@
 import * as ex from "excalibur";
 import { Resources } from "../../resource";
+import { playerCharacterSpriteOverlayByKey } from "../../characters/playerCharacterSpriteOverlay";
 import { TILE_PX } from "../../world/worldConfig";
 import { JsonSpriteAnimation } from "../../animations/jsonSpriteAnimation/JsonSpriteAnimation";
 import type { JsonSpriteAnimationSpec } from "../../animations/jsonSpriteAnimation/types";
@@ -35,7 +36,10 @@ export class PlayerVisuals {
   private renderOffset: ex.Vector = ex.vec(0, 0);
 
   constructor(private readonly actor: ex.Actor) {
-    const spritesByKey = Resources as unknown as Record<string, ex.ImageSource>;
+    const spritesByKey: Record<string, ex.ImageSource> = {
+      ...(Resources as Record<string, ex.ImageSource>),
+      ...playerCharacterSpriteOverlayByKey,
+    };
     const idleSpec = idleJson as unknown as JsonSpriteAnimationSpec;
     const walkSpec = walkJson as unknown as JsonSpriteAnimationSpec;
     const jumpSpec = jumpJson as unknown as JsonSpriteAnimationSpec;

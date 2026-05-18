@@ -9,11 +9,26 @@ export const Resources = {
   BlockBreak3: new ex.ImageSource("./assets/block_break3.png"),
   BlockBreak4: new ex.ImageSource("./assets/block_break4.png"),
   BronzePickaxe: new ex.ImageSource("./assets/bronze_pickaxe.png"),
+  CharacterJamesIdle: new ex.ImageSource(
+    "./assets/characters/character_james_idle.png",
+  ),
+  CharacterJamesWalk: new ex.ImageSource(
+    "./assets/characters/character_james_walk.png",
+  ),
+  CharacterJamesWalk1: new ex.ImageSource(
+    "./assets/characters/character_james_walk1.png",
+  ),
+  CharacterJamesWalk2: new ex.ImageSource(
+    "./assets/characters/character_james_walk2.png",
+  ),
+  CharacterJamesJump: new ex.ImageSource(
+    "./assets/characters/character_james_jump.png",
+  ),
   Dirt: new ex.ImageSource("./assets/dirt.png"),
   Grass: new ex.ImageSource("./assets/grass.png"),
-  HeartEmpty: new ex.ImageSource("./assets/heart_empty.png"),
-  HeartFull: new ex.ImageSource("./assets/heart_full.png"),
-  HeartHalf: new ex.ImageSource("./assets/heart_half.png"),
+  HeartEmpty: new ex.ImageSource("./assets/UI/ui_heart_empty.png"),
+  HeartFull: new ex.ImageSource("./assets/UI/ui_heart_full.png"),
+  HeartHalf: new ex.ImageSource("./assets/UI/ui_heart_half.png"),
   InventoryBlockSlot: new ex.ImageSource("./assets/inventory_block_slot.png"),
   MinerPowerup1: new ex.ImageSource("./assets/miner_powerup_1.png"),
   MinerPowerup2: new ex.ImageSource("./assets/miner_powerup_2.png"),
