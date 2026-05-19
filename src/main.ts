@@ -73,11 +73,10 @@ const game = new ex.Engine({
   canvasElementId: "game",
   antialiasing: false,
   backgroundColor: ex.Color.fromHex("#54C0CA"),
-  //pixelArt: true,
+  pixelArt: true,
   snapToPixel: false,
   pixelRatio: 3,
   displayMode: ex.DisplayMode.FitContainer,
-  fixedUpdateFps: 60,
 });
 
 const focusGameCanvas = (engine: ex.Engine) => {

@@ -214,6 +214,19 @@ export class JsonSpriteAnimation {
     return this.spec.frames.length * this.effectiveFrameDurationMs();
   }
 
+  public hostPoseOffset(): ex.Vector {
+    if (this.hostSpriteId === undefined) {
+      return ex.vec(0, 0);
+    }
+    const framePoses = this.posesByFrameIndex[this.currentFrameIndex];
+    const pose = framePoses?.[this.hostSpriteId];
+    if (pose === undefined) {
+      return ex.vec(0, 0);
+    }
+    const px = this.lastFacingLeft ? -pose.offset.x : pose.offset.x;
+    return ex.vec(px, pose.offset.y);
+  }
+
   private speedMultiplier(): number {
     const speed = this.spec.speed ?? 1;
     return speed > 0 ? speed : 1;
@@ -243,24 +256,17 @@ export class JsonSpriteAnimation {
 
   private placementForStoredPose(
     pose: JsonSpritePose,
-    spriteWidth: number,
-    spriteHeight: number,
-    mirrorWidth: number,
     facingLeft: boolean,
     base: ex.Vector,
   ): ex.Vector {
-    const half = mirrorWidth / 2;
-    const px = facingLeft
-      ? half - pose.offset.x + spriteWidth / 2
-      : pose.offset.x - spriteWidth / 2 + half;
-    const py = pose.offset.y - spriteHeight / 2 + half;
+    const px = facingLeft ? -pose.offset.x : pose.offset.x;
+    const py = pose.offset.y;
     return ex.vec(base.x + px, base.y + py);
   }
 
   private syncFrame() {
     const framePoses: PoseById | undefined =
       this.posesByFrameIndex[this.currentFrameIndex];
-    const mirrorWidth = this.spec.mirrorWidth;
     const frame = this.spec.frames[this.currentFrameIndex];
     const overlayPixelDataUrl = frame.overlayPixelDataUrl;
     const overlayVisible = frame.overlayVisible !== false;
@@ -287,15 +293,8 @@ export class JsonSpriteAnimation {
             : sprite;
         const finalSprite =
           hostPose.pixelDataUrl !== undefined ? sprite : spriteWithOverride;
-        const bodyW =
-          finalSprite !== undefined ? finalSprite.width : mirrorWidth;
-        const bodyH =
-          finalSprite !== undefined ? finalSprite.height : mirrorWidth;
         const hostPlacement = this.placementForStoredPose(
           hostPose,
-          bodyW,
-          bodyH,
-          mirrorWidth,
           this.lastFacingLeft,
           this.lastBaseOffset,
         );
@@ -360,9 +359,6 @@ export class JsonSpriteAnimation {
 
       const partPlacement = this.placementForStoredPose(
         pose,
-        spriteMaybe.width,
-        spriteMaybe.height,
-        mirrorWidth,
         this.lastFacingLeft,
         this.lastBaseOffset,
       );

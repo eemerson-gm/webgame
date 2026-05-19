@@ -1,9 +1,4 @@
-import {
-  centerForPose,
-  editorOffsetForRuntime,
-  origin,
-  runtimeOffsetForEditor,
-} from "./coordinates.js";
+import { centerForPose, origin } from "./coordinates.js";
 import {
   currentFrame,
   existingPoseIds,
@@ -33,7 +28,6 @@ export const createPoseActions = ({ state, ui, render }) => {
       return;
     }
     const pose = frame.sprites[idx];
-    const meta = metaForKey(pose.spriteKey);
     ui.poseId.value = pose.id;
     ui.poseSpriteKey.innerHTML = "";
     const allKeys = state.sprites.map(spriteUrlToKey);
@@ -47,10 +41,8 @@ export const createPoseActions = ({ state, ui, render }) => {
       ui.poseSpriteKey.appendChild(opt);
     });
     ui.poseSpriteKey.value = pose.spriteKey;
-    const editorOffset =
-      meta === null ? pose.offset : editorOffsetForRuntime(pose.offset, meta);
-    ui.poseOffsetX.value = String(editorOffset.x);
-    ui.poseOffsetY.value = String(editorOffset.y);
+    ui.poseOffsetX.value = String(pose.offset.x);
+    ui.poseOffsetY.value = String(pose.offset.y);
     ui.poseRotationDeg.value = String(pose.rotationDeg ?? 0);
     ui.poseLayer.value = String(pose.layer ?? 0);
     ui.poseVisible.checked = pose.visible !== false;
@@ -72,7 +64,7 @@ export const createPoseActions = ({ state, ui, render }) => {
         if (meta === null) {
           return null;
         }
-        const centered = centerForPose(pose, meta);
+        const centered = centerForPose(pose);
         const dx = point.x - (o.x + centered.centerX * state.zoom);
         const dy = point.y - (o.y + centered.centerY * state.zoom);
         const r = (Math.max(meta.width, meta.height) / 2) * state.zoom;
@@ -97,18 +89,14 @@ export const createPoseActions = ({ state, ui, render }) => {
     }
     const pose = frame.sprites[idx];
     const o = origin(ui);
-    const meta = metaForKey(pose.spriteKey);
-    if (meta === null) {
-      return;
-    }
     const pointerRelX = (point.x - o.x) / state.zoom;
     const pointerRelY = (point.y - o.y) / state.zoom;
     const nextCenterX = pointerRelX + state.drag.pointerOffsetX;
     const nextCenterY = pointerRelY + state.drag.pointerOffsetY;
-    pose.offset = runtimeOffsetForEditor(
-      { x: Math.round(nextCenterX), y: Math.round(nextCenterY) },
-      meta,
-    );
+    pose.offset = {
+      x: Math.round(nextCenterX),
+      y: Math.round(nextCenterY),
+    };
   };
 
   const startDragForSelection = (point) => {
@@ -131,7 +119,7 @@ export const createPoseActions = ({ state, ui, render }) => {
     }
     const pointerRelX = (point.x - o.x) / state.zoom;
     const pointerRelY = (point.y - o.y) / state.zoom;
-    const centered = centerForPose(pose, meta);
+    const centered = centerForPose(pose);
     state.drag.pointerOffsetX = centered.centerX - pointerRelX;
     state.drag.pointerOffsetY = centered.centerY - pointerRelY;
     state.drag.poseId = pose.id;
@@ -340,7 +328,7 @@ export const createPoseActions = ({ state, ui, render }) => {
     const pose = {
       id: nextId,
       spriteKey,
-      offset: runtimeOffsetForEditor({ x: editorX, y: editorY }, meta),
+      offset: { x: editorX, y: editorY },
       rotationDeg: 0,
       layer: 0,
       visible: true,
@@ -397,22 +385,7 @@ export const createPoseActions = ({ state, ui, render }) => {
       if (idx < 0) {
         return;
       }
-      const poseId = frame.sprites[idx].id;
-      const oldSpriteKey = frame.sprites[idx].spriteKey;
-      const spriteKey = ui.poseSpriteKey.value;
-      const oldMeta = metaForKey(oldSpriteKey);
-      const editorOffset =
-        oldMeta === null
-          ? null
-          : editorOffsetForRuntime(frame.sprites[idx].offset, oldMeta);
-      frame.sprites[idx].spriteKey = spriteKey;
-      if (editorOffset !== null) {
-        const updatedPose = frame.sprites.find((p) => p.id === poseId);
-        const newMeta = metaForKey(spriteKey);
-        if (updatedPose !== undefined && newMeta !== null) {
-          updatedPose.offset = runtimeOffsetForEditor(editorOffset, newMeta);
-        }
-      }
+      frame.sprites[idx].spriteKey = ui.poseSpriteKey.value;
       render();
     });
     ui.poseOffsetX.addEventListener("change", () => {
@@ -426,14 +399,8 @@ export const createPoseActions = ({ state, ui, render }) => {
       if (idx < 0) {
         return;
       }
-      const pose = frame.sprites[idx];
-      const meta = metaForKey(pose.spriteKey);
-      if (meta === null) {
-        return;
-      }
       updatePoseField((p) => {
-        const editorY = editorOffsetForRuntime(p.offset, meta).y;
-        p.offset = runtimeOffsetForEditor({ x, y: editorY }, meta);
+        p.offset = { x, y: p.offset.y };
       });
       render();
     });
@@ -448,14 +415,8 @@ export const createPoseActions = ({ state, ui, render }) => {
       if (idx < 0) {
         return;
       }
-      const pose = frame.sprites[idx];
-      const meta = metaForKey(pose.spriteKey);
-      if (meta === null) {
-        return;
-      }
       updatePoseField((p) => {
-        const editorX = editorOffsetForRuntime(p.offset, meta).x;
-        p.offset = runtimeOffsetForEditor({ x: editorX, y }, meta);
+        p.offset = { x: p.offset.x, y };
       });
       render();
     });

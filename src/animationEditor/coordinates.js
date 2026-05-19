@@ -9,27 +9,10 @@ export const canvasPointForEvent = (ui, event) => {
 
 export const origin = (ui) => ({ x: ui.scene.width / 2, y: ui.scene.height / 2 });
 
-export const centerForPose = (pose, meta) => {
-  const centerX = pose.offset.x - meta.width / 2;
-  const centerY = pose.offset.y - meta.height / 2;
-  return { centerX, centerY };
-};
-
-export const runtimeOffsetForEditor = (editorOffset, meta) => {
-  const next = {
-    x: editorOffset.x + meta.width / 2,
-    y: editorOffset.y + meta.height / 2,
-  };
-  return next;
-};
-
-export const editorOffsetForRuntime = (runtimeOffset, meta) => {
-  const next = {
-    x: runtimeOffset.x - meta.width / 2,
-    y: runtimeOffset.y - meta.height / 2,
-  };
-  return next;
-};
+export const centerForPose = (pose) => ({
+  centerX: pose.offset.x,
+  centerY: pose.offset.y,
+});
 
 export const spritePixelPointForEditorPoint = (
   state,
@@ -53,7 +36,7 @@ export const overlayCenterForFrame = (ui, state, frame, spriteMetaForKey) => {
   if (meta === null) {
     return o;
   }
-  const centered = centerForPose(hostPoseForOverlay, meta);
+  const centered = centerForPose(hostPoseForOverlay);
   return {
     x: o.x + centered.centerX * state.zoom,
     y: o.y + centered.centerY * state.zoom,

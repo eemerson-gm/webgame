@@ -7,7 +7,7 @@
         {
           "id": "body",
           "spriteKey": "CharacterJamesIdle",
-          "offset": { "x": 8, "y": 8 },
+          "offset": { "x": 0, "y": 0 },
           "rotationDeg": 0
         }
       ]

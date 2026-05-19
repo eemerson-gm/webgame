@@ -12,7 +12,7 @@ export type PlayerVisual = "idle" | "walk" | "jump" | "crouch";
 
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
-const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
+export const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
 const remoteVisualCorrectionDurationMs = 100;
 
 export class PlayerVisuals {
@@ -54,7 +54,6 @@ export class PlayerVisuals {
     this.sleepBubbleActor.graphics.opacity = 0;
 
     this.actor.graphics.anchor = ex.vec(0.5, 0.5);
-    this.actor.graphics.offset = playerGraphicOffset;
 
     this.idleAnimation = new JsonSpriteAnimation({
       host: this.actor,
@@ -94,11 +93,15 @@ export class PlayerVisuals {
     this.activeAnimation.update(
       0,
       this.facingLeft,
-      this.visualCorrectionOffset.add(this.renderOffset),
+      this.animationBaseOffset(),
     );
   }
 
-  public bodyGraphicsDrawOffset() {
+  public bodyGraphicCenter() {
+    return playerGraphicOffset.add(this.activeAnimation.hostPoseOffset());
+  }
+
+  private animationBaseOffset() {
     return playerGraphicOffset
       .add(this.visualCorrectionOffset)
       .add(this.renderOffset);
@@ -118,7 +121,7 @@ export class PlayerVisuals {
     this.activeAnimation.update(
       0,
       this.facingLeft,
-      this.visualCorrectionOffset.add(this.renderOffset),
+      this.animationBaseOffset(),
     );
     this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
   }
@@ -128,7 +131,7 @@ export class PlayerVisuals {
     this.activeAnimation.update(
       0,
       facingLeft,
-      this.visualCorrectionOffset.add(this.renderOffset),
+      this.animationBaseOffset(),
     );
   }
 
@@ -160,8 +163,8 @@ export class PlayerVisuals {
 
   private visualWorldPosition() {
     return this.actor.pos
-      .add(this.visualCorrectionOffset)
-      .add(this.renderOffset);
+      .add(this.bodyGraphicCenter())
+      .add(this.visualCorrectionOffset);
   }
 
   public applyRenderOffset(offset: ex.Vector) {
@@ -170,9 +173,9 @@ export class PlayerVisuals {
   }
 
   private syncOffsets() {
-    const offset = this.visualCorrectionOffset.add(this.renderOffset);
-    this.sleepBubbleActor.graphics.offset = offset;
-    this.activeAnimation.update(0, this.facingLeft, offset);
+    const bubbleOffset = this.visualCorrectionOffset.add(this.renderOffset);
+    this.sleepBubbleActor.graphics.offset = bubbleOffset;
+    this.activeAnimation.update(0, this.facingLeft, this.animationBaseOffset());
   }
 
   private applyVisualCorrectionOffset(offset: ex.Vector) {
@@ -195,7 +198,7 @@ export class PlayerVisuals {
     this.activeAnimation.update(
       delta,
       this.facingLeft,
-      this.visualCorrectionOffset.add(this.renderOffset),
+      this.animationBaseOffset(),
     );
   }
 

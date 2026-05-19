@@ -8,8 +8,8 @@
           "id": "body",
           "spriteKey": "CharacterJamesJump1",
           "offset": {
-            "x": 9,
-            "y": 8
+            "x": 0,
+            "y": 0
           },
           "rotationDeg": 0
         }
@@ -21,8 +21,8 @@
           "id": "body",
           "spriteKey": "CharacterJamesJump2",
           "offset": {
-            "x": 9,
-            "y": 8
+            "x": 0,
+            "y": 0
           },
           "rotationDeg": 0
         }
@@ -34,8 +34,8 @@
           "id": "body",
           "spriteKey": "CharacterJamesJump3",
           "offset": {
-            "x": 9,
-            "y": 8
+            "x": 0,
+            "y": 0
           },
           "rotationDeg": 0
         }
@@ -47,8 +47,8 @@
           "id": "body",
           "spriteKey": "CharacterJamesJump4",
           "offset": {
-            "x": 9,
-            "y": 8
+            "x": 0,
+            "y": 0
           },
           "rotationDeg": 0
         }

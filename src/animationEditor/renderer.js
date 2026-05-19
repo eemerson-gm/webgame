@@ -72,7 +72,7 @@ export const createRenderer = ({ state, ui }) => {
         if (meta === null) {
           return;
         }
-        const centered = centerForPose(pose, meta);
+        const centered = centerForPose(pose);
         const img = imgForPosePreview(pose, meta, render);
         const w2 = meta.width;
         const h2 = meta.height;
@@ -221,7 +221,7 @@ export const createRenderer = ({ state, ui }) => {
     if (meta === null) {
       return;
     }
-    const centered = centerForPose(pose, meta);
+    const centered = centerForPose(pose);
     const r = (Math.max(meta.width, meta.height) / 2) * state.zoom;
     const cx = Math.round(o.x + centered.centerX * state.zoom);
     const cy = Math.round(o.y + centered.centerY * state.zoom);

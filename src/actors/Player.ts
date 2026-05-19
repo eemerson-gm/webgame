@@ -19,9 +19,18 @@ const localCameraFollowElasticity = 0.14;
 const localCameraFollowFriction = 0.22;
 const collisionWidth = TILE_PX - 4;
 const collisionHeight = TILE_PX - 2;
-const collisionOffsetX = (TILE_PX - collisionWidth) / 2;
-const collisionOffsetY = TILE_PX - collisionHeight;
 const collisionEdgeInset = 0.1;
+
+const playerBodyRestCenterY = TILE_PX / 2;
+
+const collisionOffsetForGraphicCenter = (center: ex.Vector) => ({
+  offsetX: center.x - collisionWidth / 2,
+  offsetY:
+    TILE_PX - collisionHeight + (center.y - playerBodyRestCenterY),
+  width: collisionWidth,
+  height: collisionHeight,
+  edgeInset: collisionEdgeInset,
+});
 const walkSpeed = 1.2;
 const runSpeedMultiplier = 2;
 const walkAcceleration = 0.25;
@@ -76,13 +85,9 @@ export class Player extends MovingActor {
       pos,
       tilemap,
       ex.vec(width, height),
-      {
-        offsetX: collisionOffsetX,
-        offsetY: collisionOffsetY,
-        width: collisionWidth,
-        height: collisionHeight,
-        edgeInset: collisionEdgeInset,
-      },
+      collisionOffsetForGraphicCenter(
+        ex.vec(TILE_PX / 2, TILE_PX / 2),
+      ),
       collisionWorld,
     );
     this.client = client;
@@ -96,6 +101,7 @@ export class Player extends MovingActor {
       renderDeltaMs: number,
     ) => {
       this.visuals.updateVisualCorrection(renderDeltaMs);
+      this.syncCollisionToSprite();
     };
     this.playerNetwork = new PlayerNetworkClient(client);
 
@@ -139,6 +145,7 @@ export class Player extends MovingActor {
 
   override onInitialize(engine: ex.Engine) {
     this.visuals.initialize();
+    this.syncCollisionToSprite();
     this.damageFlash.initialize(engine);
     if (this.client && this.scene) {
       const collisionWorld = this.tileCollisionWorld();
@@ -317,6 +324,13 @@ export class Player extends MovingActor {
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
     this.visuals.setVisual("idle");
+  }
+
+  private syncCollisionToSprite() {
+    const center = this.visuals.bodyGraphicCenter();
+    const next = collisionOffsetForGraphicCenter(center);
+    this.collisionBounds.offsetX = next.offsetX;
+    this.collisionBounds.offsetY = next.offsetY;
   }
 
   private currentPosition() {

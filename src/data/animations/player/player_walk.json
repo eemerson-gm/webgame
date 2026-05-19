@@ -8,8 +8,8 @@
           "id": "body",
           "spriteKey": "CharacterJamesWalk1",
           "offset": {
-            "x": 10,
-            "y": 8
+            "x": 0,
+            "y": 0
           },
           "rotationDeg": 0
         }
@@ -21,8 +21,8 @@
           "id": "body",
           "spriteKey": "CharacterJamesWalk2",
           "offset": {
-            "x": 10,
-            "y": 8
+            "x": 0,
+            "y": 0
           },
           "rotationDeg": 0
         }
