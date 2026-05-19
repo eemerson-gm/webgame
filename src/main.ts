@@ -368,7 +368,7 @@ const separateEntityActors = () => {
     });
 };
 
-game.on("postupdate", separateEntityActors);
+game.on("preupdate", separateEntityActors);
 
 const applyRemotePlayerUpdate = (payload: Data) => {
   const playerState = payload as PlayerState;

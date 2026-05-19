@@ -437,7 +437,7 @@ const nudgeXUntilBlocked = (
     }
     return nudge(currentX + direction, remaining - 1);
   };
-  return nudge(x, options.world.tileWidth);
+  return nudge(x, Math.min(options.world.tileWidth, Math.ceil(Math.abs(moveX))));
 };
 
 const nudgeYUntilBlocked = (
@@ -456,7 +456,7 @@ const nudgeYUntilBlocked = (
     }
     return nudge(currentY + direction, remaining - 1);
   };
-  return nudge(y, options.world.tileHeight);
+  return nudge(y, Math.min(options.world.tileHeight, Math.ceil(Math.abs(moveY))));
 };
 
 export class MovingActor extends ex.Actor {

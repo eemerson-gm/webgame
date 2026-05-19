@@ -15,8 +15,6 @@ const approach = (start: number, end: number, amount: number) => {
   return Math.max(start - amount, end);
 };
 
-const localCameraFollowElasticity = 0.14;
-const localCameraFollowFriction = 0.22;
 const collisionWidth = TILE_PX - 4;
 const collisionHeight = TILE_PX - 2;
 const collisionEdgeInset = 0.1;
@@ -69,6 +67,7 @@ export class Player extends MovingActor {
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
+  private physicsAccumulatorMs: number = 0;
 
   private visuals: PlayerVisuals;
   private playerNetwork: PlayerNetworkClient;
@@ -93,16 +92,8 @@ export class Player extends MovingActor {
     this.client = client;
     this.isLocal = client !== undefined;
     this.spawnPosition = ex.vec(pos.x, pos.y);
-    this.body.enableFixedUpdateInterpolate = true;
 
     this.visuals = new PlayerVisuals(this);
-    this.graphics.onPostDraw = (
-      _ctx: ex.ExcaliburGraphicsContext,
-      renderDeltaMs: number,
-    ) => {
-      this.visuals.updateVisualCorrection(renderDeltaMs);
-      this.syncCollisionToSprite();
-    };
     this.playerNetwork = new PlayerNetworkClient(client);
 
     this.damageFlash = new DamageFlash(this, {
@@ -152,11 +143,7 @@ export class Player extends MovingActor {
       const worldWidthPx = collisionWorld.columns * collisionWorld.tileWidth;
       const worldHeightPx = collisionWorld.rows * collisionWorld.tileHeight;
       const worldBounds = new ex.BoundingBox(0, 0, worldWidthPx, worldHeightPx);
-      this.scene.camera.strategy.elasticToActor(
-        this,
-        localCameraFollowElasticity,
-        localCameraFollowFriction,
-      );
+      this.scene.camera.strategy.lockToActor(this);
       this.scene.camera.strategy.limitCameraBounds(worldBounds);
     }
   }
@@ -173,10 +160,6 @@ export class Player extends MovingActor {
 
   private onLand() {
     this.jumpHoldTimeRemainingMs = 0;
-    const roundedX = Math.round(this.pos.x);
-    const roundedY = Math.round(this.pos.y);
-    this.pos.x = roundedX;
-    this.pos.y = roundedY;
     this.syncPosition();
   }
 
@@ -476,7 +459,7 @@ export class Player extends MovingActor {
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
 
-    const previousGrounded = this.isGrounded;
+    const wasJumping = this.isJumping;
     const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
     if (isKnockbackActive) {
       this.moveWithKnockback(delta, dt);
@@ -488,7 +471,7 @@ export class Player extends MovingActor {
     if (!isKnockbackActive && this.isGrounded && this.keyJump) {
       this.onJump();
     }
-    if (!isKnockbackActive && !previousGrounded && this.isGrounded) {
+    if (!isKnockbackActive && wasJumping && this.isGrounded) {
       this.onLand();
     }
 
@@ -505,10 +488,16 @@ export class Player extends MovingActor {
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
     const frameDelta = Math.min(delta, playerMaxFrameDeltaMs);
+    this.visuals.updateVisualCorrection(frameDelta);
+    this.syncCollisionToSprite();
     if (!this.isPaused) {
       this.updateControls(engine);
       const keySign = this.inputState.horizontalSign();
-      this.stepPlayerPhysics(keySign, frameDelta);
+      this.physicsAccumulatorMs += frameDelta;
+      while (this.physicsAccumulatorMs >= playerFixedStepMs) {
+        this.stepPlayerPhysics(keySign, playerFixedStepMs);
+        this.physicsAccumulatorMs -= playerFixedStepMs;
+      }
       this.onMove();
     }
     this.updateDamageFeedback(frameDelta);
