@@ -23,8 +23,7 @@ const playerBodyRestCenterY = TILE_PX / 2;
 
 const collisionOffsetForGraphicCenter = (center: ex.Vector) => ({
   offsetX: center.x - collisionWidth / 2,
-  offsetY:
-    TILE_PX - collisionHeight + (center.y - playerBodyRestCenterY),
+  offsetY: TILE_PX - collisionHeight + (center.y - playerBodyRestCenterY),
   width: collisionWidth,
   height: collisionHeight,
   edgeInset: collisionEdgeInset,
@@ -51,9 +50,39 @@ const playerDamageBlinkFrameMs = 90;
 const playerFixedStepMs = 1000 / 60;
 const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
 const positionPrecision = 1000;
+const cameraFollowResponsiveness = 10;
+const cameraSnapDistance = TILE_PX * 8;
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
+
+type CameraFocusTarget = {
+  cameraFocusPosition: () => ex.Vector;
+};
+
+class SmoothCameraFollowStrategy {
+  constructor(
+    public readonly target: CameraFocusTarget,
+    private readonly responsiveness: number,
+    private readonly snapDistance: number,
+  ) {}
+
+  public readonly action = (
+    target: CameraFocusTarget,
+    camera: ex.Camera,
+    _engine: ex.Engine,
+    elapsed: number,
+  ): ex.Vector => {
+    const currentFocus = camera.getFocus();
+    const targetFocus = target.cameraFocusPosition();
+    if (currentFocus.distance(targetFocus) >= this.snapDistance) {
+      return targetFocus;
+    }
+    const blend =
+      1 - Math.exp((-this.responsiveness * Math.max(elapsed, 0)) / 1000);
+    return currentFocus.add(targetFocus.sub(currentFocus).scale(blend));
+  };
+}
 
 export class Player extends MovingActor {
   private client?: GameClient;
@@ -68,6 +97,9 @@ export class Player extends MovingActor {
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private physicsAccumulatorMs: number = 0;
+  private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
+  private previousPhysicsPosition: ex.Vector;
+  private currentPhysicsPosition: ex.Vector;
 
   private visuals: PlayerVisuals;
   private playerNetwork: PlayerNetworkClient;
@@ -84,14 +116,14 @@ export class Player extends MovingActor {
       pos,
       tilemap,
       ex.vec(width, height),
-      collisionOffsetForGraphicCenter(
-        ex.vec(TILE_PX / 2, TILE_PX / 2),
-      ),
+      collisionOffsetForGraphicCenter(ex.vec(TILE_PX / 2, TILE_PX / 2)),
       collisionWorld,
     );
     this.client = client;
     this.isLocal = client !== undefined;
     this.spawnPosition = ex.vec(pos.x, pos.y);
+    this.previousPhysicsPosition = pos.clone();
+    this.currentPhysicsPosition = pos.clone();
 
     this.visuals = new PlayerVisuals(this);
     this.playerNetwork = new PlayerNetworkClient(client);
@@ -143,7 +175,13 @@ export class Player extends MovingActor {
       const worldWidthPx = collisionWorld.columns * collisionWorld.tileWidth;
       const worldHeightPx = collisionWorld.rows * collisionWorld.tileHeight;
       const worldBounds = new ex.BoundingBox(0, 0, worldWidthPx, worldHeightPx);
-      this.scene.camera.strategy.lockToActor(this);
+      this.scene.camera.addStrategy(
+        new SmoothCameraFollowStrategy(
+          this,
+          cameraFollowResponsiveness,
+          cameraSnapDistance,
+        ),
+      );
       this.scene.camera.strategy.limitCameraBounds(worldBounds);
     }
   }
@@ -227,6 +265,7 @@ export class Player extends MovingActor {
       return;
     }
     this.pos.x = x;
+    this.syncPhysicsInterpolationToCurrentPosition();
     this.playerNetwork.markPositionChanged();
     this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
   }
@@ -239,6 +278,7 @@ export class Player extends MovingActor {
       return;
     }
     this.visuals.applyRemotePositionCorrection(position, snapDistance);
+    this.syncPhysicsInterpolationToCurrentPosition();
   }
 
   public isFacingLeft() {
@@ -274,7 +314,14 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
+    this.syncPhysicsInterpolationToCurrentPosition();
     this.syncHealthState();
+  }
+
+  public cameraFocusPosition() {
+    return this.pos
+      .add(this.renderInterpolationOffset)
+      .add(ex.vec(this.width / 2, this.height / 2));
   }
 
   public syncPauseState(isPaused: boolean) {
@@ -306,6 +353,7 @@ export class Player extends MovingActor {
     this.vspeed = 0;
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
+    this.syncPhysicsInterpolationToCurrentPosition();
     this.visuals.setVisual("idle");
   }
 
@@ -349,11 +397,16 @@ export class Player extends MovingActor {
     if (!this.inputState.hasChanged()) {
       return;
     }
-    const shouldSyncPosition = this.inputState.shouldSyncPosition(this.isGrounded);
+    const shouldSyncPosition = this.inputState.shouldSyncPosition(
+      this.isGrounded,
+    );
     const movementState = shouldSyncPosition ? this.currentMovementState() : {};
     const payload = this.inputState.payload(movementState);
     const statePatch = this.inputState.statePatch(shouldSyncPosition, payload);
-    this.playerNetwork.sendUpdate(payload, statePatch === payload ? undefined : statePatch);
+    this.playerNetwork.sendUpdate(
+      payload,
+      statePatch === payload ? undefined : statePatch,
+    );
     this.inputState.remember();
   }
 
@@ -456,6 +509,30 @@ export class Player extends MovingActor {
     this.damageFlash.tick(delta);
   }
 
+  private syncPhysicsInterpolationToCurrentPosition() {
+    this.previousPhysicsPosition = this.pos.clone();
+    this.currentPhysicsPosition = this.pos.clone();
+    this.renderInterpolationOffset = ex.vec(0, 0);
+    this.visuals.applyRenderOffset(ex.vec(0, 0));
+  }
+
+  private stepInterpolatedPlayerPhysics(keySign: number) {
+    this.previousPhysicsPosition = this.currentPhysicsPosition.clone();
+    this.stepPlayerPhysics(keySign, playerFixedStepMs);
+    this.currentPhysicsPosition = this.pos.clone();
+  }
+
+  private syncRenderInterpolation() {
+    const alpha = this.physicsAccumulatorMs / playerFixedStepMs;
+    const renderPosition = this.previousPhysicsPosition.add(
+      this.currentPhysicsPosition
+        .sub(this.previousPhysicsPosition)
+        .scale(alpha),
+    );
+    this.renderInterpolationOffset = renderPosition.sub(this.pos);
+    this.visuals.applyRenderOffset(this.renderInterpolationOffset);
+  }
+
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
 
@@ -495,9 +572,10 @@ export class Player extends MovingActor {
       const keySign = this.inputState.horizontalSign();
       this.physicsAccumulatorMs += frameDelta;
       while (this.physicsAccumulatorMs >= playerFixedStepMs) {
-        this.stepPlayerPhysics(keySign, playerFixedStepMs);
+        this.stepInterpolatedPlayerPhysics(keySign);
         this.physicsAccumulatorMs -= playerFixedStepMs;
       }
+      this.syncRenderInterpolation();
       this.onMove();
     }
     this.updateDamageFeedback(frameDelta);

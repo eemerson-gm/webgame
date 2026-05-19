@@ -161,10 +161,11 @@ export class PlayerVisuals {
     this.applyVisualCorrectionOffset(nextOffset);
   }
 
-  private visualWorldPosition() {
+  public visualWorldPosition() {
     return this.actor.pos
       .add(this.bodyGraphicCenter())
-      .add(this.visualCorrectionOffset);
+      .add(this.visualCorrectionOffset)
+      .add(this.renderOffset);
   }
 
   public applyRenderOffset(offset: ex.Vector) {
