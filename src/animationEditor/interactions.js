@@ -6,13 +6,6 @@ export const initCanvasInteractions = ({
   ui,
   addPoseFromSpriteKey,
   commitPoseMoveUndo,
-  commitPixelDraw,
-  isDrawMode,
-  isEyedropperMode,
-  paintPixelAtEditorPoint,
-  clearPixelPreview,
-  updatePixelPreviewAtEditorPoint,
-  pickColorAtEditorPoint,
   poseUpdateForDrag,
   render,
   setSelectedPoseByCanvasHit,
@@ -20,22 +13,10 @@ export const initCanvasInteractions = ({
   syncPoseEditorToSelection,
 }) => {
   const pointerState = { down: false };
-  ui.scene.addEventListener("pointerdown", async (event) => {
+  ui.scene.addEventListener("pointerdown", (event) => {
     pointerState.down = true;
     ui.scene.setPointerCapture(event.pointerId);
     const point = canvasPointForEvent(ui, event);
-    if (isEyedropperMode() === true) {
-      await pickColorAtEditorPoint(point);
-      pointerState.down = false;
-      return;
-    }
-    if (isDrawMode() === true) {
-      state.isDragging = true;
-      state.drag.active = false;
-      await paintPixelAtEditorPoint(point);
-      return;
-    }
-
     setSelectedPoseByCanvasHit(point);
     state.isDragging = true;
     updateSelectedFromId(state);
@@ -46,17 +27,7 @@ export const initCanvasInteractions = ({
 
   ui.scene.addEventListener("pointermove", (event) => {
     const point = canvasPointForEvent(ui, event);
-    if (isDrawMode() === true && state.isDragging !== true) {
-      updatePixelPreviewAtEditorPoint(point);
-      render();
-      return;
-    }
-    if (isDrawMode() === true) {
-      void paintPixelAtEditorPoint(point);
-      return;
-    }
     if (!state.isDragging) {
-      clearPixelPreview();
       return;
     }
     poseUpdateForDrag(point);
@@ -67,11 +38,6 @@ export const initCanvasInteractions = ({
   const endPointer = () => {
     pointerState.down = false;
     state.isDragging = false;
-    if (isDrawMode() === true) {
-      commitPixelDraw();
-      clearPixelPreview();
-      return;
-    }
     commitPoseMoveUndo();
     render();
     syncPoseEditorToSelection();
@@ -85,16 +51,8 @@ export const initCanvasInteractions = ({
     endPointer();
   });
 
-  ui.scene.addEventListener("pointerleave", () => {
-    clearPixelPreview();
-    render();
-  });
-
   ui.scene.addEventListener("click", (event) => {
     if (pointerState.down) {
-      return;
-    }
-    if (isDrawMode() === true || isEyedropperMode() === true) {
       return;
     }
     const point = canvasPointForEvent(ui, event);

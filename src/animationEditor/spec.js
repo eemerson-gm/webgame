@@ -10,11 +10,16 @@ export const normalizeSpec = (spec) => {
   return next;
 };
 
-export const uniqueIdFor = (baseId, existingIds, suffix) => {
-  if (!existingIds.has(baseId)) {
-    return baseId;
-  }
-  return `${baseId}_${suffix}`;
+export const POSE_PART_IDS = ["body", "weapon", "hat"];
+
+export const isPosePartId = (id) => POSE_PART_IDS.includes(id);
+
+export const poseIdsInFrame = (frame) =>
+  new Set(frame.sprites.map((pose) => pose.id));
+
+export const firstAvailablePosePartId = (frame) => {
+  const taken = poseIdsInFrame(frame);
+  return POSE_PART_IDS.find((partId) => !taken.has(partId)) ?? null;
 };
 
 export const spriteUrlToKey = (entry) => entry.key;

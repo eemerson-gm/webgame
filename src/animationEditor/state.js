@@ -22,27 +22,8 @@ export const createAppState = () => ({
     startOffset: null,
   },
   zoom: 2,
-  pixelDraw: {
-    active: false,
-    poseId: null,
-    frameIndex: null,
-    canvas: null,
-    ctx: null,
-    brushDirty: false,
-    beforeToken: "",
-  },
   pixelCanvasByDataUrl: {},
-  overlayUndoStackByFrameIndex: {},
   poseMoveUndoStack: [],
-  editorMode: "select",
-  pixelPreview: {
-    active: false,
-    frameIndex: null,
-    startX: 0,
-    startY: 0,
-    size: 1,
-    isErase: false,
-  },
 });
 
 export const currentFrame = (state) => {
@@ -67,15 +48,6 @@ export const updateSelectedFromId = (state) => {
   if (idx < 0) {
     state.selectedPoseId = null;
   }
-};
-
-export const existingPoseIds = (state) => {
-  const spec = state.spec;
-  if (spec === null) {
-    return new Set();
-  }
-  const ids = spec.frames.flatMap((f) => f.sprites.map((p) => p.id));
-  return new Set(ids);
 };
 
 export const spriteMetaForKey = (state, spriteKey) =>

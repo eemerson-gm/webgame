@@ -1,6 +1,5 @@
 import { createApiActions } from "./animationEditor/api.js";
 import { createUi } from "./animationEditor/dom.js";
-import { createDrawingActions } from "./animationEditor/drawing.js";
 import { createFrameActions } from "./animationEditor/frames.js";
 import { bindHotkeys } from "./animationEditor/hotkeys.js";
 import { initCanvasInteractions } from "./animationEditor/interactions.js";
@@ -16,12 +15,6 @@ const renderer = createRenderer({ state, ui });
 const render = renderer.render;
 
 const poseActions = createPoseActions({ state, ui, render });
-const drawingActions = createDrawingActions({
-  state,
-  ui,
-  render,
-  syncPoseEditorToSelection: poseActions.syncPoseEditorToSelection,
-});
 const frameActions = createFrameActions({
   state,
   ui,
@@ -60,16 +53,7 @@ const bindAnimationSpeedHandler = () => {
   });
 };
 
-const undoEditorAction = () => {
-  const drewUndo = drawingActions.undoOverlayDraw();
-  if (drewUndo === true) {
-    return;
-  }
-  poseActions.undoPoseMove();
-};
-
 const bindHandlers = () => {
-  drawingActions.bindDrawingHandlers();
   playbackActions.bindPlaybackHandlers();
   frameActions.bindFrameHandlers();
   apiActions.bindAnimationHandlers();
@@ -77,31 +61,19 @@ const bindHandlers = () => {
   bindAnimationSpeedHandler();
   bindHotkeys({
     state,
-    ui,
     copySelectedPose: poseActions.copySelectedPose,
     pasteCopiedPose: poseActions.pasteCopiedPose,
     removeSelectedPose: poseActions.removeSelectedPose,
     saveAnimation: apiActions.saveAnimation,
     setFrameIndex: frameActions.setFrameIndex,
-    setModeDraw: drawingActions.setModeDraw,
-    setModeErase: drawingActions.setModeErase,
-    setModeEyedropper: drawingActions.setModeEyedropper,
-    setModeSelect: drawingActions.setModeSelect,
     togglePlayback: playbackActions.togglePlayback,
-    undoEditorAction,
+    undoEditorAction: poseActions.undoPoseMove,
   });
   initCanvasInteractions({
     state,
     ui,
     addPoseFromSpriteKey: poseActions.addPoseFromSpriteKey,
     commitPoseMoveUndo: poseActions.commitPoseMoveUndo,
-    commitPixelDraw: drawingActions.commitPixelDraw,
-    isDrawMode: drawingActions.isDrawMode,
-    isEyedropperMode: drawingActions.isEyedropperMode,
-    paintPixelAtEditorPoint: drawingActions.paintPixelAtEditorPoint,
-    pickColorAtEditorPoint: drawingActions.pickColorAtEditorPoint,
-    clearPixelPreview: drawingActions.clearPixelPreview,
-    updatePixelPreviewAtEditorPoint: drawingActions.updatePixelPreviewAtEditorPoint,
     poseUpdateForDrag: poseActions.poseUpdateForDrag,
     render,
     setSelectedPoseByCanvasHit: poseActions.setSelectedPoseByCanvasHit,
@@ -116,7 +88,6 @@ const init = async () => {
   if (state.ctx !== null) {
     state.ctx.imageSmoothingEnabled = false;
   }
-  drawingActions.setModeSelect();
   ui.status.textContent = "Loading sprites...";
   await apiActions.loadSprites();
   apiActions.renderSpriteList();

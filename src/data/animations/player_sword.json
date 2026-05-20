@@ -17,7 +17,7 @@
           "visible": true
         },
         {
-          "id": "WeaponSwordStick",
+          "id": "weapon",
           "spriteKey": "WeaponSwordStick",
           "offset": {
             "x": 11,
@@ -43,7 +43,7 @@
           "visible": true
         },
         {
-          "id": "WeaponSwordStick_2",
+          "id": "weapon",
           "spriteKey": "WeaponSwordStick",
           "offset": {
             "x": 15,
@@ -58,7 +58,7 @@
     {
       "sprites": [
         {
-          "id": "WeaponSwordStick_2",
+          "id": "weapon",
           "spriteKey": "WeaponSwordStick",
           "offset": {
             "x": 12,

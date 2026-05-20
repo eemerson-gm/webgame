@@ -14,17 +14,6 @@ export const centerForPose = (pose) => ({
   centerY: pose.offset.y,
 });
 
-export const spritePixelPointForEditorPoint = (
-  state,
-  point,
-  overlayCenterX,
-  overlayCenterY,
-) => {
-  const dx = (point.x - overlayCenterX) / state.zoom;
-  const dy = (point.y - overlayCenterY) / state.zoom;
-  return { u: dx + 64, v: dy + 64 };
-};
-
 export const overlayCenterForFrame = (ui, state, frame, spriteMetaForKey) => {
   const o = origin(ui);
   const hostPoseForOverlay =

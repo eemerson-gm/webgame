@@ -5,7 +5,7 @@
     "editor:dev": "tsx src/animation-editor-dev-server.ts",
     "sprite:dimensions": "tsx scripts/sprite-dimensions.ts",
     "sprite:list": "tsx scripts/list-sprites.ts",
-    "lint": "npx eslint src/**/*.ts",
+    "lint": "eslint --cache \"src/**/*.ts\"",
     "build": "vite build",
     "serve": "vite preview"
   },

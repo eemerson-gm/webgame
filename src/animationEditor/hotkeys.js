@@ -21,25 +21,14 @@ export const isEditableTarget = (target) => {
 
 export const bindHotkeys = ({
   state,
-  ui,
   copySelectedPose,
   pasteCopiedPose,
   removeSelectedPose,
   saveAnimation,
   setFrameIndex,
-  setModeDraw,
-  setModeErase,
-  setModeEyedropper,
-  setModeSelect,
   togglePlayback,
   undoEditorAction,
 }) => {
-  const adjustBrushSize = (direction) => {
-    const current = Math.max(1, Math.round(Number(ui.brushSize.value ?? 1)));
-    const next = Math.max(1, current + direction);
-    ui.brushSize.value = String(next);
-  };
-
   window.addEventListener("keydown", (event) => {
     if (event.defaultPrevented) {
       return;
@@ -90,36 +79,6 @@ export const bindHotkeys = ({
     if (key === " ") {
       event.preventDefault();
       togglePlayback();
-      return;
-    }
-    if (key === "v" || key === "s") {
-      event.preventDefault();
-      setModeSelect();
-      return;
-    }
-    if (key === "b") {
-      event.preventDefault();
-      setModeDraw();
-      return;
-    }
-    if (key === "e") {
-      event.preventDefault();
-      setModeErase();
-      return;
-    }
-    if (key === "i") {
-      event.preventDefault();
-      setModeEyedropper();
-      return;
-    }
-    if (key === "[") {
-      event.preventDefault();
-      adjustBrushSize(-1);
-      return;
-    }
-    if (key === "]") {
-      event.preventDefault();
-      adjustBrushSize(1);
     }
   });
 };

@@ -3,16 +3,6 @@ import { currentFrame, spriteMetaForKey } from "./state.js";
 
 export const createRenderer = ({ state, ui }) => {
   const metaForKey = (spriteKey) => spriteMetaForKey(state, spriteKey);
-  const hexToColor = (hex) => {
-    const value = String(hex ?? "#ff0000").replace("#", "");
-    const n = Number.parseInt(value, 16);
-    return {
-      r: (n >> 16) & 255,
-      g: (n >> 8) & 255,
-      b: n & 255,
-      a: 255,
-    };
-  };
 
   const render = () => {
     const ctx = state.ctx;
@@ -51,7 +41,6 @@ export const createRenderer = ({ state, ui }) => {
     const onionEnabled =
       ui.onionSkinPrev !== undefined &&
       ui.onionSkinPrev.checked === true &&
-      state.editorMode !== "eyedropper" &&
       state.currentFrameIndex > 0;
     const onionOpacityRaw = Number(ui.onionSkinOpacity?.value ?? 0.25);
     const onionOpacity = Math.max(0, Math.min(1, onionOpacityRaw));
@@ -106,21 +95,11 @@ export const createRenderer = ({ state, ui }) => {
     }
 
     drawFrame(frame, 1);
-    renderPixelPreview();
-    renderSelection(frame, o);
+    renderSpriteGuides(frame, o);
     renderHelp(frame);
   };
 
   const imgForPosePreview = (pose, meta, renderNext) => {
-    const pixelDraw = state.pixelDraw;
-    const matchesPixelDraw =
-      pixelDraw.active === true &&
-      pixelDraw.frameIndex === state.currentFrameIndex &&
-      pixelDraw.poseId === pose.id &&
-      pixelDraw.canvas !== null;
-    if (matchesPixelDraw) {
-      return pixelDraw.canvas;
-    }
     if (pose.pixelDataUrl === undefined) {
       return meta.img;
     }
@@ -166,27 +145,13 @@ export const createRenderer = ({ state, ui }) => {
     if (state.ctx === null) {
       return;
     }
-    const center = overlayCenterForFrame(ui, state, frame, metaForKey);
-    const renderedIsCurrentFrame = frame === currentFrame(state);
-    const overlayIsInProgress =
-      state.pixelDraw.active === true &&
-      state.pixelDraw.frameIndex === state.currentFrameIndex &&
-      state.pixelDraw.canvas !== null &&
-      renderedIsCurrentFrame;
-    const overlayDrawable = overlayIsInProgress ? state.pixelDraw.canvas : null;
-    const overlayAlpha = alpha ?? 1;
-    if (overlayDrawable !== null) {
-      state.ctx.save();
-      state.ctx.globalAlpha = overlayAlpha;
-      drawOverlayImage(state.ctx, overlayDrawable, center);
-      state.ctx.restore();
-      return;
-    }
     if (frame.overlayPixelDataUrl === undefined) {
       return;
     }
+    const center = overlayCenterForFrame(ui, state, frame, metaForKey);
     const overlayDataUrl = frame.overlayPixelDataUrl;
     const cached = state.pixelCanvasByDataUrl[overlayDataUrl];
+    const overlayAlpha = alpha ?? 1;
     if (cached !== undefined && cached !== null) {
       state.ctx.save();
       state.ctx.globalAlpha = overlayAlpha;
@@ -208,90 +173,50 @@ export const createRenderer = ({ state, ui }) => {
     }
   };
 
-  const renderSelection = (frame, o) => {
-    const selected = state.selectedPoseId;
-    if (!selected) {
-      return;
-    }
-    const pose = frame.sprites.find((p) => p.id === selected);
-    if (pose === undefined) {
-      return;
-    }
-    const meta = metaForKey(pose.spriteKey);
-    if (meta === null) {
-      return;
-    }
+  const drawPoseGuides = (ctx, pose, meta, o, isSelected) => {
     const centered = centerForPose(pose);
-    const r = (Math.max(meta.width, meta.height) / 2) * state.zoom;
-    const cx = Math.round(o.x + centered.centerX * state.zoom);
-    const cy = Math.round(o.y + centered.centerY * state.zoom);
-    state.ctx.save();
-    state.ctx.strokeStyle = "rgba(220,0,0,0.85)";
-    state.ctx.lineWidth = 2;
-    state.ctx.beginPath();
-    state.ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    state.ctx.stroke();
-    state.ctx.restore();
+    const halfW = (meta.width / 2) * state.zoom;
+    const halfH = (meta.height / 2) * state.zoom;
+    const pxPos = Math.round(o.x + centered.centerX * state.zoom);
+    const pyPos = Math.round(o.y + centered.centerY * state.zoom);
+    const rot = degToRad(pose.rotationDeg ?? 0);
+    const anchorRadius = isSelected === true ? 4 : 3;
+
+    ctx.save();
+    ctx.translate(pxPos, pyPos);
+    ctx.rotate(rot);
+    ctx.strokeStyle = isSelected === true ? "rgba(220,0,0,0.85)" : "rgba(255,170,0,0.95)";
+    ctx.lineWidth = isSelected === true ? 2 : 1;
+    ctx.strokeRect(-halfW, -halfH, halfW * 2, halfH * 2);
+    ctx.fillStyle = isSelected === true ? "rgba(220,0,0,0.95)" : "rgba(255,170,0,0.95)";
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, anchorRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
   };
 
-  const renderPixelPreview = () => {
-    const preview = state.pixelPreview;
-    if (preview.active !== true) {
+  const renderSpriteGuides = (frame, o) => {
+    const ctx = state.ctx;
+    if (ctx === null) {
       return;
     }
-    if (preview.frameIndex !== state.currentFrameIndex) {
-      return;
-    }
-    const frame = currentFrame(state);
-    if (frame === null) {
-      return;
-    }
-    const center = overlayCenterForFrame(ui, state, frame, metaForKey);
-    const zoom = state.zoom;
-    const topLeftX = center.x - 64 * zoom;
-    const topLeftY = center.y - 64 * zoom;
-
-    const color = hexToColor(ui.brushColor?.value ?? "#ff0000");
-    const previewAlpha = preview.isErase ? 0.25 : 0.35;
-
-    state.ctx.save();
-    state.ctx.globalAlpha = previewAlpha;
-
-    const drawPixel = (x, y) => {
-      const rx = Math.round(topLeftX + x * zoom);
-      const ry = Math.round(topLeftY + y * zoom);
-      const size = Math.max(1, Math.round(zoom));
-      state.ctx.fillStyle = preview.isErase
-        ? "rgba(230,230,230,1)"
-        : `rgba(${color.r},${color.g},${color.b},1)`;
-      if (preview.isErase === true) {
-        state.ctx.fillRect(rx, ry, size, size);
-        state.ctx.strokeStyle = "rgba(255,255,255,0.75)";
-        state.ctx.lineWidth = 1;
-        const inner = Math.max(0, size - 1);
-        state.ctx.strokeRect(rx + 0.5, ry + 0.5, inner, inner);
+    const selectedId = state.selectedPoseId;
+    const posesSorted = frame.sprites
+      .slice()
+      .sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
+    posesSorted.forEach((pose) => {
+      if (pose.visible === false) {
         return;
       }
-      state.ctx.fillRect(rx, ry, size, size);
-    };
-
-    const xStart = preview.startX;
-    const yStart = preview.startY;
-    const xEnd = xStart + preview.size;
-    const yEnd = yStart + preview.size;
-
-    Array.from({ length: preview.size }).forEach((_, yIndex) => {
-      Array.from({ length: preview.size }).forEach((__, xIndex) => {
-        const x = xStart + xIndex;
-        const y = yStart + yIndex;
-        if (x < 0 || y < 0 || x >= 128 || y >= 128) {
-          return;
-        }
-        drawPixel(x, y);
-      });
+      const meta = metaForKey(pose.spriteKey);
+      if (meta === null) {
+        return;
+      }
+      drawPoseGuides(ctx, pose, meta, o, pose.id === selectedId);
     });
-
-    state.ctx.restore();
   };
 
   const renderHelp = (frame) => {

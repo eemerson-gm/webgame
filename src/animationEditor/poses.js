@@ -1,11 +1,16 @@
 import { centerForPose, origin } from "./coordinates.js";
 import {
   currentFrame,
-  existingPoseIds,
   spriteMetaForKey,
   updateSelectedFromId,
 } from "./state.js";
-import { spriteUrlToKey, uniqueIdFor } from "./spec.js";
+import {
+  firstAvailablePosePartId,
+  isPosePartId,
+  POSE_PART_IDS,
+  poseIdsInFrame,
+  spriteUrlToKey,
+} from "./spec.js";
 
 export const createPoseActions = ({ state, ui, render }) => {
   const metaForKey = (spriteKey) => spriteMetaForKey(state, spriteKey);
@@ -28,6 +33,31 @@ export const createPoseActions = ({ state, ui, render }) => {
       return;
     }
     const pose = frame.sprites[idx];
+    const takenByOthers = new Set(
+      frame.sprites
+        .filter((_, spriteIndex) => spriteIndex !== idx)
+        .map((sprite) => sprite.id),
+    );
+    ui.poseId.innerHTML = "";
+    if (!isPosePartId(pose.id)) {
+      const legacyOption = document.createElement("option");
+      legacyOption.value = pose.id;
+      legacyOption.textContent = `${pose.id} (legacy)`;
+      legacyOption.selected = true;
+      ui.poseId.appendChild(legacyOption);
+    }
+    POSE_PART_IDS.forEach((partId) => {
+      const option = document.createElement("option");
+      option.value = partId;
+      option.textContent = partId;
+      if (partId === pose.id) {
+        option.selected = true;
+      }
+      if (takenByOthers.has(partId)) {
+        option.disabled = true;
+      }
+      ui.poseId.appendChild(option);
+    });
     ui.poseId.value = pose.id;
     ui.poseSpriteKey.innerHTML = "";
     const allKeys = state.sprites.map(spriteUrlToKey);
@@ -271,11 +301,16 @@ export const createPoseActions = ({ state, ui, render }) => {
       ui.status.textContent = "Unknown spriteKey";
       return;
     }
-    const existing = existingPoseIds(state);
-    const suffix = frame.sprites.length + 1;
-    const nextId = copied.id && !existing.has(copied.id)
-      ? copied.id
-      : uniqueIdFor(copied.spriteKey, existing, suffix);
+    const taken = poseIdsInFrame(frame);
+    const copiedPartId = isPosePartId(copied.id) ? copied.id : null;
+    const nextId =
+      copiedPartId !== null && !taken.has(copiedPartId)
+        ? copiedPartId
+        : firstAvailablePosePartId(frame);
+    if (nextId === null) {
+      ui.status.textContent = "Frame already has body, weapon, and hat";
+      return;
+    }
     const pose = {
       id: nextId,
       spriteKey: copied.spriteKey,
@@ -322,9 +357,11 @@ export const createPoseActions = ({ state, ui, render }) => {
     const o = origin(ui);
     const editorX = Math.round((point.x - o.x) / state.zoom);
     const editorY = Math.round((point.y - o.y) / state.zoom);
-    const existing = existingPoseIds(state);
-    const suffix = frame.sprites.length + 1;
-    const nextId = uniqueIdFor(spriteKey, existing, suffix);
+    const nextId = firstAvailablePosePartId(frame);
+    if (nextId === null) {
+      ui.status.textContent = "Frame already has body, weapon, and hat";
+      return;
+    }
     const pose = {
       id: nextId,
       spriteKey,
@@ -361,8 +398,8 @@ export const createPoseActions = ({ state, ui, render }) => {
         return;
       }
       const oldId = frame.sprites[idx].id;
-      const newId = ui.poseId.value.trim();
-      if (!newId) {
+      const newId = ui.poseId.value;
+      if (!isPosePartId(newId)) {
         ui.poseId.value = oldId;
         return;
       }

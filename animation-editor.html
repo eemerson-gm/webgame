@@ -76,11 +76,6 @@
         flex-wrap: wrap;
       }
 
-      .tool-button.is-active {
-        font-weight: 700;
-        outline: 2px solid rgba(0, 0, 0, 0.2);
-      }
-
       #sprite-list {
         display: flex;
         flex-direction: column;
@@ -153,11 +148,6 @@
         width: 100%;
       }
 
-      #brush-color {
-        width: 44px;
-        height: 28px;
-        padding: 0;
-      }
     </style>
   </head>
   <body>
@@ -233,23 +223,7 @@
 
     <div id="right" class="column">
       <section class="panel">
-        <h2 class="panel-title">Tools</h2>
-        <div class="row button-row">
-          <button id="mode-select" class="tool-button" type="button">Select</button>
-          <button id="mode-draw" class="tool-button" type="button" disabled>Brush</button>
-          <button id="mode-erase" class="tool-button" type="button">Eraser</button>
-          <button id="mode-eyedropper" class="tool-button" type="button">Pick</button>
-        </div>
-        <div class="row">
-          <label>
-            Brush
-            <input id="brush-size" type="number" min="1" step="1" value="3" />
-          </label>
-          <label>
-            Color
-            <input id="brush-color" type="color" value="#ff0000" />
-          </label>
-        </div>
+        <h2 class="panel-title">View</h2>
         <div class="row">
           <label>
             Onion skin
@@ -267,10 +241,7 @@
             />
           </label>
         </div>
-        <div class="row">
-          <button id="undo-overlay" type="button">Undo overlay</button>
-        </div>
-        <div class="hint">V/S select, B brush, E erase, I pick, [ ] brush size, Space play, Ctrl+S save.</div>
+        <div class="hint">Space play, arrows change frame, Ctrl+S save, Ctrl+Z undo move, Delete remove pose.</div>
       </section>
 
       <section class="panel">
@@ -280,8 +251,12 @@
         <div id="pose-editor" hidden>
           <div class="row">
             <label>
-              id
-              <input id="pose-id" type="text" />
+              part
+              <select id="pose-id">
+                <option value="body">body</option>
+                <option value="weapon">weapon</option>
+                <option value="hat">hat</option>
+              </select>
             </label>
           </div>
           <div class="row">
