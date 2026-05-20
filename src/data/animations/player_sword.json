@@ -14,18 +14,20 @@
           },
           "rotationDeg": 0,
           "layer": 0,
-          "visible": true
+          "visible": true,
+          "anchor": "center"
         },
         {
           "id": "weapon",
           "spriteKey": "WeaponSwordStick",
           "offset": {
-            "x": 11,
+            "x": 4,
             "y": 4
           },
           "rotationDeg": 0,
           "layer": -1,
-          "visible": true
+          "visible": true,
+          "anchor": "middleLeft"
         }
       ]
     },
@@ -40,18 +42,20 @@
           },
           "rotationDeg": 0,
           "layer": 0,
-          "visible": true
+          "visible": true,
+          "anchor": "center"
         },
         {
           "id": "weapon",
           "spriteKey": "WeaponSwordStick",
           "offset": {
-            "x": 15,
+            "x": 8,
             "y": 4
           },
           "rotationDeg": 0,
           "layer": -1,
-          "visible": true
+          "visible": true,
+          "anchor": "middleLeft"
         }
       ]
     },
@@ -61,12 +65,13 @@
           "id": "weapon",
           "spriteKey": "WeaponSwordStick",
           "offset": {
-            "x": 12,
+            "x": 5,
             "y": 4
           },
           "rotationDeg": 0,
           "layer": -1,
-          "visible": true
+          "visible": true,
+          "anchor": "middleLeft"
         },
         {
           "id": "body",
@@ -77,7 +82,8 @@
           },
           "rotationDeg": 0,
           "layer": 0,
-          "visible": true
+          "visible": true,
+          "anchor": "center"
         }
       ]
     }

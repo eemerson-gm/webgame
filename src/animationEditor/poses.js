@@ -1,4 +1,8 @@
-import { centerForPose, origin } from "./coordinates.js";
+import {
+  DEFAULT_ANCHOR_PRESET,
+  isAnchorPreset,
+} from "../animations/jsonSpriteAnimation/anchorEditor.js";
+import { centerForPose, origin, pointInPoseBounds } from "./coordinates.js";
 import {
   currentFrame,
   spriteMetaForKey,
@@ -73,6 +77,10 @@ export const createPoseActions = ({ state, ui, render }) => {
     ui.poseSpriteKey.value = pose.spriteKey;
     ui.poseOffsetX.value = String(pose.offset.x);
     ui.poseOffsetY.value = String(pose.offset.y);
+    const poseAnchor = isAnchorPreset(pose.anchor) ? pose.anchor : DEFAULT_ANCHOR_PRESET;
+    ui.poseAnchorRadios.forEach((radio) => {
+      radio.checked = radio.value === poseAnchor;
+    });
     ui.poseRotationDeg.value = String(pose.rotationDeg ?? 0);
     ui.poseLayer.value = String(pose.layer ?? 0);
     ui.poseVisible.checked = pose.visible !== false;
@@ -94,12 +102,7 @@ export const createPoseActions = ({ state, ui, render }) => {
         if (meta === null) {
           return null;
         }
-        const centered = centerForPose(pose);
-        const dx = point.x - (o.x + centered.centerX * state.zoom);
-        const dy = point.y - (o.y + centered.centerY * state.zoom);
-        const r = (Math.max(meta.width, meta.height) / 2) * state.zoom;
-        const dist2 = dx * dx + dy * dy;
-        const isHit = dist2 <= r * r;
+        const isHit = pointInPoseBounds(point, pose, meta, o, state.zoom);
         return isHit ? pose : null;
       })
       .find((x) => x !== null);
@@ -261,10 +264,12 @@ export const createPoseActions = ({ state, ui, render }) => {
 
   const clonePoseForCopy = (pose) => {
     const nextOffset = pose.offset ?? { x: 0, y: 0 };
+    const nextAnchor = isAnchorPreset(pose.anchor) ? pose.anchor : DEFAULT_ANCHOR_PRESET;
     return {
       id: pose.id,
       spriteKey: pose.spriteKey,
       offset: { x: nextOffset.x, y: nextOffset.y },
+      anchor: nextAnchor,
       rotationDeg: pose.rotationDeg ?? 0,
       layer: pose.layer ?? 0,
       visible: pose.visible !== false,
@@ -315,6 +320,7 @@ export const createPoseActions = ({ state, ui, render }) => {
       id: nextId,
       spriteKey: copied.spriteKey,
       offset: { x: copied.offset.x, y: copied.offset.y },
+      anchor: isAnchorPreset(copied.anchor) ? copied.anchor : DEFAULT_ANCHOR_PRESET,
       rotationDeg: copied.rotationDeg ?? 0,
       layer: copied.layer ?? 0,
       visible: copied.visible !== false,
@@ -366,6 +372,7 @@ export const createPoseActions = ({ state, ui, render }) => {
       id: nextId,
       spriteKey,
       offset: { x: editorX, y: editorY },
+      anchor: DEFAULT_ANCHOR_PRESET,
       rotationDeg: 0,
       layer: 0,
       visible: true,
@@ -456,6 +463,20 @@ export const createPoseActions = ({ state, ui, render }) => {
         p.offset = { x: p.offset.x, y };
       });
       render();
+    });
+    ui.poseAnchorRadios.forEach((radio) => {
+      radio.addEventListener("change", () => {
+        if (radio.checked !== true) {
+          return;
+        }
+        if (!isAnchorPreset(radio.value)) {
+          return;
+        }
+        updatePoseField((pose) => {
+          pose.anchor = radio.value;
+        });
+        render();
+      });
     });
     ui.poseRotationDeg.addEventListener("change", () => {
       const d = Number(ui.poseRotationDeg.value ?? 0);

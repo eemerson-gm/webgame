@@ -1,3 +1,14 @@
+export type JsonSpriteAnchorPreset =
+  | "topLeft"
+  | "topMiddle"
+  | "topRight"
+  | "middleLeft"
+  | "center"
+  | "middleRight"
+  | "bottomLeft"
+  | "bottomMiddle"
+  | "bottomRight";
+
 export type JsonSpritePose = {
   id: string;
   spriteKey: string;
@@ -6,6 +17,7 @@ export type JsonSpritePose = {
     y: number;
   };
   rotationDeg: number;
+  anchor?: JsonSpriteAnchorPreset;
   layer?: number;
   visible?: boolean;
   pixelDataUrl?: string;

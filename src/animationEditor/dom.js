@@ -31,6 +31,9 @@ export const createUi = () => ({
   poseSpriteKey: el("pose-spriteKey"),
   poseOffsetX: el("pose-offsetX"),
   poseOffsetY: el("pose-offsetY"),
+  poseAnchorRadios: Array.from(
+    document.querySelectorAll("#pose-anchor-options input[type='radio']"),
+  ),
   poseRotationDeg: el("pose-rotationDeg"),
   poseLayer: el("pose-layer"),
   poseVisible: el("pose-visible"),

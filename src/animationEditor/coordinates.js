@@ -1,4 +1,28 @@
+import {
+  anchorPixelOffset,
+  anchorVecForPose,
+} from "../animations/jsonSpriteAnimation/anchorEditor.js";
+
 export const degToRad = (deg) => (deg * Math.PI) / 180;
+
+export const pointInPoseBounds = (point, pose, meta, o, zoom) => {
+  const anchorPos = centerForPose(pose);
+  const anchorPx = anchorPixelOffset(meta.width, meta.height, anchorVecForPose(pose));
+  const pxPos = o.x + anchorPos.centerX * zoom;
+  const pyPos = o.y + anchorPos.centerY * zoom;
+  const dx = point.x - pxPos;
+  const dy = point.y - pyPos;
+  const rot = -degToRad(pose.rotationDeg ?? 0);
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const localX = dx * cos - dy * sin;
+  const localY = dx * sin + dy * cos;
+  const left = -anchorPx.x * zoom;
+  const top = -anchorPx.y * zoom;
+  const right = left + meta.width * zoom;
+  const bottom = top + meta.height * zoom;
+  return localX >= left && localX <= right && localY >= top && localY <= bottom;
+};
 
 export const canvasPointForEvent = (ui, event) => {
   const rect = ui.scene.getBoundingClientRect();

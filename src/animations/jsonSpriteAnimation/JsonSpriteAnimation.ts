@@ -1,4 +1,11 @@
 import * as ex from "excalibur";
+import {
+  anchorVecForPoseFacing,
+  anchorVecForPreset,
+  DEFAULT_ANCHOR_PRESET,
+  excaliburAnchorForVec,
+  spriteForImageWithAnchor,
+} from "./anchor.ts";
 import type { JsonSpriteAnimationSpec, JsonSpritePose } from "./types";
 
 type JsonSpriteAnimationOptions = {
@@ -12,13 +19,23 @@ type JsonSpriteAnimationOptions = {
 
 type PoseById = Record<string, JsonSpritePose>;
 
-const centeredSpriteFor = (image: ex.ImageSource) => {
-  const sprite = image.toSprite();
-  sprite.origin = ex.vec(sprite.width / 2, sprite.height / 2);
+const degToRad = (deg: number) => (deg * Math.PI) / 180;
+
+const applyAnchorToSprite = (
+  sprite: ex.Sprite,
+  pose: JsonSpritePose,
+  facingLeft: boolean,
+) => {
+  const vec = anchorVecForPoseFacing(pose, facingLeft);
+  sprite.origin = ex.vec(sprite.width * vec.x, sprite.height * vec.y);
   return sprite;
 };
 
-const degToRad = (deg: number) => (deg * Math.PI) / 180;
+const spriteForImage = (
+  image: ex.ImageSource,
+  pose: JsonSpritePose,
+  facingLeft: boolean,
+) => spriteForImageWithAnchor(image, anchorVecForPoseFacing(pose, facingLeft));
 
 const hiddenActorPosition = ex.vec(-100000, -100000);
 
@@ -83,7 +100,10 @@ export class JsonSpriteAnimation {
       (acc, id) => {
         const spriteKey = this.spriteKeyById[id];
         const imageSource = this.spritesByKey[spriteKey];
-        const sprite = centeredSpriteFor(imageSource);
+        const sprite = spriteForImageWithAnchor(
+          imageSource,
+          anchorVecForPreset(DEFAULT_ANCHOR_PRESET),
+        );
         const actor = new ex.Actor({
           pos: ex.vec(0, 0),
           anchor: ex.vec(0.5, 0.5),
@@ -124,7 +144,7 @@ export class JsonSpriteAnimation {
     return this.childActorsById[partId];
   }
 
-  private spriteMaybeForPixelDataUrl(dataUrl: string): ex.Sprite | undefined {
+  private spriteForPixelDataUrl(dataUrl: string): ex.Sprite | undefined {
     const cached = this.spriteByPixelDataUrl[dataUrl];
     if (cached !== undefined) {
       return cached;
@@ -141,35 +161,51 @@ export class JsonSpriteAnimation {
     if (!imageSource.isLoaded()) {
       if (this.loadingByPixelDataUrl[dataUrl] === undefined) {
         this.loadingByPixelDataUrl[dataUrl] = imageSource.load().then(() => {
-          const sprite = centeredSpriteFor(imageSource);
+          const sprite = spriteForImageWithAnchor(
+            imageSource,
+            anchorVecForPreset(DEFAULT_ANCHOR_PRESET),
+          );
           this.spriteByPixelDataUrl[dataUrl] = sprite;
         });
       }
       return undefined;
     }
 
-    const sprite = centeredSpriteFor(imageSource);
+    const sprite = spriteForImageWithAnchor(
+      imageSource,
+      anchorVecForPreset(DEFAULT_ANCHOR_PRESET),
+    );
     this.spriteByPixelDataUrl[dataUrl] = sprite;
     return sprite;
   }
 
+  private spriteForPoseSource(
+    imageSource: ex.ImageSource,
+    pose: JsonSpritePose,
+    facingLeft: boolean,
+  ): ex.Sprite {
+    return spriteForImage(imageSource, pose, facingLeft);
+  }
+
+  private spriteForPose(
+    pose: JsonSpritePose,
+    imageSource: ex.ImageSource,
+    facingLeft: boolean,
+  ): ex.Sprite | undefined {
+    if (pose.pixelDataUrl !== undefined) {
+      const cached = this.spriteForPixelDataUrl(pose.pixelDataUrl);
+      if (cached === undefined) {
+        return undefined;
+      }
+      return applyAnchorToSprite(cached, pose, facingLeft);
+    }
+    const override = this.spriteOverrideByPartId[pose.id];
+    const resolvedSource = override ?? imageSource;
+    return this.spriteForPoseSource(resolvedSource, pose, facingLeft);
+  }
+
   public setPartSprite(partId: string, imageSource: ex.ImageSource): void {
     this.spriteOverrideByPartId[partId] = imageSource;
-
-    if (this.hostSpriteId !== undefined && partId === this.hostSpriteId) {
-      const sprite = centeredSpriteFor(imageSource);
-      this.host.graphics.use(sprite);
-      this.syncFrame();
-      return;
-    }
-
-    const actor = this.childActorsById[partId];
-    if (actor === undefined) {
-      return;
-    }
-
-    const sprite = centeredSpriteFor(imageSource);
-    actor.graphics.use(sprite);
     this.syncFrame();
   }
 
@@ -306,28 +342,26 @@ export class JsonSpriteAnimation {
       }
       if (hostPose !== undefined) {
         this.host.z = this.z + (hostPose.layer ?? 0);
-        const sprite =
-          hostPose.pixelDataUrl !== undefined
-            ? this.spriteMaybeForPixelDataUrl(hostPose.pixelDataUrl)
-            : centeredSpriteFor(this.spritesByKey[hostPose.spriteKey]);
-        const override = this.spriteOverrideByPartId[this.hostSpriteId];
-        const resolvedOverride = override !== undefined ? override : null;
-        const spriteWithOverride =
-          resolvedOverride !== null
-            ? centeredSpriteFor(resolvedOverride)
-            : sprite;
-        const finalSprite =
-          hostPose.pixelDataUrl !== undefined ? sprite : spriteWithOverride;
+        const hostImageSource = this.spritesByKey[hostPose.spriteKey];
+        const hostSprite = this.spriteForPose(
+          hostPose,
+          hostImageSource,
+          this.lastFacingLeft,
+        );
         const hostPlacement = this.placementForStoredPose(
           hostPose,
           this.lastFacingLeft,
           this.lastBaseOffset,
         );
-        if (finalSprite === undefined) {
+        const hostAnchor = excaliburAnchorForVec(
+          anchorVecForPoseFacing(hostPose, this.lastFacingLeft),
+        );
+        if (hostSprite === undefined) {
           this.host.graphics.visible = false;
           this.host.graphics.opacity = 0;
         } else {
-          this.host.graphics.use(finalSprite);
+          this.host.graphics.anchor = hostAnchor;
+          this.host.graphics.use(hostSprite);
           this.host.graphics.flipHorizontal = this.lastFacingLeft;
           this.host.graphics.offset = hostPlacement;
           this.host.graphics.visible = hostPose.visible !== false;
@@ -336,7 +370,7 @@ export class JsonSpriteAnimation {
 
         if (overlayPixelDataUrl !== undefined) {
           const overlaySprite =
-            this.spriteMaybeForPixelDataUrl(overlayPixelDataUrl);
+            this.spriteForPixelDataUrl(overlayPixelDataUrl);
           if (overlaySprite === undefined) {
             this.overlayActor.graphics.visible = false;
             this.overlayActor.graphics.opacity = 0;
@@ -372,11 +406,13 @@ export class JsonSpriteAnimation {
         ? -degToRad(pose.rotationDeg)
         : degToRad(pose.rotationDeg);
       actor.graphics.flipHorizontal = this.lastFacingLeft;
-      const spriteMaybe =
-        pose.pixelDataUrl !== undefined
-          ? this.spriteMaybeForPixelDataUrl(pose.pixelDataUrl)
-          : centeredSpriteFor(this.spritesByKey[pose.spriteKey]);
-      if (spriteMaybe === undefined) {
+      const partImageSource = this.spritesByKey[pose.spriteKey];
+      const partSprite = this.spriteForPose(
+        pose,
+        partImageSource,
+        this.lastFacingLeft,
+      );
+      if (partSprite === undefined) {
         actor.graphics.visible = false;
         actor.graphics.opacity = 0;
         return;
@@ -387,8 +423,11 @@ export class JsonSpriteAnimation {
         this.lastFacingLeft,
         this.lastBaseOffset,
       );
+      actor.graphics.anchor = excaliburAnchorForVec(
+        anchorVecForPoseFacing(pose, this.lastFacingLeft),
+      );
       actor.pos = partPlacement;
-      actor.graphics.use(spriteMaybe);
+      actor.graphics.use(partSprite);
       actor.graphics.visible = pose.visible !== false;
       actor.graphics.opacity = pose.visible === false ? 0 : 1;
     });

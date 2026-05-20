@@ -1,3 +1,7 @@
+import {
+  anchorPixelOffset,
+  anchorVecForPose,
+} from "../animations/jsonSpriteAnimation/anchorEditor.js";
 import { centerForPose, degToRad, origin, overlayCenterForFrame } from "./coordinates.js";
 import { currentFrame, spriteMetaForKey } from "./state.js";
 
@@ -65,6 +69,7 @@ export const createRenderer = ({ state, ui }) => {
         const img = imgForPosePreview(pose, meta, render);
         const w2 = meta.width;
         const h2 = meta.height;
+        const anchorPx = anchorPixelOffset(w2, h2, anchorVecForPose(pose));
         const pxPos = Math.round(o.x + centered.centerX * state.zoom);
         const pyPos = Math.round(o.y + centered.centerY * state.zoom);
         const rot = degToRad(pose.rotationDeg ?? 0);
@@ -74,8 +79,8 @@ export const createRenderer = ({ state, ui }) => {
         ctx.rotate(rot);
         ctx.drawImage(
           img,
-          (-w2 / 2) * state.zoom,
-          (-h2 / 2) * state.zoom,
+          -anchorPx.x * state.zoom,
+          -anchorPx.y * state.zoom,
           w2 * state.zoom,
           h2 * state.zoom,
         );
@@ -175,8 +180,9 @@ export const createRenderer = ({ state, ui }) => {
 
   const drawPoseGuides = (ctx, pose, meta, o, isSelected) => {
     const centered = centerForPose(pose);
-    const halfW = (meta.width / 2) * state.zoom;
-    const halfH = (meta.height / 2) * state.zoom;
+    const anchorPx = anchorPixelOffset(meta.width, meta.height, anchorVecForPose(pose));
+    const boxW = meta.width * state.zoom;
+    const boxH = meta.height * state.zoom;
     const pxPos = Math.round(o.x + centered.centerX * state.zoom);
     const pyPos = Math.round(o.y + centered.centerY * state.zoom);
     const rot = degToRad(pose.rotationDeg ?? 0);
@@ -187,7 +193,7 @@ export const createRenderer = ({ state, ui }) => {
     ctx.rotate(rot);
     ctx.strokeStyle = isSelected === true ? "rgba(220,0,0,0.85)" : "rgba(255,170,0,0.95)";
     ctx.lineWidth = isSelected === true ? 2 : 1;
-    ctx.strokeRect(-halfW, -halfH, halfW * 2, halfH * 2);
+    ctx.strokeRect(-anchorPx.x * state.zoom, -anchorPx.y * state.zoom, boxW, boxH);
     ctx.fillStyle = isSelected === true ? "rgba(220,0,0,0.95)" : "rgba(255,170,0,0.95)";
     ctx.strokeStyle = "rgba(255,255,255,0.9)";
     ctx.lineWidth = 1;
@@ -227,7 +233,7 @@ export const createRenderer = ({ state, ui }) => {
       ui.renderHelp.textContent = `Frame ${state.currentFrameIndex}. Drag to add a pose. Click to select.`;
       return;
     }
-    ui.renderHelp.textContent = `Frame ${state.currentFrameIndex}. Selected: ${selectedPose.id} (${selectedPose.spriteKey}) Offset(${selectedPose.offset.x}, ${selectedPose.offset.y}) Rot(${selectedPose.rotationDeg}) Layer(${selectedPose.layer ?? 0}). Drag to move.`;
+    ui.renderHelp.textContent = `Frame ${state.currentFrameIndex}. Selected: ${selectedPose.id} (${selectedPose.spriteKey}) Offset(${selectedPose.offset.x}, ${selectedPose.offset.y}) Anchor(${selectedPose.anchor ?? "center"}) Rot(${selectedPose.rotationDeg}) Layer(${selectedPose.layer ?? 0}). Drag to move.`;
   };
 
   return { render };

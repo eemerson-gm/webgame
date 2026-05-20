@@ -1,8 +1,21 @@
+import {
+  DEFAULT_ANCHOR_PRESET,
+  isAnchorPreset,
+} from "../animations/jsonSpriteAnimation/anchorEditor.js";
+
+const normalizePose = (pose) => {
+  const next = { ...pose };
+  if (!isAnchorPreset(next.anchor)) {
+    next.anchor = DEFAULT_ANCHOR_PRESET;
+  }
+  return next;
+};
+
 export const normalizeSpec = (spec) => {
   const next = spec;
   next.frames = next.frames ?? [];
   next.frames = next.frames.map((frame) => {
-    const sprites = frame.sprites ?? [];
+    const sprites = (frame.sprites ?? []).map(normalizePose);
     return { ...frame, sprites };
   });
   const rawSpeed = Number(next.speed ?? 1);
