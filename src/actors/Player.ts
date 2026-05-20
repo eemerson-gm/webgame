@@ -2,7 +2,7 @@ import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
-import { MovingActor } from "./MovingActor";
+import { MovingActor, tileMeeting } from "./MovingActor";
 import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import { DamageFlash } from "./DamageableActor";
 import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
@@ -52,9 +52,16 @@ const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
 const positionPrecision = 1000;
 const cameraFollowResponsiveness = 10;
 const cameraSnapDistance = TILE_PX * 8;
+const cameraPixelSnapScale = 3;
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
+
+const snappedCameraFocus = (focus: ex.Vector) =>
+  ex.vec(
+    Math.round(focus.x * cameraPixelSnapScale) / cameraPixelSnapScale,
+    Math.round(focus.y * cameraPixelSnapScale) / cameraPixelSnapScale,
+  );
 
 type CameraFocusTarget = {
   cameraFocusPosition: () => ex.Vector;
@@ -76,11 +83,13 @@ class SmoothCameraFollowStrategy {
     const currentFocus = camera.getFocus();
     const targetFocus = target.cameraFocusPosition();
     if (currentFocus.distance(targetFocus) >= this.snapDistance) {
-      return targetFocus;
+      return snappedCameraFocus(targetFocus);
     }
     const blend =
       1 - Math.exp((-this.responsiveness * Math.max(elapsed, 0)) / 1000);
-    return currentFocus.add(targetFocus.sub(currentFocus).scale(blend));
+    return snappedCameraFocus(
+      currentFocus.add(targetFocus.sub(currentFocus).scale(blend)),
+    );
   };
 }
 
@@ -196,8 +205,35 @@ export class Player extends MovingActor {
     });
   }
 
+  private snapToGroundPixel() {
+    const groundedY =
+      [Math.ceil(this.pos.y), Math.round(this.pos.y), Math.floor(this.pos.y)]
+        .filter((y, index, values) => values.indexOf(y) === index)
+        .find((y) => this.canStandAtY(y) && this.isGroundedAtY(y)) ??
+      this.pos.y;
+    if (groundedY === this.pos.y) {
+      return;
+    }
+    this.pos.y = groundedY;
+  }
+
+  private canStandAtY(y: number) {
+    return !tileMeeting(this.pos.x, y, {
+      collisionBounds: this.collisionBounds,
+      world: this.tileCollisionWorld(),
+    });
+  }
+
+  private isGroundedAtY(y: number) {
+    return tileMeeting(this.pos.x, y + 1, {
+      collisionBounds: this.collisionBounds,
+      world: this.tileCollisionWorld(),
+    });
+  }
+
   private onLand() {
     this.jumpHoldTimeRemainingMs = 0;
+    this.snapToGroundPixel();
     this.syncPosition();
   }
 
