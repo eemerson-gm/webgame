@@ -5,7 +5,7 @@ import { PlayerInputState } from "./PlayerInputState";
 import { MovingActor, tileMeeting } from "./MovingActor";
 import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import { DamageFlash } from "./DamageableActor";
-import { PlayerVisuals, type PlayerVisual } from "./player/PlayerVisuals";
+import { PlayerVisuals, type PlayerLocomotionVisual } from "./player/PlayerVisuals";
 import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
 
 const approach = (start: number, end: number, amount: number) => {
@@ -143,6 +143,13 @@ export class Player extends MovingActor {
     });
   }
 
+  public triggerAttack() {
+    if (this.isPaused) {
+      return false;
+    }
+    return this.visuals.playSwordAttack();
+  }
+
   get keyLeft() {
     return this.inputState.keyLeft;
   }
@@ -192,7 +199,20 @@ export class Player extends MovingActor {
         ),
       );
       this.scene.camera.strategy.limitCameraBounds(worldBounds);
+      engine.input.pointers.primary.on("down", () => {
+        this.tryAttack();
+      });
     }
+  }
+
+  private tryAttack() {
+    if (!this.client || this.isPaused) {
+      return;
+    }
+    if (!this.triggerAttack()) {
+      return;
+    }
+    this.playerNetwork.sendUpdate({ keyAttack: true });
   }
 
   private onJump() {
@@ -390,7 +410,6 @@ export class Player extends MovingActor {
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
     this.syncPhysicsInterpolationToCurrentPosition();
-    this.visuals.setVisual("idle");
   }
 
   private syncCollisionToSprite() {
@@ -457,8 +476,10 @@ export class Player extends MovingActor {
   }
 
   private syncPlayerVisuals(keySign: number) {
-    this.syncFacingFromHorizontalSign(keySign);
-    const nextVisual: PlayerVisual = !this.isGrounded
+    if (!this.visuals.isSwordFacingLocked()) {
+      this.syncFacingFromHorizontalSign(keySign);
+    }
+    const nextVisual: PlayerLocomotionVisual = !this.isGrounded
       ? "jump"
       : this.keyDown
         ? "crouch"
@@ -466,7 +487,7 @@ export class Player extends MovingActor {
           ? "walk"
           : "idle";
 
-    this.visuals.setVisual(nextVisual);
+    this.visuals.setLocomotionVisual(nextVisual);
     this.visuals.updateFacing(this.facingLeft);
   }
 

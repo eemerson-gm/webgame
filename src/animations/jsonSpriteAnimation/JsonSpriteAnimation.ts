@@ -7,6 +7,7 @@ type JsonSpriteAnimationOptions = {
   spritesByKey: Record<string, ex.ImageSource>;
   hostSpriteId?: string;
   z?: number;
+  loop?: boolean;
 };
 
 type PoseById = Record<string, JsonSpritePose>;
@@ -27,6 +28,7 @@ export class JsonSpriteAnimation {
   private readonly spritesByKey: Record<string, ex.ImageSource>;
   private readonly hostSpriteId?: string;
   private readonly z: number;
+  private readonly loop: boolean;
   private readonly overlayActor: ex.Actor;
 
   private readonly posesByFrameIndex: readonly PoseById[];
@@ -51,6 +53,7 @@ export class JsonSpriteAnimation {
     this.spritesByKey = options.spritesByKey;
     this.hostSpriteId = options.hostSpriteId;
     this.z = options.z ?? this.host.z ?? 0;
+    this.loop = options.loop ?? true;
 
     const posesByFrameIndex = this.spec.frames.map((frame) =>
       frame.sprites.reduce<PoseById>((acc, pose) => {
@@ -203,11 +206,31 @@ export class JsonSpriteAnimation {
 
     if (this.isPlaying) {
       const nextElapsedMs = this.elapsedMs + deltaMs;
-      this.elapsedMs = nextElapsedMs;
-      this.currentFrameIndex = this.frameIndexForElapsedMs(this.elapsedMs);
+      const durationMs = this.durationMs();
+      if (!this.loop && nextElapsedMs >= durationMs) {
+        this.elapsedMs = durationMs;
+        this.currentFrameIndex = Math.max(this.spec.frames.length - 1, 0);
+        this.isPlaying = false;
+      }
+      if (this.isPlaying) {
+        this.elapsedMs = nextElapsedMs;
+        this.currentFrameIndex = this.frameIndexForElapsedMs(this.elapsedMs);
+      }
     }
 
     this.syncFrame();
+  }
+
+  public isFinished() {
+    return !this.isPlaying && this.elapsedMs >= this.durationMs();
+  }
+
+  public elapsedRatio() {
+    const durationMs = this.durationMs();
+    if (durationMs <= 0) {
+      return 0;
+    }
+    return Math.min(this.elapsedMs / durationMs, 1);
   }
 
   public durationMs(): number {
@@ -243,7 +266,9 @@ export class JsonSpriteAnimation {
     if (durationMs <= 0) {
       return 0;
     }
-    const loopElapsedMs = elapsedMs % durationMs;
+    const loopElapsedMs = this.loop
+      ? elapsedMs % durationMs
+      : Math.min(elapsedMs, durationMs - 0.0001);
     const effectiveElapsedMs =
       loopElapsedMs === 0 && elapsedMs > 0
         ? durationMs - 0.0001

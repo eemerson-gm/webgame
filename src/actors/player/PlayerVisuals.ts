@@ -7,13 +7,16 @@ import idleJson from "../../data/animations/player/player_idle.json";
 import walkJson from "../../data/animations/player/player_walk.json";
 import jumpJson from "../../data/animations/player/player_jump.json";
 import crouchJson from "../../data/animations/player/player_crouch.json";
+import swordJson from "../../data/animations/player_sword.json";
 
-export type PlayerVisual = "idle" | "walk" | "jump" | "crouch";
+export type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "sword";
+export type PlayerLocomotionVisual = Exclude<PlayerVisual, "sword">;
 
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 export const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
 const remoteVisualCorrectionDurationMs = 100;
+const swordFacingLockRatio = 0.15;
 
 export class PlayerVisuals {
   public currentVisual: PlayerVisual = "idle";
@@ -22,8 +25,11 @@ export class PlayerVisuals {
   private readonly jumpAnimation: JsonSpriteAnimation;
   private readonly crouchAnimation: JsonSpriteAnimation;
   private readonly walkAnimation: JsonSpriteAnimation;
+  private readonly swordAnimation: JsonSpriteAnimation;
   private activeAnimation: JsonSpriteAnimation;
 
+  private locomotionVisual: PlayerLocomotionVisual = "idle";
+  private swordAttackActive = false;
   private facingLeft = false;
   private equippedWeaponSprite: ex.ImageSource = Resources.WoodSword;
 
@@ -40,6 +46,7 @@ export class PlayerVisuals {
     const walkSpec = walkJson as unknown as JsonSpriteAnimationSpec;
     const jumpSpec = jumpJson as unknown as JsonSpriteAnimationSpec;
     const crouchSpec = crouchJson as unknown as JsonSpriteAnimationSpec;
+    const swordSpec = swordJson as unknown as JsonSpriteAnimationSpec;
 
     this.sleepBubbleActor = new ex.Actor({
       pos: sleepBubbleOffset,
@@ -79,17 +86,31 @@ export class PlayerVisuals {
       spritesByKey,
       hostSpriteId: "body",
     });
+    this.swordAnimation = new JsonSpriteAnimation({
+      host: this.actor,
+      spec: swordSpec,
+      spritesByKey,
+      hostSpriteId: "body",
+      loop: false,
+    });
     this.activeAnimation = this.idleAnimation;
   }
 
   public initialize() {
     this.actor.addChild(this.sleepBubbleActor);
-    this.setVisual("idle", true);
+    this.applyVisual("idle", true);
   }
 
   public setPaused(isPaused: boolean) {
     this.sleepBubbleActor.graphics.visible = isPaused;
     this.sleepBubbleActor.graphics.opacity = isPaused ? 1 : 0;
+    if (isPaused) {
+      this.swordAttackActive = false;
+      this.applyVisual("idle", true);
+    }
+    if (!isPaused) {
+      this.applyVisual(this.locomotionVisual, true);
+    }
     this.activeAnimation.update(
       0,
       this.facingLeft,
@@ -107,7 +128,35 @@ export class PlayerVisuals {
       .add(this.renderOffset);
   }
 
-  public setVisual(visual: PlayerVisual, force: boolean = false) {
+  public setLocomotionVisual(visual: PlayerLocomotionVisual, force: boolean = false) {
+    this.locomotionVisual = visual;
+    if (this.swordAttackActive) {
+      return;
+    }
+    this.applyVisual(visual, force);
+  }
+
+  public playSwordAttack() {
+    if (this.swordAttackActive) {
+      return false;
+    }
+    this.swordAttackActive = true;
+    this.applyVisual("sword", true);
+    return true;
+  }
+
+  public isSwordAttackActive() {
+    return this.swordAttackActive;
+  }
+
+  public isSwordFacingLocked() {
+    if (!this.swordAttackActive) {
+      return false;
+    }
+    return this.swordAnimation.elapsedRatio() >= swordFacingLockRatio;
+  }
+
+  private applyVisual(visual: PlayerVisual, force: boolean = false) {
     if (this.currentVisual === visual && !force) {
       return;
     }
@@ -123,10 +172,15 @@ export class PlayerVisuals {
       this.facingLeft,
       this.animationBaseOffset(),
     );
-    this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
+    if (visual !== "sword") {
+      this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
+    }
   }
 
   public updateFacing(facingLeft: boolean) {
+    if (this.isSwordFacingLocked()) {
+      facingLeft = this.facingLeft;
+    }
     this.facingLeft = facingLeft;
     this.activeAnimation.update(
       0,
@@ -144,6 +198,9 @@ export class PlayerVisuals {
     }
     if (visual === "crouch") {
       return this.crouchAnimation;
+    }
+    if (visual === "sword") {
+      return this.swordAnimation;
     }
     return this.idleAnimation;
   }
@@ -201,10 +258,17 @@ export class PlayerVisuals {
       this.facingLeft,
       this.animationBaseOffset(),
     );
+    if (this.swordAttackActive && this.swordAnimation.isFinished()) {
+      this.swordAttackActive = false;
+      this.applyVisual(this.locomotionVisual, true);
+    }
   }
 
   public setEquippedWeaponSprite(sprite: ex.ImageSource): void {
     this.equippedWeaponSprite = sprite;
+    if (this.currentVisual === "sword") {
+      return;
+    }
     this.activeAnimation.setPartSprite("weapon", sprite);
   }
 }

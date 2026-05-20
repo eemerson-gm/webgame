@@ -307,6 +307,9 @@ const syncMovementFieldsFromPayload = (
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
   player.keyDown = payload.keyDown ?? player.keyDown;
+  if (payload.keyAttack) {
+    player.triggerAttack();
+  }
   if (payload.health !== undefined) {
     player.syncHealth(payload.health);
   }

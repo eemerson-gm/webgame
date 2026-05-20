@@ -1,0 +1,85 @@
+{
+  "frameDurationMs": 120,
+  "speed": 1.5,
+  "mirrorWidth": 16,
+  "frames": [
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "CharacterJamesActionSword1",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WeaponSwordStick",
+          "spriteKey": "WeaponSwordStick",
+          "offset": {
+            "x": 11,
+            "y": 4
+          },
+          "rotationDeg": 0,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "CharacterJamesActionSword2",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        },
+        {
+          "id": "WeaponSwordStick_2",
+          "spriteKey": "WeaponSwordStick",
+          "offset": {
+            "x": 15,
+            "y": 4
+          },
+          "rotationDeg": 0,
+          "layer": -1,
+          "visible": true
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "WeaponSwordStick_2",
+          "spriteKey": "WeaponSwordStick",
+          "offset": {
+            "x": 12,
+            "y": 4
+          },
+          "rotationDeg": 0,
+          "layer": -1,
+          "visible": true
+        },
+        {
+          "id": "body",
+          "spriteKey": "CharacterJamesActionSword3",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotationDeg": 0,
+          "layer": 0,
+          "visible": true
+        }
+      ]
+    }
+  ]
+}

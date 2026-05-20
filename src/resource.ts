@@ -12,6 +12,12 @@ export const Resources = {
   CharacterJamesActionSword2: new ex.ImageSource(
     "./assets/characters/character_james_action_sword2.png",
   ),
+  CharacterJamesActionSword3: new ex.ImageSource(
+    "./assets/characters/character_james_action_sword3.png",
+  ),
+  CharacterJamesCrouch: new ex.ImageSource(
+    "./assets/characters/character_james_crouch.png",
+  ),
   CharacterJamesIdle: new ex.ImageSource(
     "./assets/characters/character_james_idle.png",
   ),
@@ -35,6 +41,9 @@ export const Resources = {
   ),
   CharacterJamesWalk2: new ex.ImageSource(
     "./assets/characters/character_james_walk2.png",
+  ),
+  WeaponSwordStick: new ex.ImageSource(
+    "./assets/weapons/weapon_sword_stick.png",
   ),
   Dirt: new ex.ImageSource("./assets/dirt.png"),
   Grass: new ex.ImageSource("./assets/grass.png"),
