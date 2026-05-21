@@ -560,7 +560,7 @@ const startWorldSession = (
   );
   game.add(localPlayerSlot.player);
   devSlimeSlot.slime = new Slime(
-    playerSpawn.add(ex.vec(TILE_PX * 3, 0)),
+    playerSpawn,
     dummyTileMap,
     terrain.tileCollisionWorld(),
     localPlayerSlot.player,

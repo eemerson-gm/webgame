@@ -9,6 +9,8 @@ import {
   entityCenterX,
   entityCenterY,
   horizontalSignBetween,
+  tileMeeting,
+  type EntityPhysicsOptions,
   type EntitySeparationBody,
   type TileCollisionWorld,
 } from "./MovingActor";
@@ -129,6 +131,14 @@ export class Slime extends WalkingActor {
     if (this.followTarget.isPaused) {
       return false;
     }
+    const moveSign = this.followMoveSign();
+    if (moveSign === 0) {
+      return false;
+    }
+    const physicsOptions = this.followPhysicsOptions();
+    if (this.shouldJumpForTileAhead(moveSign, physicsOptions)) {
+      return true;
+    }
     const targetX = entityCenterX({
       x: this.followTarget.pos.x,
       width: this.followTarget.width,
@@ -142,6 +152,31 @@ export class Slime extends WalkingActor {
       return false;
     }
     return targetY < this.centerY() - followJumpVerticalOffset;
+  }
+
+  private followPhysicsOptions(): EntityPhysicsOptions {
+    return {
+      collisionBounds: this.collisionBounds,
+      world: this.tileCollisionWorld(),
+    };
+  }
+
+  private shouldJumpForTileAhead(
+    moveSign: number,
+    physicsOptions: EntityPhysicsOptions,
+  ) {
+    const probeX = this.pos.x + moveSign * TILE_PX;
+    if (tileMeeting(this.pos.x, this.pos.y - TILE_PX, physicsOptions)) {
+      return false;
+    }
+    return this.hasWallAhead(probeX, physicsOptions);
+  }
+
+  private hasWallAhead(probeX: number, physicsOptions: EntityPhysicsOptions) {
+    if (!tileMeeting(probeX, this.pos.y, physicsOptions)) {
+      return false;
+    }
+    return !tileMeeting(probeX, this.pos.y - TILE_PX, physicsOptions);
   }
 
   override onPostUpdate(_engine: ex.Engine, delta: number) {
