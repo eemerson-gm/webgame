@@ -1,5 +1,6 @@
 import * as ex from "excalibur";
 import { Player } from "./actors/Player";
+import { Slime } from "./actors/Slime";
 import { HUDManager } from "./ui/HUDManager";
 import { Resources } from "./resource";
 import { GameClient, type MessageEvents } from "./classes/GameClient";
@@ -21,6 +22,7 @@ import type { EntitySeparationBody } from "./actors/MovingActor";
 import { TILE_PX } from "./world/worldConfig";
 
 const localPlayerSlot = { player: null as Player | null };
+const devSlimeSlot = { slime: null as Slime | null };
 const playerById: Record<string, Player> = {};
 const playerPingById: Record<string, number | undefined> = {};
 const pingLoopSlot = { intervalId: null as number | null };
@@ -337,9 +339,23 @@ const remotePlayerSeparationEntries = (): EntitySeparationEntry[] =>
     applySeparatedX: (x) => player.applySeparatedX(x),
   }));
 
+const slimeSeparationEntries = (): EntitySeparationEntry[] => {
+  const slime = devSlimeSlot.slime;
+  if (!slime) {
+    return [];
+  }
+  return [
+    {
+      body: slime.entitySeparationBody(slime.entityId(), true),
+      applySeparatedX: (x) => slime.applySeparatedX(x),
+    },
+  ];
+};
+
 const entitySeparationEntries = () => [
   ...localPlayerSeparationEntries(),
   ...remotePlayerSeparationEntries(),
+  ...slimeSeparationEntries(),
 ];
 
 const separateEntityActors = () => {
@@ -543,6 +559,13 @@ const startWorldSession = (
     terrain.tileCollisionWorld(),
   );
   game.add(localPlayerSlot.player);
+  devSlimeSlot.slime = new Slime(
+    playerSpawn.add(ex.vec(TILE_PX * 3, 0)),
+    dummyTileMap,
+    terrain.tileCollisionWorld(),
+    localPlayerSlot.player,
+  );
+  game.add(devSlimeSlot.slime);
   game.add(
     new HUDManager(() => {
       const player = localPlayerSlot.player;

@@ -1,0 +1,151 @@
+import * as ex from "excalibur";
+import { TILE_PX } from "../world/worldConfig";
+import { MovingActor } from "./MovingActor";
+import type { CollisionBounds, TileCollisionWorld } from "./MovingActor";
+import type { LocomotionVisual, LocomotionVisualsHost } from "./walking/LocomotionVisuals";
+
+const approach = (start: number, end: number, amount: number) => {
+  if (start < end) {
+    return Math.min(start + amount, end);
+  }
+  return Math.max(start - amount, end);
+};
+
+const collisionWidth = TILE_PX - 4;
+const collisionHeight = TILE_PX - 2;
+const collisionEdgeInset = 0.1;
+const bodyRestCenterY = TILE_PX / 2;
+
+export const collisionOffsetForGraphicCenter = (center: ex.Vector): CollisionBounds => ({
+  offsetX: center.x - collisionWidth / 2,
+  offsetY: TILE_PX - collisionHeight + (center.y - bodyRestCenterY),
+  width: collisionWidth,
+  height: collisionHeight,
+  edgeInset: collisionEdgeInset,
+});
+
+export type WalkingTuning = {
+  walkSpeed: number;
+  walkAcceleration: number;
+  stopDeceleration: number;
+  turnAcceleration: number;
+  gravity: number;
+  jumpSpeed: number;
+  positionScale: number;
+};
+
+const walkingFixedStepMs = 1000 / 60;
+const walkingMaxFrameDeltaMs = walkingFixedStepMs * 5;
+
+export abstract class WalkingActor extends MovingActor {
+  protected readonly walkingTuning: WalkingTuning;
+  protected physicsAccumulatorMs: number = 0;
+  protected readonly fixedStepMs: number = walkingFixedStepMs;
+  protected readonly maxFrameDeltaMs: number = walkingMaxFrameDeltaMs;
+
+  constructor(
+    pos: ex.Vector,
+    tilemap: ex.TileMap,
+    size: ex.Vector,
+    collisionBounds: CollisionBounds,
+    tuning: WalkingTuning,
+    collisionWorld?: TileCollisionWorld,
+  ) {
+    super(pos, tilemap, size, collisionBounds, collisionWorld);
+    this.walkingTuning = tuning;
+  }
+
+  protected abstract locomotionVisuals(): LocomotionVisualsHost;
+
+  protected abstract horizontalMoveSign(): number;
+
+  protected resolveLocomotionVisual(moveSign: number): LocomotionVisual {
+    if (!this.isGrounded) {
+      return "jump";
+    }
+    if (moveSign !== 0) {
+      return "walk";
+    }
+    return "idle";
+  }
+
+  protected shouldSyncFacingFromMoveSign(moveSign: number) {
+    return moveSign === moveSign;
+  }
+
+  protected tryJump() {}
+
+  protected onWalkingLand() {}
+
+  protected syncCollisionToSprite() {
+    const center = this.locomotionVisuals().bodyGraphicCenter();
+    const next = collisionOffsetForGraphicCenter(center);
+    this.collisionBounds.offsetX = next.offsetX;
+    this.collisionBounds.offsetY = next.offsetY;
+  }
+
+  protected syncLocomotionVisuals(moveSign: number) {
+    if (this.shouldSyncFacingFromMoveSign(moveSign)) {
+      this.syncFacingFromHorizontalSign(moveSign);
+    }
+    const visual = this.resolveLocomotionVisual(moveSign);
+    this.locomotionVisuals().setLocomotionVisual(visual);
+    this.locomotionVisuals().updateFacing(this.facingLeft);
+  }
+
+  protected horizontalAccelerationFor(moveSign: number) {
+    if (moveSign === 0) {
+      return this.walkingTuning.stopDeceleration;
+    }
+    if (Math.sign(this.hspeed) !== 0 && Math.sign(this.hspeed) !== moveSign) {
+      return this.walkingTuning.turnAcceleration;
+    }
+    return this.walkingTuning.walkAcceleration;
+  }
+
+  protected walkGravityForStep(deltaMs: number) {
+    if (deltaMs < 0) {
+      return this.walkingTuning.gravity;
+    }
+    return this.walkingTuning.gravity;
+  }
+
+  protected moveWithWalkingGravity(dt: number, moveSign: number, deltaMs: number) {
+    const targetHspeed = moveSign * this.walkingTuning.walkSpeed;
+    const horizontalAcceleration = this.horizontalAccelerationFor(moveSign);
+    this.hspeed = approach(
+      this.hspeed,
+      targetHspeed,
+      horizontalAcceleration * 60 * dt,
+    );
+    this.applyGravity(this.walkGravityForStep(deltaMs), dt);
+    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
+  }
+
+  protected stepWalkingPhysics(moveSign: number, delta: number) {
+    const dt = delta / 1000;
+    const wasJumping = this.isJumping;
+    this.moveWithWalkingGravity(dt, moveSign, delta);
+    this.tryJump();
+    if (wasJumping && this.isGrounded) {
+      this.onWalkingLand();
+    }
+    this.syncLocomotionVisuals(moveSign);
+  }
+
+  protected runFixedWalkingSteps(moveSign: number, frameDelta: number) {
+    this.physicsAccumulatorMs += frameDelta;
+    while (this.physicsAccumulatorMs >= this.fixedStepMs) {
+      this.stepWalkingPhysics(moveSign, this.fixedStepMs);
+      this.physicsAccumulatorMs -= this.fixedStepMs;
+    }
+  }
+
+  protected tickWalkingFrame(delta: number) {
+    const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
+    this.locomotionVisuals().update(frameDelta);
+    this.syncCollisionToSprite();
+    const moveSign = this.horizontalMoveSign();
+    this.runFixedWalkingSteps(moveSign, frameDelta);
+  }
+}

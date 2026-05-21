@@ -1,15 +1,17 @@
 import * as ex from "excalibur";
-import { Resources } from "../../resource";
-import { TILE_PX } from "../../world/worldConfig";
-import { JsonSpriteAnimation } from "../../animations/jsonSpriteAnimation/JsonSpriteAnimation";
-import type { JsonSpriteAnimationSpec } from "../../animations/jsonSpriteAnimation/types";
-import idleJson from "../../data/animations/player/player_idle.json";
-import walkJson from "../../data/animations/player/player_walk.json";
-import jumpJson from "../../data/animations/player/player_jump.json";
-import crouchJson from "../../data/animations/player/player_crouch.json";
-import swordJson from "../../data/animations/player_sword.json";
+import { Resources, spriteResourcesByKey } from "@/resource";
+import { TILE_PX } from "@/world/worldConfig";
+import { JsonSpriteAnimation } from "@/animations/jsonSpriteAnimation/JsonSpriteAnimation";
+import type { JsonSpriteAnimationSpec } from "@/animations/jsonSpriteAnimation/types";
+import { JsonLocomotionVisuals } from "@/actors/walking/JsonLocomotionVisuals";
+import type { LocomotionVisual } from "@/actors/walking/LocomotionVisuals";
+import idleJson from "@/data/animations/player/player_idle.json";
+import walkJson from "@/data/animations/player/player_walk.json";
+import jumpJson from "@/data/animations/player/player_jump.json";
+import crouchJson from "@/data/animations/player/player_crouch.json";
+import swordJson from "@/data/animations/player_sword.json";
 
-export type PlayerVisual = "idle" | "walk" | "jump" | "crouch" | "sword";
+export type PlayerVisual = LocomotionVisual | "crouch" | "sword";
 export type PlayerLocomotionVisual = Exclude<PlayerVisual, "sword">;
 
 const sleepBubbleAnchor = ex.vec(0.5, 1);
@@ -21,10 +23,8 @@ const swordFacingLockRatio = 0.15;
 export class PlayerVisuals {
   public currentVisual: PlayerVisual = "idle";
 
-  private readonly idleAnimation: JsonSpriteAnimation;
-  private readonly jumpAnimation: JsonSpriteAnimation;
+  private readonly locomotion: JsonLocomotionVisuals;
   private readonly crouchAnimation: JsonSpriteAnimation;
-  private readonly walkAnimation: JsonSpriteAnimation;
   private readonly swordAnimation: JsonSpriteAnimation;
   private activeAnimation: JsonSpriteAnimation;
 
@@ -41,10 +41,6 @@ export class PlayerVisuals {
   private renderOffset: ex.Vector = ex.vec(0, 0);
 
   constructor(private readonly actor: ex.Actor) {
-    const spritesByKey = Resources as Record<string, ex.ImageSource>;
-    const idleSpec = idleJson as unknown as JsonSpriteAnimationSpec;
-    const walkSpec = walkJson as unknown as JsonSpriteAnimationSpec;
-    const jumpSpec = jumpJson as unknown as JsonSpriteAnimationSpec;
     const crouchSpec = crouchJson as unknown as JsonSpriteAnimationSpec;
     const swordSpec = swordJson as unknown as JsonSpriteAnimationSpec;
 
@@ -60,40 +56,30 @@ export class PlayerVisuals {
     this.sleepBubbleActor.graphics.visible = false;
     this.sleepBubbleActor.graphics.opacity = 0;
 
-    this.actor.graphics.anchor = ex.vec(0.5, 0.5);
+    this.locomotion = new JsonLocomotionVisuals({
+      actor: this.actor,
+      spritesByKey: spriteResourcesByKey,
+      graphicOffset: playerGraphicOffset,
+      hostSpriteId: "body",
+      idleSpec: idleJson as unknown as JsonSpriteAnimationSpec,
+      walkSpec: walkJson as unknown as JsonSpriteAnimationSpec,
+      jumpSpec: jumpJson as unknown as JsonSpriteAnimationSpec,
+    });
 
-    this.idleAnimation = new JsonSpriteAnimation({
-      host: this.actor,
-      spec: idleSpec,
-      spritesByKey,
-      hostSpriteId: "body",
-    });
-    this.jumpAnimation = new JsonSpriteAnimation({
-      host: this.actor,
-      spec: jumpSpec,
-      spritesByKey,
-      hostSpriteId: "body",
-    });
     this.crouchAnimation = new JsonSpriteAnimation({
       host: this.actor,
       spec: crouchSpec,
-      spritesByKey,
-      hostSpriteId: "body",
-    });
-    this.walkAnimation = new JsonSpriteAnimation({
-      host: this.actor,
-      spec: walkSpec,
-      spritesByKey,
+      spritesByKey: spriteResourcesByKey,
       hostSpriteId: "body",
     });
     this.swordAnimation = new JsonSpriteAnimation({
       host: this.actor,
       spec: swordSpec,
-      spritesByKey,
+      spritesByKey: spriteResourcesByKey,
       hostSpriteId: "body",
       loop: false,
     });
-    this.activeAnimation = this.idleAnimation;
+    this.activeAnimation = this.locomotion.activeLocomotionAnimation();
   }
 
   public initialize() {
@@ -160,21 +146,41 @@ export class PlayerVisuals {
     if (this.currentVisual === visual && !force) {
       return;
     }
-    this.activeAnimation.hideAll();
-
+    this.locomotion.hideAllLocomotion();
+    this.crouchAnimation.hideAll();
+    this.swordAnimation.hideAll();
     this.currentVisual = visual;
-    const nextAnimation = this.animationFor(visual);
-    this.activeAnimation = nextAnimation;
-    this.activeAnimation.reset();
-    this.activeAnimation.play();
+    if (visual === "crouch") {
+      this.activeAnimation = this.crouchAnimation;
+      this.activeAnimation.reset();
+      this.activeAnimation.play();
+      this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
+      this.activeAnimation.update(
+        0,
+        this.facingLeft,
+        this.animationBaseOffset(),
+      );
+      return;
+    }
+    if (visual === "sword") {
+      this.activeAnimation = this.swordAnimation;
+      this.activeAnimation.reset();
+      this.activeAnimation.play();
+      this.activeAnimation.update(
+        0,
+        this.facingLeft,
+        this.animationBaseOffset(),
+      );
+      return;
+    }
+    this.locomotion.setLocomotionVisual(visual, true);
+    this.activeAnimation = this.locomotion.activeLocomotionAnimation();
+    this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
     this.activeAnimation.update(
       0,
       this.facingLeft,
       this.animationBaseOffset(),
     );
-    if (visual !== "sword") {
-      this.activeAnimation.setPartSprite("weapon", this.equippedWeaponSprite);
-    }
   }
 
   public updateFacing(facingLeft: boolean) {
@@ -187,22 +193,6 @@ export class PlayerVisuals {
       facingLeft,
       this.animationBaseOffset(),
     );
-  }
-
-  private animationFor(visual: PlayerVisual) {
-    if (visual === "walk") {
-      return this.walkAnimation;
-    }
-    if (visual === "jump") {
-      return this.jumpAnimation;
-    }
-    if (visual === "crouch") {
-      return this.crouchAnimation;
-    }
-    if (visual === "sword") {
-      return this.swordAnimation;
-    }
-    return this.idleAnimation;
   }
 
   public applyRemotePositionCorrection(
@@ -239,6 +229,10 @@ export class PlayerVisuals {
   private applyVisualCorrectionOffset(offset: ex.Vector) {
     this.visualCorrectionOffset = offset;
     this.syncOffsets();
+  }
+
+  public update(delta: number) {
+    this.updateVisualCorrection(delta);
   }
 
   public updateVisualCorrection(delta: number) {

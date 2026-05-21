@@ -1,0 +1,20 @@
+{
+  "frameDurationMs": 120,
+  "mirrorWidth": 20,
+  "frames": [
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "MonsterSlimeJump",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotationDeg": 0
+        }
+      ]
+    }
+  ],
+  "speed": 1
+}

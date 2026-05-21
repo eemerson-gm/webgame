@@ -51,6 +51,10 @@ export const Resources = {
   HeartFull: new ex.ImageSource("./assets/UI/ui_heart_full.png"),
   HeartHalf: new ex.ImageSource("./assets/UI/ui_heart_half.png"),
   Lamp: new ex.ImageSource("./assets/spawn_orb.png"),
+  MonsterSlimeIdle: new ex.ImageSource("./assets/monsters/monster_slime_idle.png"),
+  MonsterSlimeJump: new ex.ImageSource("./assets/monsters/monster_slime_jump.png"),
+  MonsterSlimeWalk1: new ex.ImageSource("./assets/monsters/monster_slime_walk1.png"),
+  MonsterSlimeWalk2: new ex.ImageSource("./assets/monsters/monster_slime_walk2.png"),
   PillarBottom: new ex.ImageSource("./assets/pillar_bottom.png"),
   PillarMiddle: new ex.ImageSource("./assets/pillar_middle.png"),
   PillarTop: new ex.ImageSource("./assets/pillar_top.png"),
@@ -69,3 +73,14 @@ export const Resources = {
   WhiteWool: new ex.ImageSource("./assets/white_wool.png"),
   WoodSword: new ex.ImageSource("./assets/wood_sword.png"),
 } as const;
+
+type ResourceEntry = (typeof Resources)[keyof typeof Resources];
+
+const resourceEntries = Object.entries(Resources) as [string, ResourceEntry][];
+
+export const spriteResourcesByKey: Record<string, ex.ImageSource> =
+  Object.fromEntries(
+    resourceEntries.filter((entry): entry is [string, ex.ImageSource] =>
+      entry[1] instanceof ex.ImageSource,
+    ),
+  );

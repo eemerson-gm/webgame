@@ -1,0 +1,33 @@
+{
+  "frameDurationMs": 120,
+  "mirrorWidth": 20,
+  "frames": [
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "MonsterSlimeWalk1",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotationDeg": 0
+        }
+      ]
+    },
+    {
+      "sprites": [
+        {
+          "id": "body",
+          "spriteKey": "MonsterSlimeWalk2",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "rotationDeg": 0
+        }
+      ]
+    }
+  ],
+  "speed": 1
+}

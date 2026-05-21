@@ -2,44 +2,23 @@ import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
-import { MovingActor, tileMeeting } from "./MovingActor";
+import { tileMeeting } from "./MovingActor";
 import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
+import {
+  WalkingActor,
+  collisionOffsetForGraphicCenter,
+  type WalkingTuning,
+} from "./WalkingActor";
+import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
 import { DamageFlash } from "./DamageableActor";
 import { PlayerVisuals, type PlayerLocomotionVisual } from "./player/PlayerVisuals";
 import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
 
-const approach = (start: number, end: number, amount: number) => {
-  if (start < end) {
-    return Math.min(start + amount, end);
-  }
-  return Math.max(start - amount, end);
-};
-
-const collisionWidth = TILE_PX - 4;
-const collisionHeight = TILE_PX - 2;
-const collisionEdgeInset = 0.1;
-
-const playerBodyRestCenterY = TILE_PX / 2;
-
-const collisionOffsetForGraphicCenter = (center: ex.Vector) => ({
-  offsetX: center.x - collisionWidth / 2,
-  offsetY: TILE_PX - collisionHeight + (center.y - playerBodyRestCenterY),
-  width: collisionWidth,
-  height: collisionHeight,
-  edgeInset: collisionEdgeInset,
-});
-const walkSpeed = 1.2;
 const runSpeedMultiplier = 2;
-const walkAcceleration = 0.25;
-const stopDeceleration = 0.22;
-const turnAcceleration = 0.32;
-const gravity = 0.2;
-const jumpSpeed = -2.8;
 const jumpHoldDurationMs = 220;
 const jumpHeldGravityMultiplier = 0.3;
 const jumpReleasedGravityMultiplier = 1.15;
 const jumpFallGravityMultiplier = 0.85;
-const positionScale = 100;
 const playerKnockbackHorizontalSpeed = 2.2;
 const playerKnockbackVerticalSpeed = -1.4;
 const playerKnockbackDurationMs = 240;
@@ -47,12 +26,20 @@ const playerKnockbackFriction = 0.94;
 const playerMaxHealth = 6;
 const playerDamageImmunityDurationMs = 500;
 const playerDamageBlinkFrameMs = 90;
-const playerFixedStepMs = 1000 / 60;
-const playerMaxFrameDeltaMs = playerFixedStepMs * 5;
 const positionPrecision = 1000;
 const cameraFollowResponsiveness = 10;
 const cameraSnapDistance = TILE_PX * 8;
 const cameraPixelSnapScale = 3;
+
+const playerWalkingTuning: WalkingTuning = {
+  walkSpeed: 1.2,
+  walkAcceleration: 0.25,
+  stopDeceleration: 0.22,
+  turnAcceleration: 0.32,
+  gravity: 0.2,
+  jumpSpeed: -2.8,
+  positionScale: 100,
+};
 
 const syncedPositionValue = (value: number) =>
   Math.round(value * positionPrecision) / positionPrecision;
@@ -93,7 +80,7 @@ class SmoothCameraFollowStrategy {
   };
 }
 
-export class Player extends MovingActor {
+export class Player extends WalkingActor {
   private client?: GameClient;
   isLocal: boolean = false;
   isPaused: boolean = false;
@@ -105,7 +92,6 @@ export class Player extends MovingActor {
   private knockbackTimeRemainingMs: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
-  private physicsAccumulatorMs: number = 0;
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
   private previousPhysicsPosition: ex.Vector;
   private currentPhysicsPosition: ex.Vector;
@@ -126,6 +112,7 @@ export class Player extends MovingActor {
       tilemap,
       ex.vec(width, height),
       collisionOffsetForGraphicCenter(ex.vec(TILE_PX / 2, TILE_PX / 2)),
+      playerWalkingTuning,
       collisionWorld,
     );
     this.client = client;
@@ -205,6 +192,72 @@ export class Player extends MovingActor {
     }
   }
 
+  protected locomotionVisuals(): LocomotionVisualsHost {
+    return this.visuals;
+  }
+
+  protected horizontalMoveSign() {
+    return this.inputState.horizontalSign();
+  }
+
+  protected shouldSyncFacingFromMoveSign(moveSign: number) {
+    if (this.visuals.isSwordFacingLocked()) {
+      return moveSign !== moveSign;
+    }
+    return moveSign === moveSign;
+  }
+
+  protected syncLocomotionVisuals(moveSign: number) {
+    if (this.shouldSyncFacingFromMoveSign(moveSign)) {
+      this.syncFacingFromHorizontalSign(moveSign);
+    }
+    const nextVisual: PlayerLocomotionVisual = !this.isGrounded
+      ? "jump"
+      : this.keyDown
+        ? "crouch"
+        : moveSign !== 0
+          ? "walk"
+          : "idle";
+    this.visuals.setLocomotionVisual(nextVisual);
+    this.visuals.updateFacing(this.facingLeft);
+  }
+
+  protected override walkGravityForStep(deltaMs: number) {
+    if (!this.isJumping) {
+      this.jumpHoldTimeRemainingMs = 0;
+      return this.walkingTuning.gravity;
+    }
+    if (this.shouldHoldJump()) {
+      this.jumpHoldTimeRemainingMs = Math.max(
+        this.jumpHoldTimeRemainingMs - deltaMs,
+        0,
+      );
+      return this.walkingTuning.gravity * jumpHeldGravityMultiplier;
+    }
+    this.jumpHoldTimeRemainingMs = 0;
+    if (this.vspeed < 0) {
+      return this.walkingTuning.gravity * jumpReleasedGravityMultiplier;
+    }
+    return this.walkingTuning.gravity * jumpFallGravityMultiplier;
+  }
+
+  protected override moveWithWalkingGravity(
+    dt: number,
+    moveSign: number,
+    deltaMs: number,
+  ) {
+    const runMult = this.isRunning ? runSpeedMultiplier : 1;
+    const targetHspeed = moveSign * this.walkingTuning.walkSpeed * runMult;
+    const horizontalAcceleration = this.horizontalAccelerationFor(moveSign);
+    const approachAmount = horizontalAcceleration * 60 * dt;
+    this.hspeed =
+      this.hspeed < targetHspeed
+        ? Math.min(this.hspeed + approachAmount, targetHspeed)
+        : Math.max(this.hspeed - approachAmount, targetHspeed);
+    this.applyGravity(this.walkGravityForStep(deltaMs), dt);
+    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
+  }
+
   private tryAttack() {
     if (!this.client || this.isPaused) {
       return;
@@ -216,7 +269,7 @@ export class Player extends MovingActor {
   }
 
   private onJump() {
-    if (!this.jump(jumpSpeed)) {
+    if (!this.jump(this.walkingTuning.jumpSpeed)) {
       return;
     }
     this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
@@ -251,7 +304,7 @@ export class Player extends MovingActor {
     });
   }
 
-  private onLand() {
+  protected override onWalkingLand() {
     this.jumpHoldTimeRemainingMs = 0;
     this.snapToGroundPixel();
     this.syncPosition();
@@ -412,13 +465,6 @@ export class Player extends MovingActor {
     this.syncPhysicsInterpolationToCurrentPosition();
   }
 
-  private syncCollisionToSprite() {
-    const center = this.visuals.bodyGraphicCenter();
-    const next = collisionOffsetForGraphicCenter(center);
-    this.collisionBounds.offsetX = next.offsetX;
-    this.collisionBounds.offsetY = next.offsetY;
-  }
-
   private currentPosition() {
     return {
       x: syncedPositionValue(this.pos.x),
@@ -475,66 +521,6 @@ export class Player extends MovingActor {
     this.inputState.readKeyboard(engine);
   }
 
-  private syncPlayerVisuals(keySign: number) {
-    if (!this.visuals.isSwordFacingLocked()) {
-      this.syncFacingFromHorizontalSign(keySign);
-    }
-    const nextVisual: PlayerLocomotionVisual = !this.isGrounded
-      ? "jump"
-      : this.keyDown
-        ? "crouch"
-        : keySign !== 0
-          ? "walk"
-          : "idle";
-
-    this.visuals.setLocomotionVisual(nextVisual);
-    this.visuals.updateFacing(this.facingLeft);
-  }
-
-  private horizontalAccelerationFor(keySign: number) {
-    if (keySign === 0) {
-      return stopDeceleration;
-    }
-    if (Math.sign(this.hspeed) !== 0 && Math.sign(this.hspeed) !== keySign) {
-      return turnAcceleration;
-    }
-    return walkAcceleration;
-  }
-
-  private moveWithGravity(delta: number, dt: number, keySign: number) {
-    const runMult = this.isRunning ? runSpeedMultiplier : 1;
-    const targetHspeed = keySign * walkSpeed * runMult;
-    const horizontalAcceleration = this.horizontalAccelerationFor(keySign);
-
-    this.hspeed = approach(
-      this.hspeed,
-      targetHspeed,
-      horizontalAcceleration * 60 * dt,
-    );
-    this.applyGravity(this.currentJumpGravity(delta), dt);
-
-    this.moveWithVelocity(positionScale, dt);
-  }
-
-  private currentJumpGravity(delta: number) {
-    if (!this.isJumping) {
-      this.jumpHoldTimeRemainingMs = 0;
-      return gravity;
-    }
-    if (this.shouldHoldJump()) {
-      this.jumpHoldTimeRemainingMs = Math.max(
-        this.jumpHoldTimeRemainingMs - delta,
-        0,
-      );
-      return gravity * jumpHeldGravityMultiplier;
-    }
-    this.jumpHoldTimeRemainingMs = 0;
-    if (this.vspeed < 0) {
-      return gravity * jumpReleasedGravityMultiplier;
-    }
-    return gravity * jumpFallGravityMultiplier;
-  }
-
   private shouldHoldJump() {
     if (!this.keyJump) {
       return false;
@@ -553,8 +539,8 @@ export class Player extends MovingActor {
       this.knockbackTimeRemainingMs - delta,
       0,
     );
-    this.applyGravity(gravity, dt);
-    this.moveWithVelocity(positionScale, dt);
+    this.applyGravity(this.walkingTuning.gravity, dt);
+    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
     this.hspeed *= playerKnockbackFriction;
   }
 
@@ -575,12 +561,12 @@ export class Player extends MovingActor {
 
   private stepInterpolatedPlayerPhysics(keySign: number) {
     this.previousPhysicsPosition = this.currentPhysicsPosition.clone();
-    this.stepPlayerPhysics(keySign, playerFixedStepMs);
+    this.stepPlayerPhysics(keySign, this.fixedStepMs);
     this.currentPhysicsPosition = this.pos.clone();
   }
 
   private syncRenderInterpolation() {
-    const alpha = this.physicsAccumulatorMs / playerFixedStepMs;
+    const alpha = this.physicsAccumulatorMs / this.fixedStepMs;
     const renderPosition = this.previousPhysicsPosition.add(
       this.currentPhysicsPosition
         .sub(this.previousPhysicsPosition)
@@ -592,25 +578,21 @@ export class Player extends MovingActor {
 
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
-
     const wasJumping = this.isJumping;
     const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
     if (isKnockbackActive) {
       this.moveWithKnockback(delta, dt);
     }
     if (!isKnockbackActive) {
-      this.moveWithGravity(delta, dt, keySign);
+      this.moveWithWalkingGravity(dt, keySign, delta);
     }
-
     if (!isKnockbackActive && this.isGrounded && this.keyJump) {
       this.onJump();
     }
     if (!isKnockbackActive && wasJumping && this.isGrounded) {
-      this.onLand();
+      this.onWalkingLand();
     }
-
-    this.syncPlayerVisuals(keySign);
-
+    this.syncLocomotionVisuals(keySign);
     this.playerNetwork.syncMovementPeriodically(
       delta,
       {
@@ -621,16 +603,16 @@ export class Player extends MovingActor {
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
-    const frameDelta = Math.min(delta, playerMaxFrameDeltaMs);
+    const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
     this.visuals.updateVisualCorrection(frameDelta);
     this.syncCollisionToSprite();
     if (!this.isPaused) {
       this.updateControls(engine);
       const keySign = this.inputState.horizontalSign();
       this.physicsAccumulatorMs += frameDelta;
-      while (this.physicsAccumulatorMs >= playerFixedStepMs) {
+      while (this.physicsAccumulatorMs >= this.fixedStepMs) {
         this.stepInterpolatedPlayerPhysics(keySign);
-        this.physicsAccumulatorMs -= playerFixedStepMs;
+        this.physicsAccumulatorMs -= this.fixedStepMs;
       }
       this.syncRenderInterpolation();
       this.onMove();
