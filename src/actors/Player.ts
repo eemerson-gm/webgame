@@ -3,6 +3,7 @@ import { GameClient } from "../classes/GameClient";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { tileMeeting } from "./MovingActor";
+import type { PlayerState } from "../classes/GameProtocol";
 import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
 import {
   WalkingActor,
@@ -90,6 +91,7 @@ export class Player extends WalkingActor {
   private readonly spawnPosition: ex.Vector;
   private damageFlash: DamageFlash;
   private knockbackTimeRemainingMs: number = 0;
+  private lastAppliedRemoteAttackCycle: number = 0;
   private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
@@ -135,6 +137,42 @@ export class Player extends WalkingActor {
       return false;
     }
     return this.visuals.playSwordAttack();
+  }
+
+  public syncFacingFromKeys() {
+    const moveSign = this.inputState.horizontalSign();
+    if (moveSign === 0) {
+      return;
+    }
+    this.syncFacingFromHorizontalSign(moveSign);
+    this.visuals.updateFacing(this.facingLeft);
+  }
+
+  public syncFacingFromNetwork(facingLeft: boolean | undefined) {
+    if (facingLeft !== undefined) {
+      this.facingLeft = facingLeft;
+      this.visuals.updateFacing(facingLeft);
+      return;
+    }
+    this.syncFacingFromKeys();
+  }
+
+  public applyRemoteAttackFromPayload(payload: PlayerState) {
+    this.syncFacingFromNetwork(payload.facingLeft);
+    const attackCycle = Number(payload.attackCycle);
+    if (Number.isFinite(attackCycle) && attackCycle > 0) {
+      if (attackCycle > this.lastAppliedRemoteAttackCycle) {
+        this.lastAppliedRemoteAttackCycle = attackCycle;
+        if (this.isSwordAttackActive()) {
+          this.visuals.endSwordAttackForResync();
+        }
+        this.triggerAttack();
+        return;
+      }
+    }
+    if (payload.keyAttack) {
+      this.triggerAttack();
+    }
   }
 
   get keyLeft() {
@@ -265,7 +303,11 @@ export class Player extends WalkingActor {
     if (!this.triggerAttack()) {
       return;
     }
-    this.playerNetwork.sendUpdate({ keyAttack: true });
+    this.playerNetwork.sendUpdate({
+      keyAttack: true,
+      attackCycle: this.swordAttackCycle(),
+      facingLeft: this.isFacingLeft(),
+    });
   }
 
   private onJump() {
@@ -314,6 +356,21 @@ export class Player extends WalkingActor {
     this.visuals.setEquippedWeaponSprite(sprite);
   }
 
+  public knockBackFromFacing(facingLeft: boolean) {
+    if (this.isPaused) {
+      return;
+    }
+    const direction = facingLeft ? -1 : 1;
+    this.hspeed = playerKnockbackHorizontalSpeed * direction;
+    this.vspeed = playerKnockbackVerticalSpeed;
+    this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
+    this.jumpHoldTimeRemainingMs = 0;
+    const movementState = {
+      ...this.currentMovementState(),
+    };
+    this.playerNetwork.sendUpdate(movementState);
+  }
+
   public knockBackFrom(actor: ex.Actor) {
     if (this.isPaused) {
       return;
@@ -341,9 +398,38 @@ export class Player extends WalkingActor {
       this.respawnAtJoinPosition();
       return true;
     }
-    this.knockBackFrom(actor);
+    if (actor instanceof Player) {
+      this.knockBackFromFacing(actor.isFacingLeft());
+    }
+    if (!(actor instanceof Player)) {
+      this.knockBackFrom(actor);
+    }
     this.syncHealthState();
     return true;
+  }
+
+  public isSwordAttackActive() {
+    return this.visuals.isSwordAttackActive();
+  }
+
+  public swordWeaponActor() {
+    return this.visuals.swordWeaponActor();
+  }
+
+  public swordAttackCycle() {
+    return this.visuals.swordAttackCycle();
+  }
+
+  public swordAttackElapsedRatio() {
+    return this.visuals.swordAttackElapsedRatio();
+  }
+
+  public combatCollisionBounds() {
+    return this.collisionBounds;
+  }
+
+  public canReceiveWeaponDamage() {
+    return this.canTakeDamage();
   }
 
   public isAlive() {
@@ -478,6 +564,12 @@ export class Player extends WalkingActor {
       ...position,
       horizontalSpeed: this.hspeed,
       verticalSpeed: this.vspeed,
+      attackCycle: this.swordAttackCycle(),
+      facingLeft: this.isFacingLeft(),
+      keyLeft: this.keyLeft,
+      keyRight: this.keyRight,
+      keyJump: this.keyJump,
+      keyDown: this.keyDown,
     };
   }
 

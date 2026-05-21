@@ -21,6 +21,8 @@ export type PlayerState = {
   keyJump?: boolean;
   keyDown?: boolean;
   keyAttack?: boolean;
+  attackCycle?: number;
+  facingLeft?: boolean;
   isPaused?: boolean;
   isFlying?: boolean;
   horizontalSpeed?: number;

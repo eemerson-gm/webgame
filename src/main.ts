@@ -20,6 +20,12 @@ import { TileLightingOverlay } from "./classes/TileLightingOverlay";
 import { separateEntityBodies } from "./actors/MovingActor";
 import type { EntitySeparationBody } from "./actors/MovingActor";
 import { TILE_PX } from "./world/worldConfig";
+import {
+  resolveWeaponHits,
+  WeaponHitMemory,
+  type WeaponHitAttacker,
+  type WeaponHitTarget,
+} from "./combat/WeaponCombat";
 
 const localPlayerSlot = { player: null as Player | null };
 const devSlimeSlot = { slime: null as Slime | null };
@@ -37,6 +43,7 @@ const pingIntervalMs = 2000;
 const entitySeparationPadding = 1;
 const entitySeparationMaxMoveX = 0.3;
 const entitySeparationPasses = 2;
+const weaponHitMemory = new WeaponHitMemory();
 
 type EntitySeparationEntry = {
   body: EntitySeparationBody;
@@ -309,9 +316,8 @@ const syncMovementFieldsFromPayload = (
   player.keyRight = payload.keyRight ?? player.keyRight;
   player.keyJump = payload.keyJump ?? player.keyJump;
   player.keyDown = payload.keyDown ?? player.keyDown;
-  if (payload.keyAttack) {
-    player.triggerAttack();
-  }
+  player.syncFacingFromNetwork(payload.facingLeft);
+  player.applyRemoteAttackFromPayload(payload);
   if (payload.health !== undefined) {
     player.syncHealth(payload.health);
   }
@@ -342,6 +348,9 @@ const remotePlayerSeparationEntries = (): EntitySeparationEntry[] =>
 const slimeSeparationEntries = (): EntitySeparationEntry[] => {
   const slime = devSlimeSlot.slime;
   if (!slime) {
+    return [];
+  }
+  if (!slime.isAlive()) {
     return [];
   }
   return [
@@ -389,9 +398,72 @@ const separateEntityActors = () => {
 
 game.on("preupdate", separateEntityActors);
 
+const weaponHitAttackers = (): WeaponHitAttacker[] => {
+  const localPlayer = localPlayerSlot.player;
+  const localPlayerId = clientSlot.client?.clientId;
+  if (!localPlayer || !localPlayerId) {
+    return Object.entries(playerById).map(([playerId, player]) => ({
+      playerId,
+      player,
+    }));
+  }
+  return [
+    { playerId: localPlayerId, player: localPlayer },
+    ...Object.entries(playerById)
+      .filter(([playerId]) => playerId !== localPlayerId)
+      .map(([playerId, player]) => ({ playerId, player })),
+  ];
+};
+
+const weaponHitTargets = (localPlayerId: string): WeaponHitTarget[] => {
+  const localPlayer = localPlayerSlot.player;
+  const targets: WeaponHitTarget[] = [];
+  if (localPlayer) {
+    targets.push({
+      id: localPlayerId,
+      pos: localPlayer.pos,
+      collisionBounds: localPlayer.combatCollisionBounds(),
+      canTakeWeaponHit: () => localPlayer.canReceiveWeaponDamage(),
+      onWeaponHit: (attacker) => {
+        localPlayer.takeDamageFrom(attacker, 1);
+      },
+    });
+  }
+  const slime = devSlimeSlot.slime;
+  if (slime && slime.isAlive()) {
+    targets.push({
+      id: slime.entityId(),
+      pos: slime.pos,
+      collisionBounds: slime.combatCollisionBounds(),
+      canTakeWeaponHit: () => slime.canReceiveWeaponDamage(),
+      onWeaponHit: (attacker) => {
+        slime.takeDamageFrom(attacker, 1);
+      },
+    });
+  }
+  return targets;
+};
+
+const resolveLocalWeaponCombat = () => {
+  const localPlayerId = clientSlot.client?.clientId;
+  if (!localPlayerId) {
+    return;
+  }
+  resolveWeaponHits({
+    attackers: weaponHitAttackers(),
+    targets: weaponHitTargets(localPlayerId),
+    hitMemory: weaponHitMemory,
+  });
+};
+
+game.on("postupdate", resolveLocalWeaponCombat);
+
 const applyRemotePlayerUpdate = (payload: Data) => {
   const playerState = payload as PlayerState;
-  const playerId = playerState.id as string;
+  const playerId = String(playerState.id ?? "");
+  if (playerId.length === 0) {
+    return;
+  }
   const player = playerById[playerId];
   if (!player) {
     return;
@@ -408,8 +480,8 @@ const applyRemotePlayerUpdate = (payload: Data) => {
     }
     return;
   }
-  applyPositionFromPayloadIfPresent(player, playerState);
   syncMovementFieldsFromPayload(player, playerState);
+  applyPositionFromPayloadIfPresent(player, playerState);
 };
 
 const joinExistingRemotePlayers = (
@@ -443,6 +515,10 @@ const playerForKnockbackId = (playerId: string) => {
 
 const applyPlayerKnockbackUpdate = (payload: Data) => {
   const update = payload as PlayerKnockbackUpdate;
+  const localPlayerId = clientSlot.client?.clientId;
+  if (!localPlayerId || update.targetId !== localPlayerId) {
+    return;
+  }
   if (!update.id) {
     return;
   }
@@ -451,11 +527,15 @@ const applyPlayerKnockbackUpdate = (payload: Data) => {
   if (!attacker || !target) {
     return;
   }
-  target.knockBackFrom(attacker);
+  target.knockBackFromFacing(attacker.isFacingLeft());
 };
 
 const applyPlayerDamageUpdate = (payload: Data) => {
   const update = payload as PlayerDamageUpdate;
+  const localPlayerId = clientSlot.client?.clientId;
+  if (!localPlayerId || update.targetId !== localPlayerId) {
+    return;
+  }
   if (!update.id) {
     return;
   }
@@ -606,12 +686,13 @@ const gameMessageHandlers = (client: GameClient): MessageEvents => ({
     if (!dummyTileMap) {
       return;
     }
-    const { id, x, y } = payload as PlayerState;
-    if (!id) {
+    const playerState = payload as PlayerState;
+    const id = String(playerState.id ?? "");
+    if (id.length === 0) {
       return;
     }
-    spawnPlayerAt(game, terrain, dummyTileMap, id, Number(x), Number(y));
-    playerPingById[id] = (payload as PlayerState).pingMs;
+    spawnPlayerAt(game, terrain, dummyTileMap, id, Number(playerState.x), Number(playerState.y));
+    playerPingById[id] = playerState.pingMs;
     renderPlayerList();
   },
   [messageTypes.updatePlayer]: applyRemotePlayerUpdate,

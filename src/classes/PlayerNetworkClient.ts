@@ -7,6 +7,12 @@ export type PlayerMovementState = {
   y: number;
   horizontalSpeed: number;
   verticalSpeed: number;
+  attackCycle: number;
+  facingLeft: boolean;
+  keyLeft: boolean;
+  keyRight: boolean;
+  keyJump: boolean;
+  keyDown: boolean;
 };
 
 const absDiffAtLeast = (a: number, b: number, threshold: number) =>
@@ -120,6 +126,24 @@ export class PlayerNetworkClient {
         serverMovementSpeedThreshold,
       )
     ) {
+      return true;
+    }
+    if (movementState.attackCycle !== lastMovementState.attackCycle) {
+      return true;
+    }
+    if (movementState.facingLeft !== lastMovementState.facingLeft) {
+      return true;
+    }
+    if (movementState.keyLeft !== lastMovementState.keyLeft) {
+      return true;
+    }
+    if (movementState.keyRight !== lastMovementState.keyRight) {
+      return true;
+    }
+    if (movementState.keyJump !== lastMovementState.keyJump) {
+      return true;
+    }
+    if (movementState.keyDown !== lastMovementState.keyDown) {
       return true;
     }
     return false;

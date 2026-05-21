@@ -30,6 +30,7 @@ export class PlayerVisuals {
 
   private locomotionVisual: PlayerLocomotionVisual = "idle";
   private swordAttackActive = false;
+  private swordAttackCycleCount = 0;
   private facingLeft = false;
   private equippedWeaponSprite: ex.ImageSource = Resources.WoodSword;
 
@@ -127,12 +128,36 @@ export class PlayerVisuals {
       return false;
     }
     this.swordAttackActive = true;
+    this.swordAttackCycleCount += 1;
     this.applyVisual("sword", true);
     return true;
   }
 
   public isSwordAttackActive() {
     return this.swordAttackActive;
+  }
+
+  public endSwordAttackForResync() {
+    if (!this.swordAttackActive) {
+      return;
+    }
+    this.swordAttackActive = false;
+    this.applyVisual(this.locomotionVisual, true);
+  }
+
+  public swordAttackCycle() {
+    return this.swordAttackCycleCount;
+  }
+
+  public swordAttackElapsedRatio() {
+    if (!this.swordAttackActive) {
+      return 0;
+    }
+    return this.swordAnimation.elapsedRatio();
+  }
+
+  public swordWeaponActor() {
+    return this.swordAnimation.actorForPart("weapon");
   }
 
   public isSwordFacingLocked() {
@@ -199,20 +224,20 @@ export class PlayerVisuals {
     position: ex.Vector,
     snapDistance: number,
   ) {
-    const visualWorldPosition = this.visualWorldPosition();
-    this.actor.pos = ex.vec(position.x, position.y);
-    const nextOffset = visualWorldPosition.sub(this.actor.pos);
     void snapDistance;
-    this.visualCorrectionStartOffset = nextOffset;
-    this.visualCorrectionElapsedMs = 0;
-    this.applyVisualCorrectionOffset(nextOffset);
+    this.actor.pos = ex.vec(position.x, position.y);
+    this.resetVisualCorrection();
+    this.activeAnimation.update(0, this.facingLeft, this.animationBaseOffset());
+  }
+
+  private resetVisualCorrection() {
+    this.visualCorrectionStartOffset = ex.vec(0, 0);
+    this.visualCorrectionElapsedMs = remoteVisualCorrectionDurationMs;
+    this.applyVisualCorrectionOffset(ex.vec(0, 0));
   }
 
   public visualWorldPosition() {
-    return this.actor.pos
-      .add(this.bodyGraphicCenter())
-      .add(this.visualCorrectionOffset)
-      .add(this.renderOffset);
+    return this.actor.pos.add(this.bodyGraphicCenter());
   }
 
   public applyRenderOffset(offset: ex.Vector) {
