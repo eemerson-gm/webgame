@@ -77,15 +77,22 @@ const pixelTextSlotWidth = (characters: number) =>
   characters * pixelTextGlyphWidth("0") * pixelTextPixelSize +
   Math.max(characters - 1, 0) * pixelTextGlyphGap * pixelTextPixelSize;
 
+const pixelTextEdgePadding = (outlined: boolean) =>
+  outlined ? pixelTextOutlineSize : 0;
+
 export const pixelTextSize = (
   text: string,
   minimumCharacters: number = text.length,
-) => ({
-  width:
-    Math.max(pixelTextSlotWidth(minimumCharacters), pixelTextContentWidth(text)) +
-    pixelTextOutlineSize * 2,
-  height: pixelTextGlyphHeight * pixelTextPixelSize + pixelTextOutlineSize * 2,
-});
+  outlined: boolean = false,
+) => {
+  const edgePadding = pixelTextEdgePadding(outlined);
+  return {
+    width:
+      Math.max(pixelTextSlotWidth(minimumCharacters), pixelTextContentWidth(text)) +
+      edgePadding * 2,
+    height: pixelTextGlyphHeight * pixelTextPixelSize + edgePadding * 2,
+  };
+};
 
 class PixelTextRaster extends ex.Raster {
   private readonly size: { width: number; height: number };
@@ -94,8 +101,9 @@ class PixelTextRaster extends ex.Raster {
     private readonly text: string,
     private readonly minimumCharacters: number,
     private readonly textOrigin: PixelTextOrigin,
+    private readonly outlined: boolean,
   ) {
-    const size = pixelTextSize(text, minimumCharacters);
+    const size = pixelTextSize(text, minimumCharacters, outlined);
     super({
       width: size.width,
       height: size.height,
@@ -114,14 +122,18 @@ class PixelTextRaster extends ex.Raster {
       this.text,
       this.minimumCharacters,
       this.textOrigin,
+      this.outlined,
     );
   }
 
   override execute(ctx: CanvasRenderingContext2D) {
-    const textOffset = ex.vec(pixelTextOutlineSize, pixelTextOutlineSize);
-    pixelTextOutlineOffsets.forEach((offset) =>
-      this.drawText(ctx, textOffset.add(offset), "#000000"),
-    );
+    const edgePadding = pixelTextEdgePadding(this.outlined);
+    const textOffset = ex.vec(edgePadding, edgePadding);
+    if (this.outlined) {
+      pixelTextOutlineOffsets.forEach((offset) =>
+        this.drawText(ctx, textOffset.add(offset), "#000000"),
+      );
+    }
     this.drawText(ctx, textOffset, "#ffffff");
   }
 
@@ -131,10 +143,9 @@ class PixelTextRaster extends ex.Raster {
     color: string,
   ) {
     ctx.fillStyle = color;
+    const edgePadding = pixelTextEdgePadding(this.outlined);
     const startX =
-      this.size.width -
-      pixelTextOutlineSize * 2 -
-      pixelTextContentWidth(this.text);
+      this.size.width - edgePadding * 2 - pixelTextContentWidth(this.text);
     this.text.split("").forEach((character, characterIndex) => {
       const glyph = pixelTextGlyphFor(character);
       const characterX =
@@ -166,19 +177,23 @@ class PixelTextRaster extends ex.Raster {
   }
 }
 
+type PixelTextDisplayOptions = {
+  minimumCharacters?: number;
+  origin?: PixelTextOrigin;
+  outlined?: boolean;
+};
+
 export class PixelTextDisplay extends ex.Actor {
   private text: string;
 
   constructor(
     text: string,
     pos: ex.Vector,
-    private readonly options: {
-      minimumCharacters?: number;
-      origin?: PixelTextOrigin;
-    } = {},
+    private readonly options: PixelTextDisplayOptions = {},
   ) {
     const minimumCharacters = options.minimumCharacters ?? text.length;
-    const size = pixelTextSize(text, minimumCharacters);
+    const outlined = options.outlined ?? false;
+    const size = pixelTextSize(text, minimumCharacters, outlined);
     super({
       pos,
       anchor: ex.vec(0, 0),
@@ -187,7 +202,12 @@ export class PixelTextDisplay extends ex.Actor {
     });
     this.text = text;
     this.graphics.use(
-      new PixelTextRaster(text, minimumCharacters, options.origin ?? "topLeft"),
+      new PixelTextRaster(
+        text,
+        minimumCharacters,
+        options.origin ?? "topLeft",
+        outlined,
+      ),
     );
   }
 
@@ -196,12 +216,24 @@ export class PixelTextDisplay extends ex.Actor {
       return;
     }
     this.text = text;
+    const outlined = this.options.outlined ?? false;
     this.graphics.use(
       new PixelTextRaster(
         text,
         this.options.minimumCharacters ?? text.length,
         this.options.origin ?? "topLeft",
+        outlined,
       ),
     );
+  }
+}
+
+export class OutlinedPixelTextDisplay extends PixelTextDisplay {
+  constructor(
+    text: string,
+    pos: ex.Vector,
+    options: Omit<PixelTextDisplayOptions, "outlined"> = {},
+  ) {
+    super(text, pos, { ...options, outlined: true });
   }
 }

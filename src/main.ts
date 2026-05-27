@@ -2,6 +2,8 @@ import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Slime } from "./actors/Slime";
 import { HUDManager } from "./ui/HUDManager";
+import { PixelTextDisplay } from "./ui/PixelTextDisplay";
+import { UIPanel } from "./ui/UIPanel";
 import { Resources } from "./resource";
 import { GameClient, type MessageEvents } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -658,6 +660,14 @@ const startWorldSession = (
       };
     }),
   );
+  const uiPanelTest = new UIPanel({
+    pos: ex.vec(4, 22),
+    width: 80,
+    height: 30,
+    z: 1001,
+  });
+  uiPanelTest.addChild(new PixelTextDisplay("UIPANEL", ex.vec(4, 4)));
+  game.add(uiPanelTest);
   client.send(messageTypes.createPlayer, {
     x: playerSpawn.x,
     y: playerSpawn.y,
