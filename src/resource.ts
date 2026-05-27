@@ -72,6 +72,15 @@ export const Resources = {
   ThoughtBubbleSleep: new ex.ImageSource("./assets/thought_bubble_sleep.png"),
   WhiteWool: new ex.ImageSource("./assets/white_wool.png"),
   WoodSword: new ex.ImageSource("./assets/wood_sword.png"),
+  BronzePickaxe: new ex.ImageSource("./assets/bronze_pickaxe.png"),
+  ItemIconWoodSword: new ex.ImageSource("./assets/items/item_icon_wood_sword.png"),
+  ItemIconBronzePickaxe: new ex.ImageSource("./assets/items/item_icon_bronze_pickaxe.png"),
+  UiIconPlaceholder: new ex.ImageSource("./assets/items/ui_icon_placeholder.png"),
+  UiIconSlotHand: new ex.ImageSource("./assets/items/ui_icon_slot_hand.png"),
+  UiIconSlotBoots: new ex.ImageSource("./assets/items/ui_icon_slot_boots.png"),
+  UiIconSlotHead: new ex.ImageSource("./assets/items/ui_icon_slot_head.png"),
+  UiIconSlotRing: new ex.ImageSource("./assets/items/ui_icon_slot_ring.png"),
+  UiIconSlotEmpty: new ex.ImageSource("./assets/items/ui_icon_slot_empty.png"),
 } as const;
 
 type ResourceEntry = (typeof Resources)[keyof typeof Resources];

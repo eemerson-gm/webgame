@@ -14,6 +14,16 @@ import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
 import { DamageFlash } from "./DamageableActor";
 import { PlayerVisuals, type PlayerLocomotionVisual } from "./player/PlayerVisuals";
 import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
+import {
+  createStarterInventory,
+  PlayerInventory,
+} from "../inventory/PlayerInventory";
+import {
+  getItemCategory,
+  isHandCategory,
+  type EquipmentSlot,
+} from "../items/itemDefinitions";
+import { Resources } from "../resource";
 
 const runSpeedMultiplier = 2;
 const jumpHoldDurationMs = 220;
@@ -101,6 +111,8 @@ export class Player extends WalkingActor {
   private visuals: PlayerVisuals;
   private playerNetwork: PlayerNetworkClient;
 
+  public readonly inventory: PlayerInventory;
+
   constructor(
     pos: ex.Vector,
     tilemap: ex.TileMap,
@@ -125,6 +137,7 @@ export class Player extends WalkingActor {
 
     this.visuals = new PlayerVisuals(this);
     this.playerNetwork = new PlayerNetworkClient(client);
+    this.inventory = new PlayerInventory();
 
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
@@ -132,11 +145,48 @@ export class Player extends WalkingActor {
     });
   }
 
-  public triggerAttack() {
+  public triggerAttack(hand: EquipmentSlot) {
     if (this.isPaused) {
       return false;
     }
-    return this.visuals.playSwordAttack();
+    const itemId = this.inventory.getEquipped(hand);
+    if (itemId === null) {
+      return false;
+    }
+    const category = getItemCategory(itemId);
+    if (category === undefined || !isHandCategory(category)) {
+      return false;
+    }
+    return this.visuals.playHandAttack(category);
+  }
+
+  public applyStarterInventory() {
+    this.inventory.setFromState(createStarterInventory().toState());
+    this.applyEquippedVisuals();
+    this.syncInventoryState();
+  }
+
+  public syncInventoryFromPayload(payload: PlayerState) {
+    this.inventory.setFromPlayerState(payload);
+    this.applyEquippedVisuals();
+  }
+
+  public syncInventoryState() {
+    this.applyEquippedVisuals();
+    if (!this.client) {
+      return;
+    }
+    this.playerNetwork.sendUpdate(this.inventory.toState());
+  }
+
+  public applyEquippedVisuals() {
+    const leftItemId = this.inventory.getEquipped("handLeft");
+    const category = leftItemId ? getItemCategory(leftItemId) : undefined;
+    if (category === "pickaxe") {
+      this.setEquippedWeaponSprite(Resources.BronzePickaxe);
+      return;
+    }
+    this.setEquippedWeaponSprite(Resources.WoodSword);
   }
 
   public syncFacingFromKeys() {
@@ -166,12 +216,12 @@ export class Player extends WalkingActor {
         if (this.isSwordAttackActive()) {
           this.visuals.endSwordAttackForResync();
         }
-        this.triggerAttack();
+        this.triggerAttack("handLeft");
         return;
       }
     }
     if (payload.keyAttack) {
-      this.triggerAttack();
+      this.triggerAttack("handLeft");
     }
   }
 
@@ -224,10 +274,26 @@ export class Player extends WalkingActor {
         ),
       );
       this.scene.camera.strategy.limitCameraBounds(worldBounds);
-      engine.input.pointers.primary.on("down", () => {
-        this.tryAttack();
+      engine.input.pointers.primary.on("down", (evt) => {
+        if (evt.button === ex.PointerButton.Right) {
+          this.useEquippedHand("handRight");
+          return;
+        }
+        if (evt.button === ex.PointerButton.Left) {
+          this.useEquippedHand("handLeft");
+        }
+      });
+      engine.canvas.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
       });
     }
+  }
+
+  private useEquippedHand(hand: EquipmentSlot) {
+    if (!this.client || this.isPaused) {
+      return;
+    }
+    this.tryAttack(hand);
   }
 
   protected locomotionVisuals(): LocomotionVisualsHost {
@@ -296,11 +362,11 @@ export class Player extends WalkingActor {
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
-  private tryAttack() {
+  private tryAttack(hand: EquipmentSlot) {
     if (!this.client || this.isPaused) {
       return;
     }
-    if (!this.triggerAttack()) {
+    if (!this.triggerAttack(hand)) {
       return;
     }
     this.playerNetwork.sendUpdate({

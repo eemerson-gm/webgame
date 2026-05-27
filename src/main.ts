@@ -2,8 +2,7 @@ import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Slime } from "./actors/Slime";
 import { HUDManager } from "./ui/HUDManager";
-import { PixelTextDisplay } from "./ui/PixelTextDisplay";
-import { UIPanel } from "./ui/UIPanel";
+import { InventoryHud } from "./ui/InventoryHud";
 import { Resources } from "./resource";
 import { GameClient, type MessageEvents } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -484,6 +483,7 @@ const applyRemotePlayerUpdate = (payload: Data) => {
   }
   syncMovementFieldsFromPayload(player, playerState);
   applyPositionFromPayloadIfPresent(player, playerState);
+  player.syncInventoryFromPayload(playerState);
 };
 
 const joinExistingRemotePlayers = (
@@ -501,6 +501,7 @@ const joinExistingRemotePlayers = (
     const y = Number(row.y);
     const player = spawnPlayerAt(game, terrain, dummyTileMap, peerId, x, y);
     syncMovementFieldsFromPayload(player, row);
+    player.syncInventoryFromPayload(row);
   });
 };
 
@@ -641,6 +642,7 @@ const startWorldSession = (
     terrain.tileCollisionWorld(),
   );
   game.add(localPlayerSlot.player);
+  localPlayerSlot.player.applyStarterInventory();
   devSlimeSlot.slime = new Slime(
     playerSpawn,
     dummyTileMap,
@@ -660,14 +662,7 @@ const startWorldSession = (
       };
     }),
   );
-  const uiPanelTest = new UIPanel({
-    pos: ex.vec(4, 22),
-    width: 80,
-    height: 30,
-    z: 1001,
-  });
-  uiPanelTest.addChild(new PixelTextDisplay("UIPANEL", ex.vec(4, 4)));
-  game.add(uiPanelTest);
+  game.add(new InventoryHud(() => localPlayerSlot.player));
   client.send(messageTypes.createPlayer, {
     x: playerSpawn.x,
     y: playerSpawn.y,
@@ -701,7 +696,14 @@ const gameMessageHandlers = (client: GameClient): MessageEvents => ({
     if (id.length === 0) {
       return;
     }
-    spawnPlayerAt(game, terrain, dummyTileMap, id, Number(playerState.x), Number(playerState.y));
+    spawnPlayerAt(
+      game,
+      terrain,
+      dummyTileMap,
+      id,
+      Number(playerState.x),
+      Number(playerState.y),
+    );
     playerPingById[id] = playerState.pingMs;
     renderPlayerList();
   },

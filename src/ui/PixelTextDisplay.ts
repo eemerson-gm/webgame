@@ -1,10 +1,12 @@
 import * as ex from "excalibur";
 
 type PixelTextOrigin = "topLeft" | "bottomRight";
+type PixelTextAlign = "left" | "right";
 
 const pixelTextPixelSize = 1;
 const pixelTextGlyphGap = 1;
 const pixelTextOutlineSize = 1;
+const pixelTextShadowBelow = 1;
 const pixelTextGlyphs = {
   "0": ["111", "101", "101", "101", "111"],
   "1": ["010", "110", "010", "010", "111"],
@@ -77,20 +79,33 @@ const pixelTextSlotWidth = (characters: number) =>
   characters * pixelTextGlyphWidth("0") * pixelTextPixelSize +
   Math.max(characters - 1, 0) * pixelTextGlyphGap * pixelTextPixelSize;
 
-const pixelTextEdgePadding = (outlined: boolean) =>
-  outlined ? pixelTextOutlineSize : 0;
+type PixelTextPadding = {
+  horizontal: number;
+  top: number;
+  bottom: number;
+};
+
+const pixelTextPadding = (outlined: boolean): PixelTextPadding => {
+  const outline = outlined ? pixelTextOutlineSize : 0;
+  return {
+    horizontal: outline,
+    top: outline,
+    bottom: outline + pixelTextShadowBelow,
+  };
+};
 
 export const pixelTextSize = (
   text: string,
   minimumCharacters: number = text.length,
   outlined: boolean = false,
 ) => {
-  const edgePadding = pixelTextEdgePadding(outlined);
+  const padding = pixelTextPadding(outlined);
   return {
     width:
       Math.max(pixelTextSlotWidth(minimumCharacters), pixelTextContentWidth(text)) +
-      edgePadding * 2,
-    height: pixelTextGlyphHeight * pixelTextPixelSize + edgePadding * 2,
+      padding.horizontal * 2,
+    height:
+      pixelTextGlyphHeight * pixelTextPixelSize + padding.top + padding.bottom,
   };
 };
 
@@ -102,6 +117,7 @@ class PixelTextRaster extends ex.Raster {
     private readonly minimumCharacters: number,
     private readonly textOrigin: PixelTextOrigin,
     private readonly outlined: boolean,
+    private readonly textAlign: PixelTextAlign,
   ) {
     const size = pixelTextSize(text, minimumCharacters, outlined);
     super({
@@ -123,12 +139,18 @@ class PixelTextRaster extends ex.Raster {
       this.minimumCharacters,
       this.textOrigin,
       this.outlined,
+      this.textAlign,
     );
   }
 
   override execute(ctx: CanvasRenderingContext2D) {
-    const edgePadding = pixelTextEdgePadding(this.outlined);
-    const textOffset = ex.vec(edgePadding, edgePadding);
+    const padding = pixelTextPadding(this.outlined);
+    const textOffset = ex.vec(padding.horizontal, padding.top);
+    this.drawText(
+      ctx,
+      textOffset.add(ex.vec(0, pixelTextShadowBelow)),
+      "#000000",
+    );
     if (this.outlined) {
       pixelTextOutlineOffsets.forEach((offset) =>
         this.drawText(ctx, textOffset.add(offset), "#000000"),
@@ -143,9 +165,11 @@ class PixelTextRaster extends ex.Raster {
     color: string,
   ) {
     ctx.fillStyle = color;
-    const edgePadding = pixelTextEdgePadding(this.outlined);
+    const padding = pixelTextPadding(this.outlined);
+    const slotInnerWidth = this.size.width - padding.horizontal * 2;
+    const contentWidth = pixelTextContentWidth(this.text);
     const startX =
-      this.size.width - edgePadding * 2 - pixelTextContentWidth(this.text);
+      this.textAlign === "left" ? 0 : slotInnerWidth - contentWidth;
     this.text.split("").forEach((character, characterIndex) => {
       const glyph = pixelTextGlyphFor(character);
       const characterX =
@@ -181,6 +205,7 @@ type PixelTextDisplayOptions = {
   minimumCharacters?: number;
   origin?: PixelTextOrigin;
   outlined?: boolean;
+  textAlign?: PixelTextAlign;
 };
 
 export class PixelTextDisplay extends ex.Actor {
@@ -193,6 +218,7 @@ export class PixelTextDisplay extends ex.Actor {
   ) {
     const minimumCharacters = options.minimumCharacters ?? text.length;
     const outlined = options.outlined ?? false;
+    const textAlign = options.textAlign ?? "left";
     const size = pixelTextSize(text, minimumCharacters, outlined);
     super({
       pos,
@@ -207,6 +233,7 @@ export class PixelTextDisplay extends ex.Actor {
         minimumCharacters,
         options.origin ?? "topLeft",
         outlined,
+        textAlign,
       ),
     );
   }
@@ -217,12 +244,14 @@ export class PixelTextDisplay extends ex.Actor {
     }
     this.text = text;
     const outlined = this.options.outlined ?? false;
+    const textAlign = this.options.textAlign ?? "left";
     this.graphics.use(
       new PixelTextRaster(
         text,
         this.options.minimumCharacters ?? text.length,
         this.options.origin ?? "topLeft",
         outlined,
+        textAlign,
       ),
     );
   }
