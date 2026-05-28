@@ -2,7 +2,6 @@ import * as ex from "excalibur";
 import { Player } from "./actors/Player";
 import { Slime } from "./actors/Slime";
 import { HUDManager } from "./ui/HUDManager";
-import { InventoryHud } from "./ui/InventoryHud";
 import { Resources } from "./resource";
 import { GameClient, type MessageEvents } from "./classes/GameClient";
 import { messageTypes } from "./classes/GameProtocol";
@@ -485,7 +484,6 @@ const applyRemotePlayerUpdate = (payload: Data) => {
   }
   syncMovementFieldsFromPayload(player, playerState);
   applyPositionFromPayloadIfPresent(player, playerState);
-  player.syncInventoryFromPayload(playerState);
 };
 
 const joinExistingRemotePlayers = (
@@ -503,7 +501,6 @@ const joinExistingRemotePlayers = (
     const y = Number(row.y);
     const player = spawnPlayerAt(game, terrain, dummyTileMap, peerId, x, y);
     syncMovementFieldsFromPayload(player, row);
-    player.syncInventoryFromPayload(row);
   });
 };
 
@@ -644,7 +641,6 @@ const startWorldSession = (
     terrain.tileCollisionWorld(),
   );
   game.add(localPlayerSlot.player);
-  localPlayerSlot.player.applyStarterInventory();
   devSlimeSlot.slime = new Slime(
     playerSpawn,
     dummyTileMap,
@@ -664,7 +660,6 @@ const startWorldSession = (
       };
     }),
   );
-  game.add(new InventoryHud(() => localPlayerSlot.player));
   client.send(messageTypes.createPlayer, {
     x: playerSpawn.x,
     y: playerSpawn.y,

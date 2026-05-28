@@ -10,10 +10,7 @@ import walkJson from "@/data/animations/player/player_walk.json";
 import jumpJson from "@/data/animations/player/player_jump.json";
 import crouchJson from "@/data/animations/player/player_crouch.json";
 import swordJson from "@/data/animations/player_sword.json";
-import {
-  getHandAttackAnimation,
-  type ItemCategory,
-} from "@/items/itemDefinitions";
+import type { HandAttackAnimation } from "@/combat/playerHands";
 
 export type PlayerVisual = LocomotionVisual | "crouch" | "sword";
 export type PlayerLocomotionVisual = Exclude<PlayerVisual, "sword">;
@@ -141,8 +138,7 @@ export class PlayerVisuals {
     return this.playSwordAttack();
   }
 
-  public playHandAttack(category: ItemCategory) {
-    const handAttackAnimation = getHandAttackAnimation(category);
+  public playHandAttack(handAttackAnimation: HandAttackAnimation) {
     if (handAttackAnimation === "pickaxe") {
       return this.playPickaxeAttack();
     }

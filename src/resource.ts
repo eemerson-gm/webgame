@@ -73,14 +73,6 @@ export const Resources = {
   WhiteWool: new ex.ImageSource("./assets/white_wool.png"),
   WoodSword: new ex.ImageSource("./assets/wood_sword.png"),
   BronzePickaxe: new ex.ImageSource("./assets/bronze_pickaxe.png"),
-  UiItemTypeSword: new ex.ImageSource("./assets/UI/ui_item_type_sword.png"),
-  UiItemTypeTool: new ex.ImageSource("./assets/UI/ui_item_type_tool.png"),
-  UiItemTypeMaterial: new ex.ImageSource("./assets/UI/ui_item_type_material.png"),
-  UiItemTypeFood: new ex.ImageSource("./assets/UI/ui_item_type_food.png"),
-  UiSlotHand: new ex.ImageSource("./assets/UI/ui_slot_hand.png"),
-  UiSlotBoots: new ex.ImageSource("./assets/UI/ui_slot_boots.png"),
-  UiSlotHat: new ex.ImageSource("./assets/UI/ui_slot_hat.png"),
-  UiSlotRing: new ex.ImageSource("./assets/UI/ui_slot_ring.png"),
 } as const;
 
 type ResourceEntry = (typeof Resources)[keyof typeof Resources];

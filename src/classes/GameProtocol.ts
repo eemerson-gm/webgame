@@ -29,12 +29,6 @@ export type PlayerState = {
   verticalSpeed?: number;
   health?: number;
   pingMs?: number;
-  backpack?: (string | null)[];
-  equippedHandLeftId?: string | null;
-  equippedHandRightId?: string | null;
-  equippedBootsId?: string | null;
-  equippedHeadId?: string | null;
-  equippedRingId?: string | null;
 };
 
 export type EntityState = object;

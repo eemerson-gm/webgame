@@ -12,17 +12,12 @@ import {
 } from "./WalkingActor";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
 import { DamageFlash } from "./DamageableActor";
-import { PlayerVisuals, type PlayerLocomotionVisual } from "./player/PlayerVisuals";
+import {
+  PlayerVisuals,
+  type PlayerLocomotionVisual,
+} from "./player/PlayerVisuals";
 import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
-import {
-  createStarterInventory,
-  PlayerInventory,
-} from "../inventory/PlayerInventory";
-import {
-  getItemCategory,
-  isHandCategory,
-  type EquipmentSlot,
-} from "../items/itemDefinitions";
+import { getHandAttackAnimation, type PlayerHand } from "../combat/playerHands";
 import { Resources } from "../resource";
 
 const runSpeedMultiplier = 2;
@@ -107,11 +102,8 @@ export class Player extends WalkingActor {
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
   private previousPhysicsPosition: ex.Vector;
   private currentPhysicsPosition: ex.Vector;
-
   private visuals: PlayerVisuals;
   private playerNetwork: PlayerNetworkClient;
-
-  public readonly inventory: PlayerInventory;
 
   constructor(
     pos: ex.Vector,
@@ -137,7 +129,7 @@ export class Player extends WalkingActor {
 
     this.visuals = new PlayerVisuals(this);
     this.playerNetwork = new PlayerNetworkClient(client);
-    this.inventory = new PlayerInventory();
+    this.setEquippedWeaponSprite(Resources.WoodSword);
 
     this.damageFlash = new DamageFlash(this, {
       durationMs: playerDamageImmunityDurationMs,
@@ -145,48 +137,11 @@ export class Player extends WalkingActor {
     });
   }
 
-  public triggerAttack(hand: EquipmentSlot) {
+  public triggerAttack(hand: PlayerHand) {
     if (this.isPaused) {
       return false;
     }
-    const itemId = this.inventory.getEquipped(hand);
-    if (itemId === null) {
-      return false;
-    }
-    const category = getItemCategory(itemId);
-    if (category === undefined || !isHandCategory(category)) {
-      return false;
-    }
-    return this.visuals.playHandAttack(category);
-  }
-
-  public applyStarterInventory() {
-    this.inventory.setFromState(createStarterInventory().toState());
-    this.applyEquippedVisuals();
-    this.syncInventoryState();
-  }
-
-  public syncInventoryFromPayload(payload: PlayerState) {
-    this.inventory.setFromPlayerState(payload);
-    this.applyEquippedVisuals();
-  }
-
-  public syncInventoryState() {
-    this.applyEquippedVisuals();
-    if (!this.client) {
-      return;
-    }
-    this.playerNetwork.sendUpdate(this.inventory.toState());
-  }
-
-  public applyEquippedVisuals() {
-    const leftItemId = this.inventory.getEquipped("handLeft");
-    const category = leftItemId ? getItemCategory(leftItemId) : undefined;
-    if (category === "pickaxe") {
-      this.setEquippedWeaponSprite(Resources.BronzePickaxe);
-      return;
-    }
-    this.setEquippedWeaponSprite(Resources.WoodSword);
+    return this.visuals.playHandAttack(getHandAttackAnimation(hand));
   }
 
   public syncFacingFromKeys() {
@@ -289,7 +244,7 @@ export class Player extends WalkingActor {
     }
   }
 
-  private useEquippedHand(hand: EquipmentSlot) {
+  private useEquippedHand(hand: PlayerHand) {
     if (!this.client || this.isPaused) {
       return;
     }
@@ -362,7 +317,7 @@ export class Player extends WalkingActor {
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
-  private tryAttack(hand: EquipmentSlot) {
+  private tryAttack(hand: PlayerHand) {
     if (!this.client || this.isPaused) {
       return;
     }

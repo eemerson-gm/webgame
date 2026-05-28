@@ -16,7 +16,6 @@ import type {
   WorldSummary,
   WorldTerrainPayload,
 } from "./GameProtocol";
-import { createEmptyInventoryState } from "../inventory/inventoryState";
 
 type MessageRouting = Record<string, "all" | "player" | "others">;
 type WorldRoom = {
@@ -279,7 +278,6 @@ export class GameServer {
       health: 6,
       x: room.playerSpawn.x,
       y: room.playerSpawn.y,
-      ...createEmptyInventoryState(),
     };
     console.log(
       `[${playerId}]: Joined ${room.name} (${Object.keys(room.playerSockets).length} players)`,
