@@ -18,6 +18,7 @@ import type {
 } from "./classes/GameProtocol";
 import { TerrainTileMap } from "./classes/TerrainTileMap";
 import { TileLightingOverlay } from "./classes/TileLightingOverlay";
+import { wireIntegerCanvasDisplay } from "./integerCanvasDisplay";
 import { separateEntityBodies } from "./actors/MovingActor";
 import type { EntitySeparationBody } from "./actors/MovingActor";
 import { TILE_PX } from "./world/worldConfig";
@@ -68,6 +69,7 @@ const loader = new ex.DefaultLoader({
 
 const viewWidth = 320;
 const viewHeight = 180;
+const viewPixelRatio = 3;
 const browserActionGameKeyCodes = [
   "Tab",
   "Space",
@@ -85,7 +87,7 @@ const game = new ex.Engine({
   backgroundColor: ex.Color.fromHex("#54C0CA"),
   pixelArt: true,
   snapToPixel: false,
-  pixelRatio: 3,
+  pixelRatio: viewPixelRatio,
   displayMode: ex.DisplayMode.FitContainer,
 });
 
@@ -746,6 +748,12 @@ const wireGameClient = (client: GameClient) => {
 };
 
 game.start(loader).then(() => {
+  wireIntegerCanvasDisplay(game, {
+    viewWidth,
+    viewHeight,
+    pixelRatio: viewPixelRatio,
+    maxDisplayWidth: 1280,
+  });
   focusGameCanvas(game);
   showMainMenu();
   const client = new GameClient();

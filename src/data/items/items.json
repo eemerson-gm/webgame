@@ -1,12 +1,10 @@
 {
   "wood_sword": {
     "category": "sword",
-    "displayName": "Wood Sword",
-    "iconKey": "ItemIconWoodSword"
+    "displayName": "Wood Sword"
   },
   "bronze_pickaxe": {
     "category": "pickaxe",
-    "displayName": "Bronze Pickaxe",
-    "iconKey": "ItemIconBronzePickaxe"
+    "displayName": "Bronze Pickaxe"
   }
 }

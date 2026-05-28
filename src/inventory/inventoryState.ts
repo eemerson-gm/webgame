@@ -1,4 +1,4 @@
-export const backpackSize = 12;
+export const backpackSize = 16;
 
 export type InventoryState = {
   backpack: (string | null)[];

@@ -20,19 +20,15 @@ export type EquipmentSlotGroup = "hand" | "boots" | "head" | "ring";
 
 export type HandAttackAnimation = "sword" | "pickaxe";
 
-export type ItemIconKey = "ItemIconWoodSword" | "ItemIconBronzePickaxe";
-
 export type ItemDefinition = {
   id: string;
   category: ItemCategory;
   displayName: string;
-  iconKey: ItemIconKey;
 };
 
 type ItemJsonRow = {
   category: ItemCategory;
   displayName: string;
-  iconKey: ItemIconKey;
 };
 
 type CategoryConfig = {
@@ -87,7 +83,6 @@ const itemDefinitions: Record<string, ItemDefinition> = Object.fromEntries(
       id,
       category: row.category,
       displayName: row.displayName,
-      iconKey: row.iconKey,
     },
   ]),
 );
@@ -97,9 +92,6 @@ export const getItemDefinition = (itemId: string): ItemDefinition | undefined =>
 
 export const getItemCategory = (itemId: string): ItemCategory | undefined =>
   getItemDefinition(itemId)?.category;
-
-export const getItemIconKey = (itemId: string): ItemIconKey | undefined =>
-  getItemDefinition(itemId)?.iconKey;
 
 export const getHandAttackAnimation = (
   category: ItemCategory,

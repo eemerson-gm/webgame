@@ -8,45 +8,89 @@ import {
   isEquipCategory,
   type EquipmentSlot,
 } from "../items/itemDefinitions";
-import { getItemIcon } from "../items/itemIcons";
+import { getItemTypeIcon } from "../items/itemTypeIcons";
 import { Resources } from "../resource";
-import { PixelTextDisplay, pixelTextSize } from "./PixelTextDisplay";
-import { UIPanel } from "./UIPanel";
+import {
+  OutlinedPixelTextDisplay,
+  PixelTextDisplay,
+  pixelTextSize,
+} from "./PixelTextDisplay";
+import { fillPixelRect, preparePixelCanvas, snapPixel } from "./pixelUi";
+import { UIPanel, uiPanelInnerContentInset } from "./UIPanel";
 
 type PlayerProvider = () => Player | null;
 
-const hudOrigin = ex.vec(4, 22);
-const panelPaddingX = 6;
-const panelPaddingY = 6;
+const hudOrigin = ex.vec(snapPixel(4), snapPixel(22));
+const slotInsetX = 6;
+const slotInsetY = 3;
+const rowLabelGap = 2;
+const listPaddingTop = 3;
+const listPaddingBottom = 3;
+const slotSeparatorThickness = 1;
 const rowIconSize = 8;
-const rowLabelGap = 6;
 const rowLabelMinCharacters = 16;
 const rowLabelColumnWidth = pixelTextSize("", rowLabelMinCharacters).width;
-const rowLabelY = 2;
+const rowTextHeight = pixelTextSize("", rowLabelMinCharacters).height;
+const slotContentHeight = rowIconSize > rowTextHeight ? rowIconSize : rowTextHeight;
+const slotHeight = slotInsetY * 2 + slotContentHeight;
+const slotIconY = slotInsetY + snapPixel((slotContentHeight - rowIconSize) / 2);
+const slotLabelY = slotInsetY + snapPixel((slotContentHeight - rowTextHeight) / 2);
+const rowLabelX = slotInsetX + rowIconSize + rowLabelGap + 1;
 const inventoryToggleKey = ex.Keys.I;
 
 const itemRowContentWidth =
   rowIconSize + rowLabelGap + rowLabelColumnWidth;
 
-const backpackWidth = panelPaddingX + itemRowContentWidth + panelPaddingX;
-const equipColumnWidth = backpackWidth;
+const panelWidth = slotInsetX * 2 + itemRowContentWidth;
+const slotSeparatorWidth = panelWidth - uiPanelInnerContentInset * 2;
+const backpackWidth = panelWidth;
+const equipColumnWidth = panelWidth;
 
-const rowContentHeight = 9;
-const slotVerticalGap = 3;
-const backpackRowHeight = rowContentHeight + slotVerticalGap;
-const backpackRowCount = backpackSize;
-const backpackHeight = backpackRowCount * backpackRowHeight + panelPaddingY * 2;
-const equipColumnGap = 8;
-const equipSlotHeight = backpackRowHeight;
+const slotBlockStride = slotHeight + slotSeparatorThickness;
 const equipSlotCount = allEquipmentSlots.length;
-const equipColumnHeight = equipSlotCount * equipSlotHeight + panelPaddingY * 2;
+const backpackVisibleRowCount = 8;
+const backpackVisibleListHeight =
+  listPaddingTop +
+  listPaddingBottom +
+  backpackVisibleRowCount * slotHeight +
+  (backpackVisibleRowCount - 1) * slotSeparatorThickness;
+const bagFillCountMinCharacters = 5;
+const bagFillCountGap = 4;
+const bagFillCountBottomPad = 2;
+const bagFillCountHeight = pixelTextSize(
+  `0/${backpackSize}`,
+  bagFillCountMinCharacters,
+  true,
+).height;
+const backpackFillCountAreaHeight =
+  bagFillCountGap + bagFillCountHeight + bagFillCountBottomPad;
+const backpackPanelTitleText = "BACKPACK";
+const equipPanelTitleText = "EQUIPMENT";
+const panelTitleGap = 3;
+const panelTitleHeight = pixelTextSize(
+  backpackPanelTitleText,
+  backpackPanelTitleText.length,
+  true,
+).height;
+const panelHeaderHeight = panelTitleGap + panelTitleHeight;
+const backpackColumnHeight =
+  panelHeaderHeight + backpackVisibleListHeight + backpackFillCountAreaHeight;
+const equipColumnGap = 1;
+const equipPanelBodyHeight =
+  listPaddingTop +
+  listPaddingBottom +
+  equipSlotCount * slotHeight +
+  (equipSlotCount - 1) * slotSeparatorThickness;
+const equipColumnHeight = panelHeaderHeight + equipPanelBodyHeight;
+
+const slotSeparatorColor = "#000000";
 
 const slotChromeByEquipmentSlot: Record<EquipmentSlot, ex.ImageSource> = {
-  handLeft: Resources.UiIconSlotHand,
-  handRight: Resources.UiIconSlotHand,
-  boots: Resources.UiIconSlotBoots,
-  head: Resources.UiIconSlotHead,
-  ring: Resources.UiIconSlotRing,
+  handLeft: Resources.UiSlotHand,
+  handRight: Resources.UiSlotHand,
+  boots: Resources.UiSlotBoots,
+  head: Resources.UiSlotHat,
+  ring: Resources.UiSlotRing,
 };
 
 const truncateDisplayName = (name: string) =>
@@ -76,30 +120,118 @@ class InventoryIconActor extends ex.Actor {
   }
 }
 
-const rowLabelX = (iconColumnWidth: number) => iconColumnWidth + rowLabelGap;
+const slotTop = (index: number) => listPaddingTop + index * slotBlockStride;
 
-const applyItemIcon = (
-  icon: InventoryIconActor,
-  itemId: string | null,
-  emptyIcon: ex.ImageSource,
-) => {
-  if (itemId === null) {
-    icon.setImage(emptyIcon);
-    return;
+const slotSeparatorY = (index: number) =>
+  listPaddingTop + (index + 1) * slotHeight + index * slotSeparatorThickness;
+
+const panelOutlinedTitle = (
+  text: string,
+  panelLeft: number,
+  titleY: number,
+) =>
+  new OutlinedPixelTextDisplay(text, ex.vec(panelLeft, titleY), {
+    minimumCharacters: text.length,
+    textAlign: "left",
+  });
+
+class InventorySlotSeparatorsRaster extends ex.Raster {
+  constructor(
+    private readonly panelHeight: number,
+    private readonly rowCount: number,
+  ) {
+    super({
+      width: panelWidth,
+      height: panelHeight,
+      origin: ex.vec(0, 0),
+      smoothing: false,
+      filtering: ex.ImageFiltering.Pixel,
+    });
   }
-  icon.setImage(getItemIcon(itemId));
+
+  override clone() {
+    return new InventorySlotSeparatorsRaster(this.panelHeight, this.rowCount);
+  }
+
+  override execute(ctx: CanvasRenderingContext2D) {
+    preparePixelCanvas(ctx);
+    ctx.fillStyle = slotSeparatorColor;
+    Array.from({ length: this.rowCount - 1 }, (_value, index) => {
+      fillPixelRect(
+        ctx,
+        uiPanelInnerContentInset,
+        slotSeparatorY(index),
+        slotSeparatorWidth,
+        1,
+      );
+    });
+  }
+}
+
+class InventorySlotSeparatorsOverlay extends ex.Actor {
+  constructor(panelHeight: number, rowCount: number) {
+    super({
+      pos: ex.vec(0, 0),
+      anchor: ex.vec(0, 0),
+      width: panelWidth,
+      height: panelHeight,
+    });
+    this.graphics.use(new InventorySlotSeparatorsRaster(panelHeight, rowCount));
+    this.graphics.anchor = ex.vec(0, 0);
+  }
+}
+
+const addSlotSeparators = (
+  panel: ex.ScreenElement,
+  panelHeight: number,
+  rowCount: number,
+) => {
+  panel.addChild(new InventorySlotSeparatorsOverlay(panelHeight, rowCount));
 };
 
-const applyItemLabel = (label: PixelTextDisplay, itemId: string | null) => {
+const applyBackpackRow = (
+  icon: InventoryIconActor,
+  label: PixelTextDisplay,
+  itemId: string | null,
+) => {
   if (itemId === null) {
+    icon.graphics.opacity = 0;
     label.graphics.opacity = 0;
     return;
   }
   const definition = getItemDefinition(itemId);
   if (definition === undefined) {
+    icon.graphics.opacity = 0;
     label.graphics.opacity = 0;
     return;
   }
+  icon.setImage(getItemTypeIcon(itemId));
+  icon.graphics.opacity = 1;
+  label.setText(truncateDisplayName(definition.displayName));
+  label.graphics.opacity = 1;
+};
+
+const applyEquipRow = (
+  icon: InventoryIconActor,
+  label: PixelTextDisplay,
+  itemId: string | null,
+  emptySlotIcon: ex.ImageSource,
+) => {
+  if (itemId === null) {
+    icon.setImage(emptySlotIcon);
+    icon.graphics.opacity = 1;
+    label.graphics.opacity = 0;
+    return;
+  }
+  const definition = getItemDefinition(itemId);
+  if (definition === undefined) {
+    icon.setImage(emptySlotIcon);
+    icon.graphics.opacity = 1;
+    label.graphics.opacity = 0;
+    return;
+  }
+  icon.setImage(getItemTypeIcon(itemId));
+  icon.graphics.opacity = 1;
   label.setText(truncateDisplayName(definition.displayName));
   label.graphics.opacity = 1;
 };
@@ -119,21 +251,20 @@ class InventoryBackpackRow extends ex.Actor {
     onActivate: (backpackIndex: number) => void,
   ) {
     super({
-      pos: ex.vec(panelPaddingX, rowTop),
+      pos: ex.vec(0, rowTop),
       anchor: ex.vec(0, 0),
-      width: backpackWidth - panelPaddingX * 2,
-      height: backpackRowHeight,
+      width: panelWidth,
+      height: slotHeight,
     });
     this.backpackIndex = backpackIndex;
     this.onActivate = onActivate;
-    const labelX = rowLabelX(rowIconSize);
     this.iconActor = new InventoryIconActor(
-      ex.vec(0, 1),
+      ex.vec(slotInsetX, slotIconY),
       rowIconSize,
       rowIconSize,
-      Resources.UiIconSlotEmpty,
+      Resources.UiItemTypeMaterial,
     );
-    this.labelActor = new PixelTextDisplay("", ex.vec(labelX, rowLabelY), {
+    this.labelActor = new PixelTextDisplay("", ex.vec(rowLabelX, slotLabelY), {
       minimumCharacters: rowLabelMinCharacters,
       textAlign: "left",
     });
@@ -144,8 +275,7 @@ class InventoryBackpackRow extends ex.Actor {
   }
 
   public refresh(itemId: string | null) {
-    applyItemIcon(this.iconActor, itemId, Resources.UiIconSlotEmpty);
-    applyItemLabel(this.labelActor, itemId);
+    applyBackpackRow(this.iconActor, this.labelActor, itemId);
   }
 }
 
@@ -166,22 +296,21 @@ class InventoryEquipSlot extends ex.Actor {
     onActivate: (equipmentSlot: EquipmentSlot) => void,
   ) {
     super({
-      pos: ex.vec(panelPaddingX, slotTop),
+      pos: ex.vec(0, slotTop),
       anchor: ex.vec(0, 0),
-      width: equipColumnWidth - panelPaddingX * 2,
-      height: equipSlotHeight,
+      width: panelWidth,
+      height: slotHeight,
     });
     this.equipmentSlot = equipmentSlot;
     this.onActivate = onActivate;
     this.emptySlotIcon = slotChromeByEquipmentSlot[equipmentSlot];
-    const labelX = rowLabelX(rowIconSize);
     this.iconActor = new InventoryIconActor(
-      ex.vec(0, 1),
+      ex.vec(slotInsetX, slotIconY),
       rowIconSize,
       rowIconSize,
       this.emptySlotIcon,
     );
-    this.labelActor = new PixelTextDisplay("", ex.vec(labelX, rowLabelY), {
+    this.labelActor = new PixelTextDisplay("", ex.vec(rowLabelX, slotLabelY), {
       minimumCharacters: rowLabelMinCharacters,
       textAlign: "left",
     });
@@ -192,8 +321,7 @@ class InventoryEquipSlot extends ex.Actor {
   }
 
   public refresh(itemId: string | null) {
-    applyItemIcon(this.iconActor, itemId, this.emptySlotIcon);
-    applyItemLabel(this.labelActor, itemId);
+    applyEquipRow(this.iconActor, this.labelActor, itemId, this.emptySlotIcon);
   }
 }
 
@@ -210,6 +338,12 @@ export class InventoryHud extends ex.ScreenElement {
 
   private readonly equipSlots: InventoryEquipSlot[];
 
+  private readonly backpackFillCount: OutlinedPixelTextDisplay;
+
+  private readonly backpackPanelTitle: OutlinedPixelTextDisplay;
+
+  private readonly equipPanelTitle: OutlinedPixelTextDisplay;
+
   private pendingEquipSlot: EquipmentSlot | undefined;
 
   constructor(getPlayer: PlayerProvider) {
@@ -217,43 +351,72 @@ export class InventoryHud extends ex.ScreenElement {
       pos: hudOrigin,
       anchor: ex.vec(0, 0),
       width: backpackWidth + equipColumnGap + equipColumnWidth,
-      height: Math.max(backpackHeight, equipColumnHeight),
+      height: Math.max(backpackColumnHeight, equipColumnHeight),
       z: 1500,
     });
     this.getPlayer = getPlayer;
+    this.backpackPanelTitle = panelOutlinedTitle(backpackPanelTitleText, 0, 0);
+    this.equipPanelTitle = panelOutlinedTitle(
+      equipPanelTitleText,
+      backpackWidth + equipColumnGap,
+      0,
+    );
     this.backpackPanel = new UIPanel({
-      pos: ex.vec(0, 0),
+      pos: ex.vec(snapPixel(0), snapPixel(panelHeaderHeight)),
       width: backpackWidth,
-      height: backpackHeight,
+      height: backpackVisibleListHeight,
       z: 1,
     });
+    this.backpackFillCount = new OutlinedPixelTextDisplay(
+      `0/${backpackSize}`,
+      ex.vec(
+        0,
+        panelHeaderHeight + backpackVisibleListHeight + bagFillCountGap,
+      ),
+      {
+        minimumCharacters: bagFillCountMinCharacters,
+        textAlign: "left",
+      },
+    );
     this.equipPanel = new UIPanel({
-      pos: ex.vec(backpackWidth + equipColumnGap, 0),
+      pos: ex.vec(
+        snapPixel(backpackWidth + equipColumnGap),
+        snapPixel(panelHeaderHeight),
+      ),
       width: equipColumnWidth,
-      height: equipColumnHeight,
+      height: equipPanelBodyHeight,
       z: 1,
     });
-    this.backpackRows = Array.from({ length: backpackRowCount }, (_value, index) => {
+    this.backpackRows = Array.from({ length: backpackVisibleRowCount }, (_value, index) => {
       const row = new InventoryBackpackRow(
         index,
-        panelPaddingY + index * backpackRowHeight,
+        slotTop(index),
         (backpackIndex) =>
         this.onBackpackRowActivated(backpackIndex),
       );
       this.backpackPanel.addChild(row);
       return row;
     });
+    addSlotSeparators(
+      this.backpackPanel,
+      backpackVisibleListHeight,
+      backpackVisibleRowCount,
+    );
     this.equipSlots = allEquipmentSlots.map((equipmentSlot, index) => {
       const slot = new InventoryEquipSlot(
         equipmentSlot,
-        panelPaddingY + index * equipSlotHeight,
+        slotTop(index),
         (slotId) =>
         this.onEquipSlotActivated(slotId),
       );
       this.equipPanel.addChild(slot);
       return slot;
     });
+    addSlotSeparators(this.equipPanel, equipPanelBodyHeight, equipSlotCount);
+    this.addChild(this.backpackPanelTitle);
+    this.addChild(this.equipPanelTitle);
     this.addChild(this.backpackPanel);
+    this.addChild(this.backpackFillCount);
     this.addChild(this.equipPanel);
     this.setPanelVisible(false);
   }
@@ -274,7 +437,10 @@ export class InventoryHud extends ex.ScreenElement {
 
   private setPanelVisible(isVisible: boolean) {
     this.graphics.opacity = isVisible ? 1 : 0;
+    this.backpackPanelTitle.graphics.opacity = isVisible ? 1 : 0;
+    this.equipPanelTitle.graphics.opacity = isVisible ? 1 : 0;
     this.backpackPanel.graphics.opacity = isVisible ? 1 : 0;
+    this.backpackFillCount.graphics.opacity = isVisible ? 1 : 0;
     this.equipPanel.graphics.opacity = isVisible ? 1 : 0;
   }
 
@@ -284,8 +450,11 @@ export class InventoryHud extends ex.ScreenElement {
       return;
     }
     const inventory = player.inventory;
+    const backpack = inventory.getBackpack();
+    const filledCount = backpack.filter((itemId) => itemId !== null).length;
+    this.backpackFillCount.setText(`${filledCount}/${backpackSize}`);
     this.backpackRows.forEach((row, index) => {
-      row.refresh(inventory.getBackpack()[index] ?? null);
+      row.refresh(backpack[index] ?? null);
     });
     this.equipSlots.forEach((slot, index) => {
       const equipmentSlot = allEquipmentSlots[index];

@@ -1,4 +1,5 @@
 import * as ex from "excalibur";
+import { fillPixelRect, preparePixelCanvas } from "./pixelUi";
 
 type UIPanelOptions = {
   pos?: ex.Vector;
@@ -12,6 +13,8 @@ const panelBorderColor = "#000000";
 const outerBorderThickness = 1;
 const innerBorderOffset = 2;
 const innerBorderThickness = 1;
+
+export const uiPanelInnerContentInset = innerBorderOffset + innerBorderThickness;
 
 class UIPanelRaster extends ex.Raster {
   private readonly fillOpacity: number;
@@ -31,6 +34,7 @@ class UIPanelRaster extends ex.Raster {
   }
 
   override execute(ctx: CanvasRenderingContext2D) {
+    preparePixelCanvas(ctx);
     const w = this.width;
     const h = this.height;
     const outerT = outerBorderThickness;
@@ -39,21 +43,27 @@ class UIPanelRaster extends ex.Raster {
     const innerOffset = innerBorderOffset;
     const innerT = innerBorderThickness;
     const innerStripeW = Math.max(0, w - innerOffset * 2);
-    const innerStripeH = Math.max(0, h - innerOffset * 2);
+    const innerSideStripeH = Math.max(0, h - innerOffset * 2 - innerT * 2);
 
     ctx.fillStyle = `rgba(0, 0, 0, ${this.fillOpacity})`;
-    ctx.fillRect(outerT, outerT, outerInnerW, outerInnerH);
+    fillPixelRect(ctx, outerT, outerT, outerInnerW, outerInnerH);
 
     ctx.fillStyle = panelBorderColor;
-    ctx.fillRect(0, 0, w, outerT);
-    ctx.fillRect(0, h - outerT, w, outerT);
-    ctx.fillRect(0, outerT, outerT, outerInnerH);
-    ctx.fillRect(w - outerT, outerT, outerT, outerInnerH);
+    fillPixelRect(ctx, 0, 0, w, outerT);
+    fillPixelRect(ctx, 0, h - outerT, w, outerT);
+    fillPixelRect(ctx, 0, outerT, outerT, h - outerT * 2);
+    fillPixelRect(ctx, w - outerT, outerT, outerT, h - outerT * 2);
 
-    ctx.fillRect(innerOffset, innerOffset, innerStripeW, innerT);
-    ctx.fillRect(innerOffset, innerOffset, innerT, innerStripeH);
-    ctx.fillRect(innerOffset, h - innerOffset - innerT, innerStripeW, innerT);
-    ctx.fillRect(w - innerOffset - innerT, innerOffset, innerT, innerStripeH);
+    fillPixelRect(ctx, innerOffset, innerOffset, innerStripeW, innerT);
+    fillPixelRect(ctx, innerOffset, h - innerOffset - innerT, innerStripeW, innerT);
+    fillPixelRect(ctx, innerOffset, innerOffset + innerT, innerT, innerSideStripeH);
+    fillPixelRect(
+      ctx,
+      w - innerOffset - innerT,
+      innerOffset + innerT,
+      innerT,
+      innerSideStripeH,
+    );
   }
 }
 
