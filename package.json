@@ -5,6 +5,8 @@
     "editor:dev": "tsx src/animation-editor-dev-server.ts",
     "sprite:dimensions": "tsx scripts/sprite-dimensions.ts",
     "sprite:list": "tsx scripts/list-sprites.ts",
+    "search": "tsx scripts/search.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint --cache \"src/**/*.ts\"",
     "build": "vite build",
     "serve": "vite preview"
