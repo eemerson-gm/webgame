@@ -52,6 +52,27 @@ Model gameplay entities as a **layered inheritance chain** so each level owns on
 
 When adding behavior, prefer **subclassing and overriding** over new standalone types or utility modules. Introduce a new abstract base in the chain only when multiple siblings need the same layer (e.g. a future `FlyingActor extends MovingActor`).
 
+## Entry points and application structure
+
+Keep **bootstrap files thin**: construct one application object and start it. Wiring, constants, and lifecycle belong in classes—not a growing script of module-level functions and mutable slots.
+
+**Why this way**
+
+- **State has an owner**: data that appears together in gameplay (players in a world, terrain, session timers) should live on one class instance created when that phase begins—not scattered `const` bags any file can read or overwrite.
+- **One concern per unit**: engine setup, pre-game UI, and active play are different lifecycles. Mixing them in one file forces unrelated edits into the same diff and makes bugs harder to localize.
+- **Matches existing patterns**: the server entry constructs a single coordinator and delegates; actors use collaborator classes for visuals and networking. Apply the same idea at the client/app layer.
+- **Clear extension points**: new lobby behavior touches UI types; new in-world rules touch the session/coordinator that already holds world state—without hunting through unrelated DOM or engine code.
+
+**How to apply it**
+
+- When an entry file accumulates unrelated responsibilities (rendering HTML, network callbacks, per-frame systems, spawning), **extract classes** that own each slice. Prefer a small coordinator plus collaborators over a monolith.
+- **Inject or pass dependencies** (client, menu UI, view size) into the unit that needs them instead of reaching for module globals declared far away.
+- **Create phase-specific state when the phase starts** (e.g. after connect or scene enter), not at module load. Tear-down later targets that instance.
+- **UI that only talks to the network or DOM** should not import the engine; keep DOM in dedicated types under `src/ui/` when it grows beyond a few lines.
+- If registration happens once at startup but handlers must react to state that appears later, handlers should **delegate to a mutable owner** (field on the app/session) at message time—not capture empty state when registered.
+
+When a single class still grows large, split by **lifecycle or system** (e.g. separation vs combat) using more classes or collaborators—not a `*Utils.ts` dump. Extract only when the boundary is obvious; avoid premature fragmentation.
+
 ## Helpers and free functions
 
 - **Do not add new files whose main purpose is helper or utility functions.** Logic should live on the class that owns the data and lifecycle.

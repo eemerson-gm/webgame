@@ -4,14 +4,17 @@ import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { tileMeeting } from "./MovingActor";
 import type { PlayerState } from "../classes/GameProtocol";
-import type { EntitySeparationBody, TileCollisionWorld } from "./MovingActor";
+import type { TileCollisionWorld } from "./MovingActor";
 import {
-  WalkingActor,
+  LivingActor,
+  type LivingSeparationKind,
+  type LivingVitality,
+} from "./LivingActor";
+import {
   collisionOffsetForGraphicCenter,
   type WalkingTuning,
 } from "./WalkingActor";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
-import { DamageFlash } from "./DamageableActor";
 import {
   PlayerVisuals,
   type PlayerLocomotionVisual,
@@ -29,9 +32,11 @@ const playerKnockbackHorizontalSpeed = 2.2;
 const playerKnockbackVerticalSpeed = -1.4;
 const playerKnockbackDurationMs = 240;
 const playerKnockbackFriction = 0.94;
-const playerMaxHealth = 6;
-const playerDamageImmunityDurationMs = 500;
-const playerDamageBlinkFrameMs = 90;
+const playerVitality: LivingVitality = {
+  maxHealth: 6,
+  damageImmunityDurationMs: 500,
+  damageBlinkFrameMs: 90,
+};
 const positionPrecision = 1000;
 const cameraFollowResponsiveness = 10;
 const cameraSnapDistance = TILE_PX * 8;
@@ -86,18 +91,14 @@ class SmoothCameraFollowStrategy {
   };
 }
 
-export class Player extends WalkingActor {
+export class Player extends LivingActor {
   private client?: GameClient;
   isLocal: boolean = false;
   isPaused: boolean = false;
-  public health: number = playerMaxHealth;
-  public readonly maxHealth: number = playerMaxHealth;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
-  private damageFlash: DamageFlash;
   private knockbackTimeRemainingMs: number = 0;
   private lastAppliedRemoteAttackCycle: number = 0;
-  private damageImmunityTimeRemainingMs: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
   private previousPhysicsPosition: ex.Vector;
@@ -119,6 +120,7 @@ export class Player extends WalkingActor {
       ex.vec(width, height),
       collisionOffsetForGraphicCenter(ex.vec(TILE_PX / 2, TILE_PX / 2)),
       playerWalkingTuning,
+      playerVitality,
       collisionWorld,
     );
     this.client = client;
@@ -130,11 +132,25 @@ export class Player extends WalkingActor {
     this.visuals = new PlayerVisuals(this);
     this.playerNetwork = new PlayerNetworkClient(client);
     this.setEquippedWeaponSprite(Resources.WoodSword);
+  }
 
-    this.damageFlash = new DamageFlash(this, {
-      durationMs: playerDamageImmunityDurationMs,
-      blinkFrameMs: playerDamageBlinkFrameMs,
-    });
+  protected separationKind(): LivingSeparationKind {
+    return "player";
+  }
+
+  protected canParticipateInSeparation(canSeparate: boolean) {
+    return canSeparate && !this.isPaused && this.isAlive();
+  }
+
+  protected canTakeDamage() {
+    if (this.isPaused) {
+      return false;
+    }
+    return super.canTakeDamage();
+  }
+
+  protected onHealthDepleted() {
+    this.respawnAtJoinPosition();
   }
 
   public triggerAttack(hand: PlayerHand) {
@@ -215,7 +231,7 @@ export class Player extends WalkingActor {
   override onInitialize(engine: ex.Engine) {
     this.visuals.initialize();
     this.syncCollisionToSprite();
-    this.damageFlash.initialize(engine);
+    this.initializeLivingActor(engine);
     if (this.client && this.scene) {
       const collisionWorld = this.tileCollisionWorld();
       const worldWidthPx = collisionWorld.columns * collisionWorld.tileWidth;
@@ -412,11 +428,9 @@ export class Player extends WalkingActor {
     if (!this.canTakeDamage()) {
       return false;
     }
-    this.health = Math.max(this.health - damage, 0);
-    this.damageImmunityTimeRemainingMs = playerDamageImmunityDurationMs;
-    this.damageFlash.start();
-    if (this.health <= 0) {
-      this.respawnAtJoinPosition();
+    const depleted = this.applyDamage(damage);
+    if (depleted) {
+      this.syncHealthState();
       return true;
     }
     if (actor instanceof Player) {
@@ -445,42 +459,8 @@ export class Player extends WalkingActor {
     return this.visuals.swordAttackElapsedRatio();
   }
 
-  public combatCollisionBounds() {
-    return this.collisionBounds;
-  }
-
-  public canReceiveWeaponDamage() {
-    return this.canTakeDamage();
-  }
-
-  public isAlive() {
-    return this.health > 0;
-  }
-
-  public entitySeparationBody(
-    playerId: string,
-    canSeparate: boolean,
-  ): EntitySeparationBody {
-    return {
-      id: `player:${playerId}`,
-      x: this.pos.x,
-      y: this.pos.y,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-      width: this.width,
-      height: this.height,
-      isGrounded: this.isGrounded,
-      isJumping: this.isJumping,
-      collisionBounds: this.collisionBounds,
-      canSeparate: canSeparate && !this.isPaused && this.isAlive(),
-    };
-  }
-
-  public applySeparatedX(x: number) {
-    if (this.pos.x === x) {
-      return;
-    }
-    this.pos.x = x;
+  protected onSeparatedX(_x: number) {
+    void _x;
     this.syncPhysicsInterpolationToCurrentPosition();
     this.playerNetwork.markPositionChanged();
     this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
@@ -502,25 +482,7 @@ export class Player extends WalkingActor {
   }
 
   public syncHealth(health: unknown) {
-    const nextHealth = Number(health);
-    if (!Number.isFinite(nextHealth)) {
-      return;
-    }
-    const previousHealth = this.health;
-    this.health = Math.max(0, Math.min(nextHealth, this.maxHealth));
-    if (this.health < previousHealth) {
-      this.damageFlash.start();
-    }
-  }
-
-  private canTakeDamage() {
-    if (this.isPaused) {
-      return false;
-    }
-    if (this.damageImmunityTimeRemainingMs > 0) {
-      return false;
-    }
-    return this.health > 0;
+    this.syncLivingHealth(health);
   }
 
   private respawnAtJoinPosition() {
@@ -657,14 +619,6 @@ export class Player extends WalkingActor {
     this.hspeed *= playerKnockbackFriction;
   }
 
-  private updateDamageFeedback(delta: number) {
-    this.damageImmunityTimeRemainingMs = Math.max(
-      this.damageImmunityTimeRemainingMs - delta,
-      0,
-    );
-    this.damageFlash.tick(delta);
-  }
-
   private syncPhysicsInterpolationToCurrentPosition() {
     this.previousPhysicsPosition = this.pos.clone();
     this.currentPhysicsPosition = this.pos.clone();
@@ -730,6 +684,6 @@ export class Player extends WalkingActor {
       this.syncRenderInterpolation();
       this.onMove();
     }
-    this.updateDamageFeedback(frameDelta);
+    this.tickDamageFeedback(frameDelta);
   }
 }

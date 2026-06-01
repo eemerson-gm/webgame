@@ -2,7 +2,7 @@ import * as ex from "excalibur";
 import { Player } from "../actors/Player";
 import { Slime } from "../actors/Slime";
 import { separateEntityBodies } from "../actors/MovingActor";
-import type { EntitySeparationBody } from "../actors/MovingActor";
+import { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
 import { GameClient, type MessageEvents } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameProtocol";
 import type {
@@ -19,7 +19,6 @@ import {
   resolveWeaponHits,
   WeaponHitMemory,
   type WeaponHitAttacker,
-  type WeaponHitTarget,
 } from "../combat/WeaponCombat";
 import { HUDManager } from "../ui/HUDManager";
 import { MainMenuUI } from "../ui/MainMenuUI";
@@ -29,11 +28,6 @@ import { TILE_PX } from "../world/worldConfig";
 type GameViewSize = {
   width: number;
   height: number;
-};
-
-type EntitySeparationEntry = {
-  body: EntitySeparationBody;
-  applySeparatedX: (x: number) => void;
 };
 
 const remotePlayerPositionTolerance = 0.5;
@@ -51,6 +45,7 @@ export class ClientWorldSession {
   private readonly menuUi: MainMenuUI;
   private readonly playerListUi: PlayerListUI;
   private readonly weaponHitMemory = new WeaponHitMemory();
+  private readonly worldLivingEntities = new ClientWorldLivingEntities();
 
   private localPlayer: Player | null = null;
   private devSlime: Slime | null = null;
@@ -137,6 +132,7 @@ export class ClientWorldSession {
   public removeRemotePlayer(playerId: string): void {
     this.remotePlayers[playerId]?.kill();
     delete this.remotePlayers[playerId];
+    this.worldLivingEntities.unregister(playerId);
     this.playerListUi.removePlayer(playerId);
     this.refreshPlayerList();
   }
@@ -191,6 +187,10 @@ export class ClientWorldSession {
       terrain.tileCollisionWorld(),
     );
     this.engine.add(this.localPlayer);
+    const localPlayerId = this.client.clientId;
+    if (localPlayerId) {
+      this.registerPlayerLivingEntity(localPlayerId, this.localPlayer);
+    }
     this.devSlime = new Slime(
       playerSpawn,
       dummyTileMap,
@@ -198,6 +198,7 @@ export class ClientWorldSession {
       this.localPlayer,
     );
     this.engine.add(this.devSlime);
+    this.registerSlimeLivingEntity(this.devSlime);
     this.engine.add(
       new HUDManager(() => {
         const player = this.localPlayer;
@@ -299,7 +300,28 @@ export class ClientWorldSession {
       terrain.tileCollisionWorld(),
     );
     this.engine.add(this.remotePlayers[playerId]);
+    this.registerPlayerLivingEntity(playerId, this.remotePlayers[playerId]);
     return this.remotePlayers[playerId];
+  }
+
+  private registerPlayerLivingEntity(entityId: string, player: Player) {
+    this.worldLivingEntities.register({
+      entityId,
+      living: player,
+      onWeaponHit: (attacker) => {
+        player.takeDamageFrom(attacker, 1);
+      },
+    });
+  }
+
+  private registerSlimeLivingEntity(slime: Slime) {
+    this.worldLivingEntities.register({
+      entityId: slime.entityId(),
+      living: slime,
+      onWeaponHit: (attacker) => {
+        slime.takeDamageFrom(attacker, 1);
+      },
+    });
   }
 
   private applyPositionFromPayloadIfPresent(
@@ -347,57 +369,12 @@ export class ClientWorldSession {
     player.vspeed = payload.verticalSpeed ?? player.vspeed;
   }
 
-  private localPlayerSeparationEntries(): EntitySeparationEntry[] {
-    const localPlayer = this.localPlayer;
-    const localPlayerId = this.client.clientId;
-    if (!localPlayer || !localPlayerId) {
-      return [];
-    }
-    return [
-      {
-        body: localPlayer.entitySeparationBody(localPlayerId, true),
-        applySeparatedX: (x) => localPlayer.applySeparatedX(x),
-      },
-    ];
-  }
-
-  private remotePlayerSeparationEntries(): EntitySeparationEntry[] {
-    return Object.entries(this.remotePlayers).map(([playerId, player]) => ({
-      body: player.entitySeparationBody(playerId, true),
-      applySeparatedX: (x) => player.applySeparatedX(x),
-    }));
-  }
-
-  private slimeSeparationEntries(): EntitySeparationEntry[] {
-    const slime = this.devSlime;
-    if (!slime) {
-      return [];
-    }
-    if (!slime.isAlive()) {
-      return [];
-    }
-    return [
-      {
-        body: slime.entitySeparationBody(slime.entityId(), true),
-        applySeparatedX: (x) => slime.applySeparatedX(x),
-      },
-    ];
-  }
-
-  private entitySeparationEntries(): EntitySeparationEntry[] {
-    return [
-      ...this.localPlayerSeparationEntries(),
-      ...this.remotePlayerSeparationEntries(),
-      ...this.slimeSeparationEntries(),
-    ];
-  }
-
   private separateEntityActors(): void {
     const world = this.terrain?.tileCollisionWorld();
     if (!world) {
       return;
     }
-    const entries = this.entitySeparationEntries();
+    const entries = this.worldLivingEntities.entitySeparationEntries();
     const separatedBodies = separateEntityBodies(
       entries.map((entry) => entry.body),
       {
@@ -438,43 +415,10 @@ export class ClientWorldSession {
     ];
   }
 
-  private weaponHitTargets(localPlayerId: string): WeaponHitTarget[] {
-    const localPlayer = this.localPlayer;
-    const targets: WeaponHitTarget[] = [];
-    if (localPlayer) {
-      targets.push({
-        id: localPlayerId,
-        pos: localPlayer.pos,
-        collisionBounds: localPlayer.combatCollisionBounds(),
-        canTakeWeaponHit: () => localPlayer.canReceiveWeaponDamage(),
-        onWeaponHit: (attacker) => {
-          localPlayer.takeDamageFrom(attacker, 1);
-        },
-      });
-    }
-    const slime = this.devSlime;
-    if (slime && slime.isAlive()) {
-      targets.push({
-        id: slime.entityId(),
-        pos: slime.pos,
-        collisionBounds: slime.combatCollisionBounds(),
-        canTakeWeaponHit: () => slime.canReceiveWeaponDamage(),
-        onWeaponHit: (attacker) => {
-          slime.takeDamageFrom(attacker, 1);
-        },
-      });
-    }
-    return targets;
-  }
-
   private resolveLocalWeaponCombat(): void {
-    const localPlayerId = this.client.clientId;
-    if (!localPlayerId) {
-      return;
-    }
     resolveWeaponHits({
       attackers: this.weaponHitAttackers(),
-      targets: this.weaponHitTargets(localPlayerId),
+      targets: this.worldLivingEntities.weaponHitTargets(),
       hitMemory: this.weaponHitMemory,
     });
   }

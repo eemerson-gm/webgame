@@ -1,7 +1,11 @@
 import * as ex from "excalibur";
 import { TILE_PX } from "../world/worldConfig";
 import {
-  WalkingActor,
+  LivingActor,
+  type LivingSeparationKind,
+  type LivingVitality,
+} from "./LivingActor";
+import {
   collisionOffsetForGraphicCenter,
   type WalkingTuning,
 } from "./WalkingActor";
@@ -11,11 +15,9 @@ import {
   horizontalSignBetween,
   tileMeeting,
   type EntityPhysicsOptions,
-  type EntitySeparationBody,
   type TileCollisionWorld,
   type WorldBounds,
 } from "./MovingActor";
-import { DamageFlash } from "./DamageableActor";
 import { SlimeVisuals } from "./slime/SlimeVisuals";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
 import type { Player } from "./Player";
@@ -30,9 +32,12 @@ const slimeWalkingTuning: WalkingTuning = {
   positionScale: 100,
 };
 
-const slimeMaxHealth = 3;
-const slimeDamageImmunityDurationMs = 500;
-const slimeDamageBlinkFrameMs = 90;
+const slimeVitality: LivingVitality = {
+  maxHealth: 3,
+  damageImmunityDurationMs: 500,
+  damageBlinkFrameMs: 90,
+};
+
 const slimeKnockbackHorizontalSpeed = 1.6;
 const slimeKnockbackVerticalSpeed = -1.2;
 
@@ -40,13 +45,9 @@ const followStopDistance = TILE_PX * 0.75;
 const followJumpHorizontalDistance = TILE_PX * 2.5;
 const followJumpVerticalOffset = TILE_PX * 0.5;
 
-export class Slime extends WalkingActor {
+export class Slime extends LivingActor {
   private readonly visuals: SlimeVisuals;
   private readonly followTarget: Player;
-  private readonly damageFlash: DamageFlash;
-  public health: number = slimeMaxHealth;
-  public readonly maxHealth: number = slimeMaxHealth;
-  private damageImmunityTimeRemainingMs: number = 0;
   private isDead: boolean = false;
 
   constructor(
@@ -63,50 +64,33 @@ export class Slime extends WalkingActor {
       ex.vec(width, height),
       collisionOffsetForGraphicCenter(ex.vec(TILE_PX / 2, TILE_PX / 2)),
       slimeWalkingTuning,
+      slimeVitality,
       collisionWorld,
     );
     this.followTarget = followTarget;
     this.visuals = new SlimeVisuals(this);
-    this.damageFlash = new DamageFlash(this, {
-      durationMs: slimeDamageImmunityDurationMs,
-      blinkFrameMs: slimeDamageBlinkFrameMs,
-    });
   }
 
   public entityId() {
     return "slime:test";
   }
 
-  public entitySeparationBody(
-    entityId: string,
-    canSeparate: boolean,
-  ): EntitySeparationBody {
-    const separationWidth = this.isAlive() ? this.collisionBounds.width : 0;
-    const separationHeight = this.isAlive() ? this.collisionBounds.height : 0;
-    return {
-      id: `entity:${entityId}`,
-      x: this.pos.x,
-      y: this.pos.y,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-      width: separationWidth,
-      height: separationHeight,
-      isGrounded: this.isGrounded,
-      isJumping: this.isJumping,
-      collisionBounds: this.collisionBounds,
-      canSeparate: canSeparate && this.isAlive(),
-    };
+  protected separationKind(): LivingSeparationKind {
+    return "entity";
   }
 
-  public applySeparatedX(x: number) {
-    if (this.pos.x === x) {
-      return;
+  protected isLivingActive() {
+    return !this.isDead;
+  }
+
+  protected separationDimensions() {
+    if (!this.isAlive()) {
+      return { width: 0, height: 0 };
     }
-    this.pos.x = x;
-  }
-
-  public combatCollisionBounds() {
-    return this.collisionBounds;
+    return {
+      width: this.collisionBounds.width,
+      height: this.collisionBounds.height,
+    };
   }
 
   public contactDamage() {
@@ -115,20 +99,6 @@ export class Slime extends WalkingActor {
 
   public overlapsWorldBounds(bounds: WorldBounds) {
     return super.overlapsWorldBounds(bounds);
-  }
-
-  public isAlive() {
-    return !this.isDead && this.health > 0;
-  }
-
-  public canReceiveWeaponDamage() {
-    if (this.isDead) {
-      return false;
-    }
-    if (this.damageImmunityTimeRemainingMs > 0) {
-      return false;
-    }
-    return this.health > 0;
   }
 
   public knockBackFromFacing(facingLeft: boolean) {
@@ -144,18 +114,19 @@ export class Slime extends WalkingActor {
   }
 
   public takeDamageFrom(player: Player, damage: number = 1) {
-    if (!this.canReceiveWeaponDamage()) {
+    if (!this.canTakeDamage()) {
       return false;
     }
-    this.health = Math.max(this.health - damage, 0);
-    this.damageImmunityTimeRemainingMs = slimeDamageImmunityDurationMs;
-    this.damageFlash.start();
-    this.knockBackFromFacing(player.isFacingLeft());
-    if (this.health <= 0) {
-      this.die();
+    const depleted = this.applyDamage(damage);
+    if (depleted) {
       return true;
     }
+    this.knockBackFromFacing(player.isFacingLeft());
     return true;
+  }
+
+  protected onHealthDepleted() {
+    this.die();
   }
 
   protected locomotionVisuals(): LocomotionVisualsHost {
@@ -179,7 +150,7 @@ export class Slime extends WalkingActor {
   override onInitialize(engine: ex.Engine) {
     this.visuals.initialize();
     this.syncCollisionToSprite();
-    this.damageFlash.initialize(engine);
+    this.initializeLivingActor(engine);
   }
 
   private die() {
@@ -268,16 +239,8 @@ export class Slime extends WalkingActor {
     return !tileMeeting(probeX, this.pos.y - TILE_PX, physicsOptions);
   }
 
-  private updateDamageFeedback(delta: number) {
-    this.damageImmunityTimeRemainingMs = Math.max(
-      this.damageImmunityTimeRemainingMs - delta,
-      0,
-    );
-    this.damageFlash.tick(delta);
-  }
-
   override onPostUpdate(_engine: ex.Engine, delta: number) {
-    this.updateDamageFeedback(delta);
+    this.tickDamageFeedback(delta);
     if (this.isDead) {
       return;
     }

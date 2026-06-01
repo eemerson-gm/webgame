@@ -5,7 +5,7 @@ import {
   DEFAULT_ANCHOR_PRESET,
   excaliburAnchorForVec,
   spriteForImageWithAnchor,
-} from "./anchor.ts";
+} from "./anchor";
 import type { JsonSpriteAnimationSpec, JsonSpritePose } from "./types";
 
 type JsonSpriteAnimationOptions = {
