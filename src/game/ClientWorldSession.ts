@@ -3,16 +3,13 @@ import { Player } from "../actors/Player";
 import { Slime } from "../actors/Slime";
 import { separateEntityBodies } from "../actors/MovingActor";
 import { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
-import { GameClient, type MessageEvents } from "../classes/GameClient";
-import { messageTypes } from "../classes/GameProtocol";
+import { GameClient } from "../classes/GameClient";
+import { messageTypes } from "../classes/GameWire";
 import type {
-  Data,
   EntityState,
-  PlayerDamageUpdate,
-  PlayerKnockbackUpdate,
   PlayerState,
-  WorldTerrainPayload,
-} from "../classes/GameProtocol";
+  WorldTerrain,
+} from "../classes/GameWire";
 import { TerrainTileMap } from "../classes/TerrainTileMap";
 import { TileLightingOverlay } from "../classes/TileLightingOverlay";
 import {
@@ -53,7 +50,6 @@ export class ClientWorldSession {
   private terrain: TerrainTileMap | null = null;
   private dummyTileMap: ex.TileMap | null = null;
   private pingIntervalId: number | null = null;
-  private inboundHandlers: MessageEvents | null = null;
 
   private constructor(
     engine: ex.Engine,
@@ -77,16 +73,11 @@ export class ClientWorldSession {
     myPlayerId: string,
     playersData: Record<string, PlayerState>,
     entitiesData: Record<string, EntityState>,
-    worldPayload: Data,
+    world: WorldTerrain,
     viewSize: GameViewSize,
     menuUi: MainMenuUI,
   ): ClientWorldSession | null {
     void entitiesData;
-    if (!ClientWorldSession.isWorldTerrainPayload(worldPayload)) {
-      console.error("Invalid or missing world payload from server");
-      menuUi.setStatus("Unable to join world");
-      return null;
-    }
     const playerListUi = new PlayerListUI();
     const session = new ClientWorldSession(
       engine,
@@ -96,37 +87,8 @@ export class ClientWorldSession {
       menuUi,
       playerListUi,
     );
-    session.start(worldPayload, playersData);
+    session.start(world, playersData);
     return session;
-  }
-
-  public buildMessageHandlers(): MessageEvents {
-    if (!this.inboundHandlers) {
-      this.inboundHandlers = {
-        [messageTypes.createPlayer]: (payload) => {
-          this.handleCreatePlayer(payload);
-        },
-        [messageTypes.updatePlayer]: (payload) => {
-          this.applyRemotePlayerUpdate(payload);
-        },
-        [messageTypes.updatePing]: (payload) => {
-          this.applyPlayerPingUpdate(payload);
-        },
-        [messageTypes.knockbackPlayer]: (payload) => {
-          this.applyPlayerKnockbackUpdate(payload);
-        },
-        [messageTypes.damagePlayer]: (payload) => {
-          this.applyPlayerDamageUpdate(payload);
-        },
-        [messageTypes.updateEntities]: (payload) => {
-          this.applyEntitiesSnapshot(payload);
-        },
-        [messageTypes.pong]: (payload) => {
-          this.applyPongUpdate(payload);
-        },
-      };
-    }
-    return this.inboundHandlers;
   }
 
   public removeRemotePlayer(playerId: string): void {
@@ -138,7 +100,7 @@ export class ClientWorldSession {
   }
 
   private start(
-    world: WorldTerrainPayload,
+    world: WorldTerrain,
     playersData: Record<string, PlayerState>,
   ): void {
     this.menuUi.hide();
@@ -211,9 +173,12 @@ export class ClientWorldSession {
         };
       }),
     );
-    this.client.send(messageTypes.createPlayer, {
-      x: playerSpawn.x,
-      y: playerSpawn.y,
+    this.client.send({
+      type: messageTypes.createPlayer,
+      payload: {
+        x: playerSpawn.x,
+        y: playerSpawn.y,
+      },
     });
     this.addLocalPauseListeners();
     this.syncLocalPauseState();
@@ -226,32 +191,33 @@ export class ClientWorldSession {
     this.engine.on("postupdate", () => {
       this.resolveLocalWeaponCombat();
     });
-    this.buildMessageHandlers();
+    this.registerWorldHandlers();
   }
 
-  private static isWorldTerrainPayload(w: Data): w is WorldTerrainPayload {
-    if (!w) {
-      return false;
-    }
-    if (typeof w.columns !== "number" || typeof w.rows !== "number") {
-      return false;
-    }
-    if (!Array.isArray(w.surfaceStartByColumn)) {
-      return false;
-    }
-    if (w.surfaceStartByColumn.length !== w.columns) {
-      return false;
-    }
-    if (!w.playerSpawn) {
-      return false;
-    }
-    if (typeof w.playerSpawn.x !== "number") {
-      return false;
-    }
-    if (w.protectedTiles !== undefined && !Array.isArray(w.protectedTiles)) {
-      return false;
-    }
-    return typeof w.playerSpawn.y === "number";
+  private registerWorldHandlers(): void {
+    this.client.setWorldHandlers({
+      [messageTypes.createPlayer]: (msg) => {
+        this.handleCreatePlayer(msg.payload);
+      },
+      [messageTypes.updatePlayer]: (msg) => {
+        this.applyRemotePlayerUpdate(msg.payload);
+      },
+      [messageTypes.updatePing]: (msg) => {
+        this.applyPlayerPingUpdate(msg.payload);
+      },
+      [messageTypes.knockbackPlayer]: (msg) => {
+        this.applyPlayerKnockbackUpdate(msg.payload);
+      },
+      [messageTypes.damagePlayer]: (msg) => {
+        this.applyPlayerDamageUpdate(msg.payload);
+      },
+      [messageTypes.updateEntities]: (msg) => {
+        this.applyEntitiesSnapshot(msg.payload);
+      },
+      [messageTypes.pong]: (msg) => {
+        this.applyPongUpdate(msg.payload);
+      },
+    });
   }
 
   private refreshPlayerList(): void {
@@ -261,7 +227,7 @@ export class ClientWorldSession {
     );
   }
 
-  private handleCreatePlayer(payload: Data): void {
+  private handleCreatePlayer(playerState: PlayerState): void {
     const terrain = this.terrain;
     const dummyTileMap = this.dummyTileMap;
     if (!terrain) {
@@ -270,7 +236,6 @@ export class ClientWorldSession {
     if (!dummyTileMap) {
       return;
     }
-    const playerState = payload as PlayerState;
     const id = String(playerState.id ?? "");
     if (id.length === 0) {
       return;
@@ -423,8 +388,7 @@ export class ClientWorldSession {
     });
   }
 
-  private applyRemotePlayerUpdate(payload: Data): void {
-    const playerState = payload as PlayerState;
+  private applyRemotePlayerUpdate(playerState: PlayerState): void {
     const playerId = String(playerState.id ?? "");
     if (playerId.length === 0) {
       return;
@@ -471,7 +435,9 @@ export class ClientWorldSession {
     });
   }
 
-  private applyEntitiesSnapshot(_payload: Data): void {
+  private applyEntitiesSnapshot(_payload: {
+    entitiesData: Record<string, EntityState>;
+  }): void {
     void _payload;
   }
 
@@ -482,8 +448,10 @@ export class ClientWorldSession {
     return this.remotePlayers[playerId] ?? null;
   }
 
-  private applyPlayerKnockbackUpdate(payload: Data): void {
-    const update = payload as PlayerKnockbackUpdate;
+  private applyPlayerKnockbackUpdate(update: {
+    id?: string;
+    targetId: string;
+  }): void {
     const localPlayerId = this.client.clientId;
     if (!localPlayerId || update.targetId !== localPlayerId) {
       return;
@@ -499,8 +467,11 @@ export class ClientWorldSession {
     target.knockBackFromFacing(attacker.isFacingLeft());
   }
 
-  private applyPlayerDamageUpdate(payload: Data): void {
-    const update = payload as PlayerDamageUpdate;
+  private applyPlayerDamageUpdate(update: {
+    id: string;
+    targetId: string;
+    damage: number;
+  }): void {
     const localPlayerId = this.client.clientId;
     if (!localPlayerId || update.targetId !== localPlayerId) {
       return;
@@ -516,7 +487,7 @@ export class ClientWorldSession {
     target.takeDamageFrom(attacker, update.damage);
   }
 
-  private applyPlayerPingUpdate(payload: Data): void {
+  private applyPlayerPingUpdate(payload: PlayerState): void {
     const playerId = String(payload.id ?? "");
     const pingMs = Number(payload.pingMs);
     if (!playerId || !Number.isFinite(pingMs)) {
@@ -526,7 +497,7 @@ export class ClientWorldSession {
     this.refreshPlayerList();
   }
 
-  private applyPongUpdate(payload: Data): void {
+  private applyPongUpdate(payload: { sentAt?: number }): void {
     const sentAt = Number(payload.sentAt);
     if (!Number.isFinite(sentAt)) {
       return;
@@ -534,11 +505,17 @@ export class ClientWorldSession {
     const pingMs = Math.max(0, Math.round(performance.now() - sentAt));
     this.playerListUi.setPing(this.client.clientId, pingMs);
     this.refreshPlayerList();
-    this.client.send(messageTypes.updatePing, { pingMs });
+    this.client.send({
+      type: messageTypes.updatePing,
+      payload: { pingMs },
+    });
   }
 
   private sendPing(): void {
-    this.client.send(messageTypes.ping, { sentAt: performance.now() });
+    this.client.send({
+      type: messageTypes.ping,
+      payload: { sentAt: performance.now() },
+    });
   }
 
   private startPingLoop(): void {

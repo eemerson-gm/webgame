@@ -1,4 +1,4 @@
-import type { EntityState, TerrainTileKind } from "../classes/GameProtocol";
+import type { EntityState, TerrainTileKind } from "../classes/GameWire";
 import { TILE_PX } from "./worldConfig";
 import { Structure } from "./Structure";
 import { buildSurfaceStartByColumn } from "./terrainGen";

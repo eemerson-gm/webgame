@@ -1,4 +1,4 @@
-import type { TerrainTileKind } from "../classes/GameProtocol";
+import type { TerrainTileKind } from "../classes/GameWire";
 import grasslandsJson from "../data/biomes/grasslands.json";
 import stoneDepthsJson from "../data/biomes/stoneDepths.json";
 import spawnJson from "../data/structures/spawn.json";

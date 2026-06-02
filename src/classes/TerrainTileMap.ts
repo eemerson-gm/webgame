@@ -1,7 +1,7 @@
 import * as ex from "excalibur";
 import type {
   TerrainTileKind,
-} from "./GameProtocol";
+} from "./GameWire";
 import { terrainBlockForKind } from "./TerrainBlock";
 import {
   buildTerrainTilesFromSurface,

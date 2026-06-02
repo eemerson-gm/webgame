@@ -1,5 +1,5 @@
 import * as ex from "excalibur";
-import type { Data } from "../classes/GameProtocol";
+import type { PlayerState } from "../classes/GameWire";
 
 export class PlayerInputState {
   public keyLeft: boolean = false;
@@ -40,7 +40,7 @@ export class PlayerInputState {
     return isGrounded;
   }
 
-  public payload(movementState: Data) {
+  public payload(movementState: PlayerState) {
     return {
       keyLeft: this.keyLeft,
       keyRight: this.keyRight,
@@ -50,7 +50,7 @@ export class PlayerInputState {
     };
   }
 
-  public statePatch(shouldSyncPosition: boolean, payload: Data) {
+  public statePatch(shouldSyncPosition: boolean, payload: PlayerState) {
     return shouldSyncPosition
       ? payload
       : {

@@ -1,5 +1,4 @@
 import { GameServer } from "./classes/GameServer";
-import { messageTypes } from "./classes/GameProtocol";
 import express from "express";
 
 const port = 8080;
@@ -11,14 +10,4 @@ const server = app.listen(port, () => {
 });
 
 const gameServer = new GameServer(server);
-gameServer.listen({
-  [messageTypes.createPlayer]: "others",
-  [messageTypes.updatePlayer]: "others",
-  [messageTypes.updatePing]: "others",
-  [messageTypes.knockbackPlayer]: "all",
-  [messageTypes.damagePlayer]: "all",
-  [messageTypes.damageEntity]: "all",
-  [messageTypes.createEntity]: "all",
-  [messageTypes.updateEntity]: "all",
-  [messageTypes.ping]: "player",
-});
+gameServer.listen();

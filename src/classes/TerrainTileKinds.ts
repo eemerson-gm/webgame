@@ -1,4 +1,4 @@
-import type { TerrainTileKind } from "./GameProtocol";
+import type { TerrainTileKind } from "./GameWire";
 
 export const terrainTileKinds = [
   "bedrock",

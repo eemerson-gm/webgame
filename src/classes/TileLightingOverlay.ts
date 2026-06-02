@@ -1,5 +1,5 @@
 import * as ex from "excalibur";
-import type { TerrainTileKind } from "./GameProtocol";
+import type { TerrainTileKind } from "./GameWire";
 import { TerrainTileMap } from "./TerrainTileMap";
 import type { TerrainChange } from "./TerrainTileMap";
 import type { DynamicLightSnapshot, DynamicLightSource } from "./DynamicLightSource";

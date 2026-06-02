@@ -1,4 +1,4 @@
-import type { TerrainTileKind } from "./GameProtocol";
+import type { TerrainTileKind } from "./GameWire";
 import { terrainTileKinds } from "./TerrainTileKinds";
 
 const noneKindId = 255;

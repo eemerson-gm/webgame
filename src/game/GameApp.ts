@@ -1,12 +1,6 @@
 import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
-import { messageTypes } from "../classes/GameProtocol";
-import type {
-  Data,
-  EntityState,
-  PlayerState,
-  WorldsUpdatedPayload,
-} from "../classes/GameProtocol";
+import { messageTypes } from "../classes/GameWire";
 import { wireIntegerCanvasDisplay } from "../integerCanvasDisplay";
 import { Resources } from "../resource";
 import { ClientWorldSession } from "./ClientWorldSession";
@@ -79,9 +73,9 @@ export class GameApp {
       onOpen: () => {
         this.menuUi.setStatus("Loading worlds...");
         this.menuUi.setCreateWorldEnabled(true);
-        client.send(messageTypes.listWorlds, {});
+        client.send({ type: messageTypes.listWorlds, payload: {} });
       },
-      onWorldsUpdated: (payload: WorldsUpdatedPayload) => {
+      onWorldsUpdated: (payload) => {
         this.menuUi.setCreateWorldEnabled(true);
         this.menuUi.renderWorlds(payload.worlds, client);
       },
@@ -90,8 +84,8 @@ export class GameApp {
           this.engine,
           client,
           myPlayerId,
-          playersData as Record<string, PlayerState>,
-          entitiesData as Record<string, EntityState>,
+          playersData,
+          entitiesData,
           world,
           { width: viewWidth, height: viewHeight },
           this.menuUi,
@@ -100,30 +94,6 @@ export class GameApp {
       onDisconnect: (gonePlayerId) => {
         this.session?.removeRemotePlayer(gonePlayerId);
       },
-      listener: () => this.deferredMessageHandlers(),
     });
-  }
-
-  private deferredMessageHandlers(): Record<string, (payload: Data) => void> {
-    const route = (type: string) => (payload: Data) => {
-      const session = this.session;
-      if (!session) {
-        return;
-      }
-      const handler = session.buildMessageHandlers()[type];
-      if (!handler) {
-        return;
-      }
-      handler(payload);
-    };
-    return {
-      [messageTypes.createPlayer]: route(messageTypes.createPlayer),
-      [messageTypes.updatePlayer]: route(messageTypes.updatePlayer),
-      [messageTypes.updatePing]: route(messageTypes.updatePing),
-      [messageTypes.knockbackPlayer]: route(messageTypes.knockbackPlayer),
-      [messageTypes.damagePlayer]: route(messageTypes.damagePlayer),
-      [messageTypes.updateEntities]: route(messageTypes.updateEntities),
-      [messageTypes.pong]: route(messageTypes.pong),
-    };
   }
 }

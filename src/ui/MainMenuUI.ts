@@ -1,6 +1,6 @@
 import { GameClient } from "../classes/GameClient";
-import { messageTypes } from "../classes/GameProtocol";
-import type { WorldSummary } from "../classes/GameProtocol";
+import { messageTypes } from "../classes/GameWire";
+import type { WorldSummary } from "../classes/GameWire";
 
 export class MainMenuUI {
   private readonly mainMenuElement = () =>
@@ -62,7 +62,7 @@ export class MainMenuUI {
     button.addEventListener("click", () => {
       this.setStatus("Creating world...");
       button.disabled = true;
-      client.send(messageTypes.createWorld, {});
+      client.send({ type: messageTypes.createWorld, payload: {} });
     });
   }
 
@@ -75,26 +75,22 @@ export class MainMenuUI {
     button.textContent = "Join";
     button.addEventListener("click", () => {
       this.setStatus(`Joining ${world.name}...`);
-      client.send(messageTypes.joinWorld, { worldId: world.id });
+      client.send({
+        type: messageTypes.joinWorld,
+        payload: { worldId: world.id },
+      });
     });
     return button;
   }
 
-  private createWorldCard(
-    world: WorldSummary,
-    client: GameClient,
-  ): HTMLDivElement {
+  private createWorldCard(world: WorldSummary, client: GameClient): HTMLElement {
     const card = document.createElement("div");
-    const details = document.createElement("div");
-    const name = document.createElement("div");
-    const count = document.createElement("div");
     card.className = "world-card";
-    name.className = "world-card__name";
-    count.className = "world-card__count";
-    name.textContent = world.name;
-    count.textContent = `${world.playerCount} player${world.playerCount === 1 ? "" : "s"}`;
-    details.replaceChildren(name, count);
-    card.replaceChildren(details, this.createJoinWorldButton(world, client));
+    const title = document.createElement("h3");
+    title.textContent = world.name;
+    const meta = document.createElement("p");
+    meta.textContent = `${world.playerCount} player(s)`;
+    card.append(title, meta, this.createJoinWorldButton(world, client));
     return card;
   }
 }

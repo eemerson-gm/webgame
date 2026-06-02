@@ -1,4 +1,4 @@
-import type { TerrainTileKind } from "../classes/GameProtocol";
+import type { TerrainTileKind } from "../classes/GameWire";
 
 const indexes = (count: number) => Array.from({ length: count }, (_, index) => index);
 const defaultTerrainSeed = 42;

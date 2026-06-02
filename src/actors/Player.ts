@@ -3,7 +3,7 @@ import { GameClient } from "../classes/GameClient";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import { tileMeeting } from "./MovingActor";
-import type { PlayerState } from "../classes/GameProtocol";
+import type { PlayerState } from "../classes/GameWire";
 import type { TileCollisionWorld } from "./MovingActor";
 import {
   LivingActor,

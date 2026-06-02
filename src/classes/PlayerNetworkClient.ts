@@ -1,6 +1,5 @@
 import type { GameClient } from "./GameClient";
-import { messageTypes } from "./GameProtocol";
-import type { Data } from "./GameProtocol";
+import { messageTypes, type PlayerState } from "./GameWire";
 
 export type PlayerMovementState = {
   x: number;
@@ -14,9 +13,6 @@ export type PlayerMovementState = {
   keyJump: boolean;
   keyDown: boolean;
 };
-
-const absDiffAtLeast = (a: number, b: number, threshold: number) =>
-  Math.abs(a - b) >= threshold;
 
 const serverMovementSyncIntervalMs = 75;
 const serverKnockbackMovementSyncIntervalMs = 50;
@@ -40,11 +36,15 @@ export class PlayerNetworkClient {
     this.lastServerMovementState = undefined;
   }
 
-  public sendUpdate(payload: Data, statePatch?: Data) {
+  public sendUpdate(payload: PlayerState, statePatch?: PlayerState) {
     if (!this.client) {
       return;
     }
-    this.client.send(messageTypes.updatePlayer, payload, statePatch);
+    this.client.send({
+      type: messageTypes.updatePlayer,
+      payload,
+      statePatch,
+    });
   }
 
   public syncMovementPeriodically(
@@ -83,8 +83,12 @@ export class PlayerNetworkClient {
     this.lastServerMovementState = currentState;
     this.shouldBroadcastSeparatedPosition = false;
     const payload = shouldBroadcastToPeers ? currentState : {};
-    const statePatch = shouldBroadcastToPeers ? undefined : currentState;
-    this.sendUpdate(payload, statePatch);
+    const patch = shouldBroadcastToPeers ? undefined : currentState;
+    this.sendUpdate(payload, patch);
+  }
+
+  private absDiffAtLeast(a: number, b: number, threshold: number): boolean {
+    return Math.abs(a - b) >= threshold;
   }
 
   private shouldSyncMovementState(movementState: PlayerMovementState) {
@@ -93,7 +97,7 @@ export class PlayerNetworkClient {
       return true;
     }
     if (
-      absDiffAtLeast(
+      this.absDiffAtLeast(
         movementState.x,
         lastMovementState.x,
         serverMovementPositionThreshold,
@@ -102,7 +106,7 @@ export class PlayerNetworkClient {
       return true;
     }
     if (
-      absDiffAtLeast(
+      this.absDiffAtLeast(
         movementState.y,
         lastMovementState.y,
         serverMovementPositionThreshold,
@@ -111,7 +115,7 @@ export class PlayerNetworkClient {
       return true;
     }
     if (
-      absDiffAtLeast(
+      this.absDiffAtLeast(
         movementState.horizontalSpeed,
         lastMovementState.horizontalSpeed,
         serverMovementSpeedThreshold,
@@ -120,7 +124,7 @@ export class PlayerNetworkClient {
       return true;
     }
     if (
-      absDiffAtLeast(
+      this.absDiffAtLeast(
         movementState.verticalSpeed,
         lastMovementState.verticalSpeed,
         serverMovementSpeedThreshold,

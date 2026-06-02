@@ -1,5 +1,5 @@
 import * as ex from "excalibur";
-import type { TerrainTileKind } from "./GameProtocol";
+import type { TerrainTileKind } from "./GameWire";
 import { TerrainBorderRaster, type TerrainBorderSegment } from "./TerrainBorderRaster";
 import { terrainTileKey } from "../world/terrainTiles";
 

@@ -1,6 +1,6 @@
 import * as ex from "excalibur";
 import { Resources } from "../resource";
-import type { TerrainTileKind } from "./GameProtocol";
+import type { TerrainTileKind } from "./GameWire";
 
 type TerrainBlockOptions = {
   kind: TerrainTileKind;

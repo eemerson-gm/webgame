@@ -1,4 +1,4 @@
-import type { TerrainTileKind } from "../classes/GameProtocol";
+import type { TerrainTileKind } from "../classes/GameWire";
 import { terrainTileKey } from "./terrainTiles";
 
 type StructurePosition = {

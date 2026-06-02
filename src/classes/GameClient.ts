@@ -1,18 +1,29 @@
 import {
-  ConnectedPayload,
-  Data,
-  decodeMessage,
-  encodeMessage,
+  GameWire,
   messageTypes,
-  WorldsUpdatedPayload,
-} from "./GameProtocol";
+  type ClientSend,
+  type EntityState,
+  type PlayerState,
+  type ServerToClient,
+  type WorldHandlers,
+  type WorldTerrain,
+} from "./GameWire";
 
-export type Event = (data: Data) => void;
-export type MessageEvents = Record<string, Event>;
+type ConnectedPayload = Extract<
+  ServerToClient,
+  { type: typeof messageTypes.connected }
+>["payload"];
+
+type WorldsUpdatedPayload = Extract<
+  ServerToClient,
+  { type: typeof messageTypes.worldsUpdated }
+>["payload"];
 
 export class GameClient {
   public playerSocket: WebSocket;
   public clientId: string;
+  private readonly wire = new GameWire();
+  private worldHandlers: Partial<WorldHandlers> | null = null;
 
   constructor() {
     const url = this.gameServerWebSocketUrl();
@@ -22,40 +33,37 @@ export class GameClient {
   }
 
   public listen({
-    listener,
     onConnect,
     onDisconnect,
     onWorldsUpdated,
     onOpen = () => {},
   }: {
-    listener: (playerSocket: WebSocket) => MessageEvents;
     onConnect: (
       id: string,
-      playersData: Data,
-      entitiesData: Data,
-      world: Data,
+      playersData: Record<string, PlayerState>,
+      entitiesData: Record<string, EntityState>,
+      world: WorldTerrain,
     ) => void;
     onDisconnect: (id: string) => void;
     onWorldsUpdated?: (payload: WorldsUpdatedPayload) => void;
     onOpen?: () => void;
-  }) {
-    const appHandlers = listener(this.playerSocket);
-    const handlers = this.handlersWithLifecycle(
-      onConnect,
-      onDisconnect,
-      onWorldsUpdated,
-      appHandlers,
-    );
-    this.wireSocketHandlers(handlers, onOpen);
+  }): void {
+    this.wireSocketHandlers(onConnect, onDisconnect, onWorldsUpdated, onOpen);
   }
 
-  public send(type: string, payload: Data, patch?: Data) {
+  public setWorldHandlers(handlers: Partial<WorldHandlers>): void {
+    this.worldHandlers = handlers;
+  }
+
+  public clearWorldHandlers(): void {
+    this.worldHandlers = null;
+  }
+
+  public send(message: ClientSend): void {
     if (this.playerSocket.readyState !== WebSocket.OPEN) {
       return;
     }
-    this.playerSocket.send(
-      encodeMessage({ type, payload, statePatch: patch }),
-    );
+    this.playerSocket.send(this.wire.encodeClient(message));
   }
 
   private gameServerWebSocketUrl(): string {
@@ -64,42 +72,23 @@ export class GameClient {
     return `${protocol}://${location.hostname}${portSuffix}/game`;
   }
 
-  private handlersWithLifecycle(
+  private wireSocketHandlers(
     onConnect: (
       id: string,
-      playersData: Data,
-      entitiesData: Data,
-      world: Data,
+      playersData: Record<string, PlayerState>,
+      entitiesData: Record<string, EntityState>,
+      world: WorldTerrain,
     ) => void,
     onDisconnect: (id: string) => void,
     onWorldsUpdated: ((payload: WorldsUpdatedPayload) => void) | undefined,
-    appHandlers: MessageEvents,
-  ): MessageEvents {
-    return {
-      ...appHandlers,
-      [messageTypes.connected]: (data: Data) => {
-        const connectedPayload = data as ConnectedPayload;
-        const { id, playersData, entitiesData, world } = connectedPayload;
-        this.clientId = id;
-        onConnect(id, playersData, entitiesData, world);
-      },
-      [messageTypes.disconnected]: (data: Data) => {
-        const { id } = data;
-        onDisconnect(id);
-      },
-      [messageTypes.worldsUpdated]: (data: Data) => {
-        onWorldsUpdated?.(data as WorldsUpdatedPayload);
-      },
-    } as MessageEvents;
-  }
-
-  private wireSocketHandlers(handlers: MessageEvents, onOpen: () => void) {
+    onOpen: () => void,
+  ): void {
     this.playerSocket.addEventListener("open", () => {
       console.log("Connected to server");
       onOpen();
     });
     this.playerSocket.addEventListener("message", (wsEvent) => {
-      this.dispatchInboundMessage(wsEvent, handlers);
+      this.dispatchInboundMessage(wsEvent.data as string, onConnect, onDisconnect, onWorldsUpdated);
     });
     this.playerSocket.addEventListener("close", () => {
       console.log("Disconnected from server");
@@ -110,15 +99,59 @@ export class GameClient {
   }
 
   private dispatchInboundMessage(
-    wsEvent: MessageEvent,
-    handlers: MessageEvents,
-  ) {
-    const message = decodeMessage(wsEvent.data as string);
-    const { type, payload } = message;
-    if (!(type in handlers)) {
-      console.error("Unknown event:", type);
+    json: string,
+    onConnect: (
+      id: string,
+      playersData: Record<string, PlayerState>,
+      entitiesData: Record<string, EntityState>,
+      world: WorldTerrain,
+    ) => void,
+    onDisconnect: (id: string) => void,
+    onWorldsUpdated: ((payload: WorldsUpdatedPayload) => void) | undefined,
+  ): void {
+    const message = this.wire.parseServerToClient(json);
+    if (!message) {
       return;
     }
-    handlers[type](payload);
+    if (message.type === messageTypes.connected) {
+      this.deliverConnected(message.payload, onConnect);
+      return;
+    }
+    if (message.type === messageTypes.disconnected) {
+      onDisconnect(message.payload.id);
+      return;
+    }
+    if (message.type === messageTypes.worldsUpdated) {
+      onWorldsUpdated?.(message.payload);
+      return;
+    }
+    this.dispatchWorldMessage(message);
+  }
+
+  private deliverConnected(
+    payload: ConnectedPayload,
+    onConnect: (
+      id: string,
+      playersData: Record<string, PlayerState>,
+      entitiesData: Record<string, EntityState>,
+      world: WorldTerrain,
+    ) => void,
+  ): void {
+    const { id, playersData, entitiesData, world } = payload;
+    this.clientId = id;
+    onConnect(id, playersData, entitiesData, world);
+  }
+
+  private dispatchWorldMessage(message: ServerToClient): void {
+    const handlers = this.worldHandlers;
+    if (!handlers) {
+      return;
+    }
+    const handler = handlers[message.type];
+    if (!handler) {
+      console.error("Unknown event:", message.type);
+      return;
+    }
+    (handler as (msg: ServerToClient) => void)(message);
   }
 }

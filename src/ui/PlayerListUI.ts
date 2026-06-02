@@ -1,4 +1,4 @@
-import type { PlayerState } from "../classes/GameProtocol";
+import type { PlayerState } from "../classes/GameWire";
 
 export class PlayerListUI {
   private readonly playerPingById: Record<string, number | undefined> = {};
