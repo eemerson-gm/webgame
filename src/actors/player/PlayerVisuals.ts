@@ -18,7 +18,7 @@ export type PlayerLocomotionVisual = Exclude<PlayerVisual, "sword">;
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 export const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
-const remoteVisualCorrectionDurationMs = 100;
+const remoteVisualCorrectionDurationMs = 120;
 const swordFacingLockRatio = 0.15;
 
 export class PlayerVisuals {
@@ -239,10 +239,23 @@ export class PlayerVisuals {
     position: ex.Vector,
     snapDistance: number,
   ) {
-    void snapDistance;
-    this.actor.pos = ex.vec(position.x, position.y);
-    this.resetVisualCorrection();
-    this.activeAnimation.update(0, this.facingLeft, this.animationBaseOffset());
+    const targetPos = ex.vec(position.x, position.y);
+    const distance = this.actor.pos.distance(targetPos);
+    if (distance < 0.001) {
+      return;
+    }
+    if (distance >= snapDistance) {
+      this.actor.pos = targetPos;
+      this.resetVisualCorrection();
+      this.activeAnimation.update(0, this.facingLeft, this.animationBaseOffset());
+      return;
+    }
+    const visualAnchor = this.visualWorldPosition();
+    this.actor.pos = targetPos;
+    const startOffset = visualAnchor.sub(this.actor.pos.add(this.visualDrawOffset()));
+    this.visualCorrectionStartOffset = startOffset;
+    this.visualCorrectionElapsedMs = 0;
+    this.applyVisualCorrectionOffset(startOffset);
   }
 
   private resetVisualCorrection() {
@@ -252,7 +265,13 @@ export class PlayerVisuals {
   }
 
   public visualWorldPosition() {
-    return this.actor.pos.add(this.bodyGraphicCenter());
+    return this.actor.pos.add(this.visualDrawOffset());
+  }
+
+  private visualDrawOffset() {
+    return this.bodyGraphicCenter()
+      .add(this.visualCorrectionOffset)
+      .add(this.renderOffset);
   }
 
   public applyRenderOffset(offset: ex.Vector) {

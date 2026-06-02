@@ -27,8 +27,6 @@ type GameViewSize = {
   height: number;
 };
 
-const remotePlayerPositionTolerance = 0.5;
-const remotePlayerSnapDistance = TILE_PX * 2;
 const pingIntervalMs = 2000;
 const entitySeparationPadding = 1;
 const entitySeparationMaxMoveX = 0.3;
@@ -240,13 +238,14 @@ export class ClientWorldSession {
     if (id.length === 0) {
       return;
     }
-    this.spawnRemotePlayer(
+    const player = this.spawnRemotePlayer(
       terrain,
       dummyTileMap,
       id,
       Number(playerState.x),
       Number(playerState.y),
     );
+    player.applyRemoteUpdate(playerState);
     this.playerListUi.setPing(id, playerState.pingMs ?? 0);
     this.refreshPlayerList();
   }
@@ -287,51 +286,6 @@ export class ClientWorldSession {
         slime.takeDamageFrom(attacker, 1);
       },
     });
-  }
-
-  private applyPositionFromPayloadIfPresent(
-    player: Player,
-    payload: PlayerState,
-    tolerance: number = remotePlayerPositionTolerance,
-  ): void {
-    const localPlayer = this.localPlayer;
-    if (localPlayer !== null && player === localPlayer) {
-      return;
-    }
-    if (payload.x === undefined && payload.y === undefined) {
-      return;
-    }
-    const nextPosition = ex.vec(
-      payload.x === undefined ? player.pos.x : Number(payload.x),
-      payload.y === undefined ? player.pos.y : Number(payload.y),
-    );
-    if (!Number.isFinite(nextPosition.x) || !Number.isFinite(nextPosition.y)) {
-      return;
-    }
-    if (player.pos.distance(nextPosition) < tolerance) {
-      return;
-    }
-    player.applyRemotePositionCorrection(nextPosition, remotePlayerSnapDistance);
-  }
-
-  private syncMovementFieldsFromPayload(
-    player: Player,
-    payload: PlayerState,
-  ): void {
-    if (payload.isPaused !== undefined) {
-      player.setPaused(payload.isPaused);
-    }
-    player.keyLeft = payload.keyLeft ?? player.keyLeft;
-    player.keyRight = payload.keyRight ?? player.keyRight;
-    player.keyJump = payload.keyJump ?? player.keyJump;
-    player.keyDown = payload.keyDown ?? player.keyDown;
-    player.syncFacingFromNetwork(payload.facingLeft);
-    player.applyRemoteAttackFromPayload(payload);
-    if (payload.health !== undefined) {
-      player.syncHealth(payload.health);
-    }
-    player.hspeed = payload.horizontalSpeed ?? player.hspeed;
-    player.vspeed = payload.verticalSpeed ?? player.vspeed;
   }
 
   private separateEntityActors(): void {
@@ -409,8 +363,7 @@ export class ClientWorldSession {
       }
       return;
     }
-    this.syncMovementFieldsFromPayload(player, playerState);
-    this.applyPositionFromPayloadIfPresent(player, playerState);
+    player.applyRemoteUpdate(playerState);
   }
 
   private joinExistingRemotePlayers(
@@ -431,7 +384,7 @@ export class ClientWorldSession {
         x,
         y,
       );
-      this.syncMovementFieldsFromPayload(player, row);
+      player.applyRemoteUpdate(row);
     });
   }
 

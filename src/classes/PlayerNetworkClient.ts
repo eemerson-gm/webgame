@@ -1,155 +1,114 @@
 import type { GameClient } from "./GameClient";
 import { messageTypes, type PlayerState } from "./GameWire";
 
-export type PlayerMovementState = {
-  x: number;
-  y: number;
-  horizontalSpeed: number;
-  verticalSpeed: number;
-  attackCycle: number;
-  facingLeft: boolean;
-  keyLeft: boolean;
-  keyRight: boolean;
-  keyJump: boolean;
-  keyDown: boolean;
+const positionBackupIntervalMs = 75;
+
+export type PlayerNetworkSnapshot = {
+  readonly keyLeft: boolean;
+  readonly keyRight: boolean;
+  readonly keyJump: boolean;
+  readonly keyDown: boolean;
+  readonly facingLeft: boolean;
+  readonly isGrounded: boolean;
+  readonly x: number;
+  readonly y: number;
+  readonly horizontalSpeed: number;
+  readonly verticalSpeed: number;
+  readonly attackCycle: number;
 };
 
-const serverMovementSyncIntervalMs = 75;
-const serverKnockbackMovementSyncIntervalMs = 50;
-const serverPeerMovementCorrectionIntervalMs = 100;
-const serverMovementPositionThreshold = 0.5;
-const serverMovementSpeedThreshold = 0.05;
+export type PlayerPauseSnapshot = {
+  readonly isPaused: boolean;
+  readonly x: number;
+  readonly y: number;
+};
 
 export class PlayerNetworkClient {
-  private serverMovementSyncElapsedMs: number = 0;
-  private serverPeerMovementSyncElapsedMs: number = 0;
-  private lastServerMovementState?: PlayerMovementState;
-  private shouldBroadcastSeparatedPosition: boolean = false;
+  private positionBackupElapsedMs: number = 0;
 
   constructor(private client?: GameClient) {}
 
-  public setShouldBroadcastSeparatedPosition(value: boolean) {
-    this.shouldBroadcastSeparatedPosition = value;
-  }
-
-  public markPositionChanged() {
-    this.lastServerMovementState = undefined;
-  }
-
-  public sendUpdate(payload: PlayerState, statePatch?: PlayerState) {
-    if (!this.client) {
+  public onInputChanged(snapshot: PlayerNetworkSnapshot): void {
+    const keysPayload: PlayerState = {
+      keyLeft: snapshot.keyLeft,
+      keyRight: snapshot.keyRight,
+      keyJump: snapshot.keyJump,
+      keyDown: snapshot.keyDown,
+      facingLeft: snapshot.facingLeft,
+      attackCycle: snapshot.attackCycle,
+    };
+    if (snapshot.isGrounded) {
+      this.sendImmediate({
+        ...keysPayload,
+        x: snapshot.x,
+        y: snapshot.y,
+        horizontalSpeed: snapshot.horizontalSpeed,
+        verticalSpeed: snapshot.verticalSpeed,
+      });
       return;
     }
-    this.client.send({
-      type: messageTypes.updatePlayer,
-      payload,
-      statePatch,
+    this.sendImmediate(keysPayload);
+  }
+
+  public onJump(): void {
+    this.sendImmediate({ keyJump: true });
+  }
+
+  public onAttack(attackCycle: number, facingLeft: boolean): void {
+    this.sendImmediate({
+      keyAttack: true,
+      attackCycle,
+      facingLeft,
     });
   }
 
-  public syncMovementPeriodically(
-    delta: number,
-    currentState: PlayerMovementState,
-    shouldBroadcastMovement: boolean = false,
-  ) {
+  public onLanded(x: number, y: number): void {
+    this.sendImmediate({ x, y });
+  }
+
+  public onPaused(snapshot: PlayerPauseSnapshot): void {
+    this.sendImmediate({
+      isPaused: snapshot.isPaused,
+      keyLeft: false,
+      keyRight: false,
+      keyJump: false,
+      keyDown: false,
+      horizontalSpeed: 0,
+      verticalSpeed: 0,
+      x: snapshot.x,
+      y: snapshot.y,
+    });
+  }
+
+  public tickPositionBackup(delta: number, x: number, y: number): void {
     if (!this.client) {
       return;
     }
-    this.serverMovementSyncElapsedMs += delta;
-    this.serverPeerMovementSyncElapsedMs += delta;
-    const syncIntervalMs = shouldBroadcastMovement
-      ? serverKnockbackMovementSyncIntervalMs
-      : serverMovementSyncIntervalMs;
-    if (this.serverMovementSyncElapsedMs < syncIntervalMs) {
+    this.positionBackupElapsedMs += delta;
+    if (this.positionBackupElapsedMs < positionBackupIntervalMs) {
       return;
     }
-    this.serverMovementSyncElapsedMs =
-      this.serverMovementSyncElapsedMs % syncIntervalMs;
-    if (!this.shouldSyncMovementState(currentState)) {
+    this.positionBackupElapsedMs =
+      this.positionBackupElapsedMs % positionBackupIntervalMs;
+    this.sendImmediate({ x, y });
+  }
+
+  private sendImmediate(payload: PlayerState, statePatch?: PlayerState): void {
+    if (!this.client) {
       return;
     }
-    const shouldBroadcastPeerCorrection =
-      this.serverPeerMovementSyncElapsedMs >=
-      serverPeerMovementCorrectionIntervalMs;
-    const shouldBroadcastToPeers =
-      shouldBroadcastMovement ||
-      this.shouldBroadcastSeparatedPosition ||
-      shouldBroadcastPeerCorrection;
-    if (shouldBroadcastToPeers) {
-      this.serverPeerMovementSyncElapsedMs =
-        this.serverPeerMovementSyncElapsedMs %
-        serverPeerMovementCorrectionIntervalMs;
+    this.positionBackupElapsedMs = 0;
+    const message: {
+      type: typeof messageTypes.updatePlayer;
+      payload: PlayerState;
+      statePatch?: PlayerState;
+    } = {
+      type: messageTypes.updatePlayer,
+      payload,
+    };
+    if (statePatch !== undefined) {
+      message.statePatch = statePatch;
     }
-    this.lastServerMovementState = currentState;
-    this.shouldBroadcastSeparatedPosition = false;
-    const payload = shouldBroadcastToPeers ? currentState : {};
-    const patch = shouldBroadcastToPeers ? undefined : currentState;
-    this.sendUpdate(payload, patch);
-  }
-
-  private absDiffAtLeast(a: number, b: number, threshold: number): boolean {
-    return Math.abs(a - b) >= threshold;
-  }
-
-  private shouldSyncMovementState(movementState: PlayerMovementState) {
-    const lastMovementState = this.lastServerMovementState;
-    if (!lastMovementState) {
-      return true;
-    }
-    if (
-      this.absDiffAtLeast(
-        movementState.x,
-        lastMovementState.x,
-        serverMovementPositionThreshold,
-      )
-    ) {
-      return true;
-    }
-    if (
-      this.absDiffAtLeast(
-        movementState.y,
-        lastMovementState.y,
-        serverMovementPositionThreshold,
-      )
-    ) {
-      return true;
-    }
-    if (
-      this.absDiffAtLeast(
-        movementState.horizontalSpeed,
-        lastMovementState.horizontalSpeed,
-        serverMovementSpeedThreshold,
-      )
-    ) {
-      return true;
-    }
-    if (
-      this.absDiffAtLeast(
-        movementState.verticalSpeed,
-        lastMovementState.verticalSpeed,
-        serverMovementSpeedThreshold,
-      )
-    ) {
-      return true;
-    }
-    if (movementState.attackCycle !== lastMovementState.attackCycle) {
-      return true;
-    }
-    if (movementState.facingLeft !== lastMovementState.facingLeft) {
-      return true;
-    }
-    if (movementState.keyLeft !== lastMovementState.keyLeft) {
-      return true;
-    }
-    if (movementState.keyRight !== lastMovementState.keyRight) {
-      return true;
-    }
-    if (movementState.keyJump !== lastMovementState.keyJump) {
-      return true;
-    }
-    if (movementState.keyDown !== lastMovementState.keyDown) {
-      return true;
-    }
-    return false;
+    this.client.send(message);
   }
 }

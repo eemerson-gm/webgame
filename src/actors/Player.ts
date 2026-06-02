@@ -19,7 +19,10 @@ import {
   PlayerVisuals,
   type PlayerLocomotionVisual,
 } from "./player/PlayerVisuals";
-import { PlayerNetworkClient } from "../classes/PlayerNetworkClient";
+import {
+  PlayerNetworkClient,
+  type PlayerNetworkSnapshot,
+} from "../classes/PlayerNetworkClient";
 import { getHandAttackAnimation, type PlayerHand } from "../combat/playerHands";
 import { Resources } from "../resource";
 
@@ -41,6 +44,8 @@ const positionPrecision = 1000;
 const cameraFollowResponsiveness = 10;
 const cameraSnapDistance = TILE_PX * 8;
 const cameraPixelSnapScale = 3;
+const remotePlayerPositionTolerance = 0.5;
+const remotePlayerSnapDistance = TILE_PX * 2;
 
 const playerWalkingTuning: WalkingTuning = {
   walkSpeed: 1.2,
@@ -176,6 +181,50 @@ export class Player extends LivingActor {
       return;
     }
     this.syncFacingFromKeys();
+  }
+
+  public applyRemoteUpdate(payload: PlayerState): void {
+    if (this.isLocal) {
+      return;
+    }
+    if (payload.isPaused !== undefined) {
+      this.setPaused(payload.isPaused);
+    }
+    if (payload.keyLeft !== undefined) {
+      this.keyLeft = payload.keyLeft;
+    }
+    if (payload.keyRight !== undefined) {
+      this.keyRight = payload.keyRight;
+    }
+    if (payload.keyJump !== undefined) {
+      this.keyJump = payload.keyJump;
+    }
+    if (payload.keyDown !== undefined) {
+      this.keyDown = payload.keyDown;
+    }
+    this.syncFacingFromNetwork(payload.facingLeft);
+    if (payload.health !== undefined) {
+      this.syncHealth(payload.health);
+    }
+    this.applyRemoteAttackFromPayload(payload);
+    this.applyRemotePositionFromPayload(payload);
+  }
+
+  private applyRemotePositionFromPayload(payload: PlayerState): void {
+    if (payload.x === undefined && payload.y === undefined) {
+      return;
+    }
+    const nextPosition = ex.vec(
+      payload.x === undefined ? this.pos.x : Number(payload.x),
+      payload.y === undefined ? this.pos.y : Number(payload.y),
+    );
+    if (!Number.isFinite(nextPosition.x) || !Number.isFinite(nextPosition.y)) {
+      return;
+    }
+    if (this.pos.distance(nextPosition) < remotePlayerPositionTolerance) {
+      return;
+    }
+    this.applyRemotePositionCorrection(nextPosition, remotePlayerSnapDistance);
   }
 
   public applyRemoteAttackFromPayload(payload: PlayerState) {
@@ -340,11 +389,10 @@ export class Player extends LivingActor {
     if (!this.triggerAttack(hand)) {
       return;
     }
-    this.playerNetwork.sendUpdate({
-      keyAttack: true,
-      attackCycle: this.swordAttackCycle(),
-      facingLeft: this.isFacingLeft(),
-    });
+    this.playerNetwork.onAttack(
+      this.swordAttackCycle(),
+      this.isFacingLeft(),
+    );
   }
 
   private onJump() {
@@ -352,9 +400,7 @@ export class Player extends LivingActor {
       return;
     }
     this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
-    this.playerNetwork.sendUpdate({
-      keyJump: true,
-    });
+    this.playerNetwork.onJump();
   }
 
   private snapToGroundPixel() {
@@ -386,7 +432,10 @@ export class Player extends LivingActor {
   protected override onWalkingLand() {
     this.jumpHoldTimeRemainingMs = 0;
     this.snapToGroundPixel();
-    this.syncPosition();
+    if (this.client) {
+      const position = this.currentPosition();
+      this.playerNetwork.onLanded(position.x, position.y);
+    }
   }
 
   public setEquippedWeaponSprite(sprite: ex.ImageSource) {
@@ -402,10 +451,6 @@ export class Player extends LivingActor {
     this.vspeed = playerKnockbackVerticalSpeed;
     this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
     this.jumpHoldTimeRemainingMs = 0;
-    const movementState = {
-      ...this.currentMovementState(),
-    };
-    this.playerNetwork.sendUpdate(movementState);
   }
 
   public knockBackFrom(actor: ex.Actor) {
@@ -418,10 +463,6 @@ export class Player extends LivingActor {
     this.vspeed = playerKnockbackVerticalSpeed;
     this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
     this.jumpHoldTimeRemainingMs = 0;
-    const movementState = {
-      ...this.currentMovementState(),
-    };
-    this.playerNetwork.sendUpdate(movementState);
   }
 
   public takeDamageFrom(actor: ex.Actor, damage: number = 1) {
@@ -430,7 +471,6 @@ export class Player extends LivingActor {
     }
     const depleted = this.applyDamage(damage);
     if (depleted) {
-      this.syncHealthState();
       return true;
     }
     if (actor instanceof Player) {
@@ -439,7 +479,6 @@ export class Player extends LivingActor {
     if (!(actor instanceof Player)) {
       this.knockBackFrom(actor);
     }
-    this.syncHealthState();
     return true;
   }
 
@@ -462,8 +501,6 @@ export class Player extends LivingActor {
   protected onSeparatedX(_x: number) {
     void _x;
     this.syncPhysicsInterpolationToCurrentPosition();
-    this.playerNetwork.markPositionChanged();
-    this.playerNetwork.setShouldBroadcastSeparatedPosition(true);
   }
 
   public applyRemotePositionCorrection(
@@ -493,7 +530,6 @@ export class Player extends LivingActor {
     this.knockbackTimeRemainingMs = 0;
     this.jumpHoldTimeRemainingMs = 0;
     this.syncPhysicsInterpolationToCurrentPosition();
-    this.syncHealthState();
   }
 
   public cameraFocusPosition() {
@@ -503,17 +539,15 @@ export class Player extends LivingActor {
   }
 
   public syncPauseState(isPaused: boolean) {
-    const position = this.currentPosition();
     this.setPaused(isPaused);
-    this.playerNetwork.sendUpdate({
+    if (!this.client) {
+      return;
+    }
+    const position = this.currentPosition();
+    this.playerNetwork.onPaused({
       isPaused,
-      keyLeft: false,
-      keyRight: false,
-      keyJump: false,
-      keyDown: false,
-      horizontalSpeed: 0,
-      verticalSpeed: 0,
-      ...position,
+      x: position.x,
+      y: position.y,
     });
   }
 
@@ -541,48 +575,28 @@ export class Player extends LivingActor {
     };
   }
 
-  private currentMovementState() {
+  private networkSnapshot(): PlayerNetworkSnapshot {
     const position = this.currentPosition();
     return {
-      ...position,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-      attackCycle: this.swordAttackCycle(),
-      facingLeft: this.isFacingLeft(),
       keyLeft: this.keyLeft,
       keyRight: this.keyRight,
       keyJump: this.keyJump,
       keyDown: this.keyDown,
+      facingLeft: this.isFacingLeft(),
+      isGrounded: this.isGrounded,
+      x: position.x,
+      y: position.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      attackCycle: this.swordAttackCycle(),
     };
   }
 
-  private syncPosition() {
-    const position = this.currentPosition();
-    this.playerNetwork.sendUpdate(position);
-  }
-
-  private syncHealthState() {
-    const movementState = {
-      ...this.currentMovementState(),
-      health: this.health,
-    };
-    this.playerNetwork.sendUpdate(movementState, movementState);
-  }
-
-  private onMove() {
-    if (!this.inputState.hasChanged()) {
+  private syncLocalInputToNetwork(): void {
+    if (!this.client || !this.inputState.hasChanged()) {
       return;
     }
-    const shouldSyncPosition = this.inputState.shouldSyncPosition(
-      this.isGrounded,
-    );
-    const movementState = shouldSyncPosition ? this.currentMovementState() : {};
-    const payload = this.inputState.payload(movementState);
-    const statePatch = this.inputState.statePatch(shouldSyncPosition, payload);
-    this.playerNetwork.sendUpdate(
-      payload,
-      statePatch === payload ? undefined : statePatch,
-    );
+    this.playerNetwork.onInputChanged(this.networkSnapshot());
     this.inputState.remember();
   }
 
@@ -660,13 +674,6 @@ export class Player extends LivingActor {
       this.onWalkingLand();
     }
     this.syncLocomotionVisuals(keySign);
-    this.playerNetwork.syncMovementPeriodically(
-      delta,
-      {
-        ...this.currentMovementState(),
-      },
-      isKnockbackActive,
-    );
   }
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
@@ -674,15 +681,25 @@ export class Player extends LivingActor {
     this.visuals.updateVisualCorrection(frameDelta);
     this.syncCollisionToSprite();
     if (!this.isPaused) {
-      this.updateControls(engine);
+      if (this.client) {
+        this.updateControls(engine);
+      }
       const keySign = this.inputState.horizontalSign();
       this.physicsAccumulatorMs += frameDelta;
       while (this.physicsAccumulatorMs >= this.fixedStepMs) {
         this.stepInterpolatedPlayerPhysics(keySign);
         this.physicsAccumulatorMs -= this.fixedStepMs;
       }
-      this.syncRenderInterpolation();
-      this.onMove();
+      if (this.client) {
+        this.syncRenderInterpolation();
+        this.syncLocalInputToNetwork();
+        const position = this.currentPosition();
+        this.playerNetwork.tickPositionBackup(
+          frameDelta,
+          position.x,
+          position.y,
+        );
+      }
     }
     this.tickDamageFeedback(frameDelta);
   }

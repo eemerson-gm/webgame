@@ -1,5 +1,4 @@
 import * as ex from "excalibur";
-import type { PlayerState } from "../classes/GameWire";
 
 export class PlayerInputState {
   public keyLeft: boolean = false;
@@ -34,31 +33,6 @@ export class PlayerInputState {
       return true;
     }
     return false;
-  }
-
-  public shouldSyncPosition(isGrounded: boolean) {
-    return isGrounded;
-  }
-
-  public payload(movementState: PlayerState) {
-    return {
-      keyLeft: this.keyLeft,
-      keyRight: this.keyRight,
-      keyJump: this.keyJump,
-      keyDown: this.keyDown,
-      ...movementState,
-    };
-  }
-
-  public statePatch(shouldSyncPosition: boolean, payload: PlayerState) {
-    return shouldSyncPosition
-      ? payload
-      : {
-          keyLeft: this.keyLeft,
-          keyRight: this.keyRight,
-          keyJump: this.keyJump,
-          keyDown: this.keyDown,
-        };
   }
 
   public remember() {
