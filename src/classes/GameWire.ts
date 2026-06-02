@@ -74,10 +74,19 @@ const worldTerrainSchema = z.object({
   terrainTiles: z.record(z.string(), terrainTileKindSchema).optional(),
 });
 
-const entityStateSchema = z.record(z.string(), z.object({}).passthrough());
+const slimeEntityStateSchema = z.object({
+  type: z.literal("slime"),
+  ownerId: z.string(),
+  wanderSign: z.number().optional(),
+  facingLeft: z.boolean().optional(),
+  health: z.number().optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  jump: z.boolean().optional(),
+});
 
 const entitiesSnapshotSchema = z.object({
-  entitiesData: z.record(z.string(), entityStateSchema),
+  entitiesData: z.record(z.string(), slimeEntityStateSchema),
   removedEntityIds: z.array(z.string()).optional(),
   replaceExisting: z.boolean().optional(),
 });
@@ -91,7 +100,7 @@ const worldSummarySchema = z.object({
 const connectedPayloadSchema = z.object({
   id: z.string(),
   playersData: z.record(z.string(), playerStateSchema),
-  entitiesData: z.record(z.string(), entityStateSchema),
+  entitiesData: z.record(z.string(), slimeEntityStateSchema),
   world: worldTerrainSchema,
 });
 
@@ -126,7 +135,13 @@ const entityCreatePayloadSchema = z.object({
 });
 
 const entityUpdatePayloadSchema = z.object({
-  entity: entityStateSchema,
+  entityId: z.string(),
+  wanderSign: z.number().optional(),
+  facingLeft: z.boolean().optional(),
+  health: z.number().optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  jump: z.boolean().optional(),
 });
 
 const entityDamagePayloadSchema = z.object({
@@ -295,7 +310,8 @@ const clientToServerSchema = z.discriminatedUnion("type", [
 export type PlayerState = z.infer<typeof playerStateSchema>;
 export type WorldTerrain = z.infer<typeof worldTerrainSchema>;
 export type TerrainTileKind = z.infer<typeof terrainTileKindSchema>;
-export type EntityState = z.infer<typeof entityStateSchema>;
+export type EntityState = z.infer<typeof slimeEntityStateSchema>;
+export type SlimeEntityState = EntityState;
 export type WorldSummary = z.infer<typeof worldSummarySchema>;
 export type ClientSend = z.infer<typeof clientSendSchema>;
 export type ServerToClient = z.infer<typeof serverToClientSchema>;

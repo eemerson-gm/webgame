@@ -338,6 +338,10 @@ export class GameServer {
       console.log(`[${playerId}]: Paused interaction blocked`);
       return;
     }
+    if (this.handleEntityMessage(room, playerId, message)) {
+      console.log(`[${playerId}]: ${json}`);
+      return;
+    }
     if (this.isServerOnlyStatePatch(message)) {
       return;
     }
@@ -381,6 +385,93 @@ export class GameServer {
       return false;
     }
     return Object.keys(message.payload).length === 0;
+  }
+
+  private handleEntityMessage(
+    room: WorldRoom,
+    playerId: string,
+    message: ClientToServer,
+  ): boolean {
+    if (message.type === messageTypes.createEntity) {
+      if (message.payload.type !== "slime") {
+        return true;
+      }
+      const entityId = `slime:${room.nextEntityIndex++}`;
+      const entity: EntityState = {
+        type: "slime",
+        ownerId: playerId,
+        x: message.payload.x,
+        y: message.payload.y,
+        wanderSign: 0,
+        health: 3,
+        facingLeft: false,
+      };
+      room.entitiesData[entityId] = entity;
+      this.broadcastEntitySnapshot(room, {
+        entitiesData: { [entityId]: entity },
+      });
+      return true;
+    }
+    if (message.type === messageTypes.updateEntity) {
+      const { entityId, ...patch } = message.payload;
+      const entity = room.entitiesData[entityId];
+      if (!entity || entity.ownerId !== playerId) {
+        return true;
+      }
+      const mergedEntity = merge({}, entity, patch) as EntityState;
+      const storedEntity: EntityState = { ...mergedEntity };
+      if (patch.jump !== undefined) {
+        delete (storedEntity as EntityState & { jump?: boolean }).jump;
+      }
+      room.entitiesData[entityId] = storedEntity;
+      this.broadcastEntitySnapshot(room, {
+        entitiesData: { [entityId]: mergedEntity },
+      });
+      return true;
+    }
+    if (message.type === messageTypes.damageEntity) {
+      const { entityId } = message.payload;
+      const entity = room.entitiesData[entityId];
+      if (!entity) {
+        return true;
+      }
+      const damage = message.payload.damage ?? 1;
+      if (!Number.isFinite(damage) || damage <= 0) {
+        return true;
+      }
+      const currentHealth = entity.health ?? 3;
+      const nextHealth = Math.max(0, currentHealth - damage);
+      if (nextHealth <= 0) {
+        delete room.entitiesData[entityId];
+        this.broadcastEntitySnapshot(room, {
+          removedEntityIds: [entityId],
+        });
+        return true;
+      }
+      const nextEntity: EntityState = { ...entity, health: nextHealth };
+      room.entitiesData[entityId] = nextEntity;
+      this.broadcastEntitySnapshot(room, {
+        entitiesData: { [entityId]: nextEntity },
+      });
+      return true;
+    }
+    return false;
+  }
+
+  private broadcastEntitySnapshot(
+    room: WorldRoom,
+    payload: {
+      entitiesData?: Record<string, EntityState>;
+      removedEntityIds?: string[];
+    },
+  ): void {
+    this.sendToRoomAll(room, {
+      type: messageTypes.updateEntities,
+      payload: {
+        entitiesData: payload.entitiesData ?? {},
+        removedEntityIds: payload.removedEntityIds,
+      },
+    });
   }
 
   private buildRelayOutbound(

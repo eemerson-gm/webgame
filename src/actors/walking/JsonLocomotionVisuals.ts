@@ -23,6 +23,7 @@ export class JsonLocomotionVisuals implements LocomotionVisualsHost {
   private activeAnimation: JsonSpriteAnimation;
   private facingLeft = false;
   private readonly graphicOffset: ex.Vector;
+  private renderExtraOffset: ex.Vector = ex.vec(0, 0);
 
   constructor(private readonly options: JsonLocomotionVisualsOptions) {
     this.graphicOffset = options.graphicOffset;
@@ -56,8 +57,16 @@ export class JsonLocomotionVisuals implements LocomotionVisualsHost {
     this.applyVisual("idle", true);
   }
 
+  public setRenderExtraOffset(offset: ex.Vector) {
+    this.renderExtraOffset = offset;
+  }
+
   public bodyGraphicCenter() {
-    return this.graphicOffset.add(this.activeAnimation.hostPoseOffset());
+    return this.drawGraphicOffset().add(this.activeAnimation.hostPoseOffset());
+  }
+
+  private drawGraphicOffset() {
+    return this.graphicOffset.add(this.renderExtraOffset);
   }
 
   public setLocomotionVisual(visual: LocomotionVisual, force: boolean = false) {
@@ -66,11 +75,11 @@ export class JsonLocomotionVisuals implements LocomotionVisualsHost {
 
   public updateFacing(facingLeft: boolean) {
     this.facingLeft = facingLeft;
-    this.activeAnimation.update(0, facingLeft, this.graphicOffset);
+    this.activeAnimation.update(0, facingLeft, this.drawGraphicOffset());
   }
 
   public update(delta: number) {
-    this.activeAnimation.update(delta, this.facingLeft, this.graphicOffset);
+    this.activeAnimation.update(delta, this.facingLeft, this.drawGraphicOffset());
   }
 
   public animationFor(visual: LocomotionVisual) {
@@ -102,6 +111,6 @@ export class JsonLocomotionVisuals implements LocomotionVisualsHost {
     this.activeAnimation = this.animationFor(visual);
     this.activeAnimation.reset();
     this.activeAnimation.play();
-    this.activeAnimation.update(0, this.facingLeft, this.graphicOffset);
+    this.activeAnimation.update(0, this.facingLeft, this.drawGraphicOffset());
   }
 }

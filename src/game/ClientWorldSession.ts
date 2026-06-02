@@ -1,8 +1,8 @@
 import * as ex from "excalibur";
 import { Player } from "../actors/Player";
-import { Slime } from "../actors/Slime";
 import { separateEntityBodies } from "../actors/MovingActor";
 import { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
+import { ClientWorldEntities } from "./ClientWorldEntities";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameWire";
 import type {
@@ -43,7 +43,7 @@ export class ClientWorldSession {
   private readonly worldLivingEntities = new ClientWorldLivingEntities();
 
   private localPlayer: Player | null = null;
-  private devSlime: Slime | null = null;
+  private worldEntities: ClientWorldEntities | null = null;
   private readonly remotePlayers: Record<string, Player> = {};
   private terrain: TerrainTileMap | null = null;
   private dummyTileMap: ex.TileMap | null = null;
@@ -75,7 +75,6 @@ export class ClientWorldSession {
     viewSize: GameViewSize,
     menuUi: MainMenuUI,
   ): ClientWorldSession | null {
-    void entitiesData;
     const playerListUi = new PlayerListUI();
     const session = new ClientWorldSession(
       engine,
@@ -85,7 +84,7 @@ export class ClientWorldSession {
       menuUi,
       playerListUi,
     );
-    session.start(world, playersData);
+    session.start(world, playersData, entitiesData);
     return session;
   }
 
@@ -100,6 +99,7 @@ export class ClientWorldSession {
   private start(
     world: WorldTerrain,
     playersData: Record<string, PlayerState>,
+    entitiesData: Record<string, EntityState>,
   ): void {
     this.menuUi.hide();
     this.menuUi.setCreateWorldEnabled(false);
@@ -151,14 +151,15 @@ export class ClientWorldSession {
     if (localPlayerId) {
       this.registerPlayerLivingEntity(localPlayerId, this.localPlayer);
     }
-    this.devSlime = new Slime(
-      playerSpawn,
-      dummyTileMap,
-      terrain.tileCollisionWorld(),
-      this.localPlayer,
-    );
-    this.engine.add(this.devSlime);
-    this.registerSlimeLivingEntity(this.devSlime);
+    this.worldEntities = new ClientWorldEntities({
+      engine: this.engine,
+      client: this.client,
+      myPlayerId: this.myPlayerId,
+      getTerrain: () => this.terrain,
+      getDummyTileMap: () => this.dummyTileMap,
+      worldLivingEntities: this.worldLivingEntities,
+    });
+    this.worldEntities.applyEntitiesSnapshot({ entitiesData });
     this.engine.add(
       new HUDManager(() => {
         const player = this.localPlayer;
@@ -184,6 +185,7 @@ export class ClientWorldSession {
     this.joinExistingRemotePlayers(terrain, dummyTileMap, playersData);
     this.refreshPlayerList();
     this.engine.on("preupdate", () => {
+      this.trySpawnSlimeAtCursor();
       this.separateEntityActors();
     });
     this.engine.on("postupdate", () => {
@@ -278,12 +280,24 @@ export class ClientWorldSession {
     });
   }
 
-  private registerSlimeLivingEntity(slime: Slime) {
-    this.worldLivingEntities.register({
-      entityId: slime.entityId(),
-      living: slime,
-      onWeaponHit: (attacker) => {
-        slime.takeDamageFrom(attacker, 1);
+  private trySpawnSlimeAtCursor(): void {
+    const localPlayer = this.localPlayer;
+    if (!localPlayer || localPlayer.isPaused) {
+      return;
+    }
+    if (!this.engine.input.keyboard.wasPressed(ex.Keys.R)) {
+      return;
+    }
+    const worldPos = this.engine.input.pointers.primary.lastWorldPos;
+    if (!Number.isFinite(worldPos.x) || !Number.isFinite(worldPos.y)) {
+      return;
+    }
+    this.client.send({
+      type: messageTypes.createEntity,
+      payload: {
+        type: "slime",
+        x: worldPos.x,
+        y: worldPos.y,
       },
     });
   }
@@ -388,10 +402,11 @@ export class ClientWorldSession {
     });
   }
 
-  private applyEntitiesSnapshot(_payload: {
-    entitiesData: Record<string, EntityState>;
+  private applyEntitiesSnapshot(payload: {
+    entitiesData?: Record<string, EntityState>;
+    removedEntityIds?: string[];
   }): void {
-    void _payload;
+    this.worldEntities?.applyEntitiesSnapshot(payload);
   }
 
   private playerForId(playerId: string): Player | null {
