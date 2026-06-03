@@ -1,66 +1,37 @@
+import type { Engine } from "excalibur";
+import * as ex from "excalibur";
 import type { PlayerState } from "../../classes/GameWire";
 import {
   PlayerNetworkClient,
   type PlayerNetworkSnapshot,
 } from "../../classes/PlayerNetworkClient";
 import type { GameClient } from "../../classes/GameClient";
-import type { Engine } from "excalibur";
 import type { PlayerHand } from "../../combat/playerHands";
 import { Player, playerJumpHoldDurationMs } from "../../actors/Player";
+import type { TileCollisionWorld } from "../../actors/MovingActor";
 import { quantizePosition } from "./positionQuantize";
 import { RemotePositionSync } from "./RemotePositionSync";
 
-class PlayerOutboundTracker {
-  private wasGrounded = true;
-  private wasJumping = false;
-  private lastAttackCycle = 0;
-
-  public publish(player: Player, network: PlayerNetworkClient): void {
-    if (player.isJumping && !this.wasJumping && player.vspeed < 0) {
-      const position = quantizePosition(player.pos.x, player.pos.y);
-      network.onJump({
-        x: position.x,
-        y: position.y,
-        horizontalSpeed: player.hspeed,
-        verticalSpeed: player.vspeed,
-      });
-    }
-    if (player.isGrounded && !this.wasGrounded) {
-      const position = quantizePosition(player.pos.x, player.pos.y);
-      network.onLanded(position.x, position.y);
-    }
-    const attackCycle = player.swordAttackCycle();
-    if (attackCycle > this.lastAttackCycle) {
-      network.onAttack(attackCycle, player.isFacingLeft());
-    }
-    this.wasGrounded = player.isGrounded;
-    this.wasJumping = player.isJumping;
-    this.lastAttackCycle = attackCycle;
-  }
-}
-
-export class PlayerNetworkSync {
+export class NetworkPlayer extends Player {
   private readonly network: PlayerNetworkClient;
-  private readonly outbound = new PlayerOutboundTracker();
   private readonly positionSync: RemotePositionSync;
   private lastAppliedRemoteAttackCycle: number = 0;
 
   constructor(
-    private readonly player: Player,
+    pos: ex.Vector,
+    tilemap: ex.TileMap,
+    collisionWorld: TileCollisionWorld | undefined,
     client?: GameClient,
   ) {
+    super(pos, tilemap, collisionWorld);
     this.network = new PlayerNetworkClient(client);
     this.positionSync = new RemotePositionSync(
-      this.player,
+      this,
       (position, snapDistance, correctionOptions) => {
-        this.player.applyPositionCorrection(
-          position,
-          snapDistance,
-          correctionOptions,
-        );
+        this.applyPositionCorrection(position, snapDistance, correctionOptions);
       },
       () => {
-        this.player.syncPhysicsInterpolationToCurrentPosition();
+        this.syncPhysicsInterpolationToCurrentPosition();
       },
     );
   }
@@ -73,14 +44,38 @@ export class PlayerNetworkSync {
     if (!this.isLocal()) {
       return;
     }
-    if (!this.player.attemptAttack(hand)) {
+    this.attemptAttack(hand);
+  }
+
+  protected override onLand(): void {
+    super.onLand();
+    if (!this.network.hasClient()) {
       return;
     }
-    this.network.onAttack(
-      this.player.swordAttackCycle(),
-      this.player.isFacingLeft(),
-    );
-    this.outbound.publish(this.player, this.network);
+    const position = quantizePosition(this.pos.x, this.pos.y);
+    this.network.onLanded(position.x, position.y);
+  }
+
+  protected override onJumpStarted(): void {
+    super.onJumpStarted();
+    if (!this.network.hasClient()) {
+      return;
+    }
+    const position = quantizePosition(this.pos.x, this.pos.y);
+    this.network.onJump({
+      x: position.x,
+      y: position.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+    });
+  }
+
+  protected override onAttackStarted(hand: PlayerHand): void {
+    super.onAttackStarted(hand);
+    if (!this.network.hasClient()) {
+      return;
+    }
+    this.network.onAttack(this.swordAttackCycle(), this.isFacingLeft());
   }
 
   public applyRemote(payload: PlayerState): void {
@@ -88,27 +83,27 @@ export class PlayerNetworkSync {
       return;
     }
     if (payload.isPaused !== undefined) {
-      this.player.setPaused(payload.isPaused);
+      this.setPaused(payload.isPaused);
     }
     if (payload.keyLeft !== undefined) {
-      this.player.keyLeft = payload.keyLeft;
+      this.keyLeft = payload.keyLeft;
     }
     if (payload.keyRight !== undefined) {
-      this.player.keyRight = payload.keyRight;
+      this.keyRight = payload.keyRight;
     }
     if (payload.keyJump !== undefined) {
-      this.player.keyJump = payload.keyJump;
+      this.keyJump = payload.keyJump;
     }
     if (payload.keyDown !== undefined) {
-      this.player.keyDown = payload.keyDown;
+      this.keyDown = payload.keyDown;
     }
     if (payload.facingLeft !== undefined) {
-      this.player.setFacingLeft(payload.facingLeft);
+      this.setFacingLeft(payload.facingLeft);
     } else {
-      this.player.syncFacingFromKeys();
+      this.syncFacingFromKeys();
     }
     if (payload.health !== undefined) {
-      this.player.syncHealth(payload.health);
+      this.syncHealth(payload.health);
     }
     this.applyRemoteAttack(payload);
     if (this.applyRemoteJumpStart(payload)) {
@@ -120,19 +115,19 @@ export class PlayerNetworkSync {
 
   public applyLocalState(payload: PlayerState): void {
     if (payload.isPaused !== undefined) {
-      this.player.setPaused(payload.isPaused);
+      this.setPaused(payload.isPaused);
     }
     if (payload.health !== undefined) {
-      this.player.syncHealth(payload.health);
+      this.syncHealth(payload.health);
     }
   }
 
   public syncPauseState(isPaused: boolean): void {
-    this.player.setPaused(isPaused);
+    this.setPaused(isPaused);
     if (!this.isLocal()) {
       return;
     }
-    const position = quantizePosition(this.player.pos.x, this.player.pos.y);
+    const position = quantizePosition(this.pos.x, this.pos.y);
     this.network.onPaused({
       isPaused,
       x: position.x,
@@ -144,15 +139,14 @@ export class PlayerNetworkSync {
     if (!this.isLocal()) {
       return;
     }
-    this.player.readLocalControls(engine);
+    this.readLocalControls(engine);
     this.syncLocalInputIfChanged();
-    this.outbound.publish(this.player, this.network);
-    const position = quantizePosition(this.player.pos.x, this.player.pos.y);
+    const position = quantizePosition(this.pos.x, this.pos.y);
     this.network.tickPositionBackup(frameDelta, position.x, position.y);
   }
 
   private applyRemoteJumpStart(payload: PlayerState): boolean {
-    if (payload.keyJump !== true || this.player.isJumping || !this.player.isGrounded) {
+    if (payload.keyJump !== true || this.isJumping || !this.isGrounded) {
       return false;
     }
     const verticalSpeed = Number(payload.verticalSpeed);
@@ -170,7 +164,7 @@ export class PlayerNetworkSync {
       },
     );
     this.applyRemoteVelocity(payload);
-    this.player.startJumpHold(playerJumpHoldDurationMs);
+    this.startJumpHold(playerJumpHoldDurationMs);
     return true;
   }
 
@@ -178,13 +172,13 @@ export class PlayerNetworkSync {
     if (payload.horizontalSpeed !== undefined) {
       const horizontalSpeed = Number(payload.horizontalSpeed);
       if (Number.isFinite(horizontalSpeed)) {
-        this.player.hspeed = horizontalSpeed;
+        this.hspeed = horizontalSpeed;
       }
     }
     if (payload.verticalSpeed !== undefined) {
       const verticalSpeed = Number(payload.verticalSpeed);
       if (Number.isFinite(verticalSpeed)) {
-        this.player.vspeed = verticalSpeed;
+        this.vspeed = verticalSpeed;
       }
     }
   }
@@ -198,48 +192,48 @@ export class PlayerNetworkSync {
 
   private applyRemoteAttack(payload: PlayerState): void {
     if (payload.facingLeft !== undefined) {
-      this.player.setFacingLeft(payload.facingLeft);
+      this.setFacingLeft(payload.facingLeft);
     } else {
-      this.player.syncFacingFromKeys();
+      this.syncFacingFromKeys();
     }
     const attackCycle = Number(payload.attackCycle);
     if (Number.isFinite(attackCycle) && attackCycle > 0) {
       if (attackCycle > this.lastAppliedRemoteAttackCycle) {
         this.lastAppliedRemoteAttackCycle = attackCycle;
-        if (this.player.isSwordAttackActive()) {
-          this.player.cancelActiveSwordAttack();
+        if (this.isSwordAttackActive()) {
+          this.cancelActiveSwordAttack();
         }
-        this.player.triggerAttack("handLeft");
+        this.triggerAttack("handLeft");
         return;
       }
     }
     if (payload.keyAttack) {
-      this.player.triggerAttack("handLeft");
+      this.triggerAttack("handLeft");
     }
   }
 
   private syncLocalInputIfChanged(): void {
-    if (!this.player.inputStateHasChanged()) {
+    if (!this.inputStateHasChanged()) {
       return;
     }
     this.network.onInputChanged(this.networkSnapshot());
-    this.player.rememberInputState();
+    this.rememberInputState();
   }
 
   private networkSnapshot(): PlayerNetworkSnapshot {
-    const position = quantizePosition(this.player.pos.x, this.player.pos.y);
+    const position = quantizePosition(this.pos.x, this.pos.y);
     return {
-      keyLeft: this.player.keyLeft,
-      keyRight: this.player.keyRight,
-      keyJump: this.player.keyJump,
-      keyDown: this.player.keyDown,
-      facingLeft: this.player.isFacingLeft(),
-      isGrounded: this.player.isGrounded,
+      keyLeft: this.keyLeft,
+      keyRight: this.keyRight,
+      keyJump: this.keyJump,
+      keyDown: this.keyDown,
+      facingLeft: this.isFacingLeft(),
+      isGrounded: this.isGrounded,
       x: position.x,
       y: position.y,
-      horizontalSpeed: this.player.hspeed,
-      verticalSpeed: this.player.vspeed,
-      attackCycle: this.player.swordAttackCycle(),
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      attackCycle: this.swordAttackCycle(),
     };
   }
 }

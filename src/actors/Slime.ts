@@ -154,7 +154,7 @@ export class Slime extends WalkingActor {
     if (!this.shouldJumpForTileAhead(this.wanderSign)) {
       return;
     }
-    this.jump(this.walkingTuning.jumpSpeed);
+    this.startJump(this.walkingTuning.jumpSpeed);
   }
 
   public simulateJumpStart() {
@@ -174,9 +174,7 @@ export class Slime extends WalkingActor {
     this.visuals.applyRemotePositionCorrection(position, snapDistance, options);
   }
 
-  protected override onLand() {
-    super.onLand();
-  }
+  protected onWanderChanged() {}
 
   override onInitialize(engine: ex.Engine) {
     this.visuals.initialize();
@@ -237,6 +235,7 @@ export class Slime extends WalkingActor {
       this.facingLeft = false;
     }
     this.visuals.updateFacing(this.facingLeft);
+    this.onWanderChanged();
   }
 
   public isFacingLeft() {

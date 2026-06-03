@@ -1,5 +1,4 @@
 import * as ex from "excalibur";
-import { Slime } from "../actors/Slime";
 import { GameClient } from "../classes/GameClient";
 import {
   messageTypes,
@@ -8,7 +7,7 @@ import {
 } from "../classes/GameWire";
 import type { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
-import { SlimeNetworkSync } from "./network/SlimeNetworkSync";
+import { NetworkSlime } from "./network/NetworkSlime";
 
 type ClientWorldEntitiesOptions = {
   engine: ex.Engine;
@@ -20,8 +19,7 @@ type ClientWorldEntitiesOptions = {
 };
 
 type SlimeEntry = {
-  slime: Slime;
-  sync: SlimeNetworkSync;
+  slime: NetworkSlime;
 };
 
 export class ClientWorldEntities {
@@ -30,8 +28,8 @@ export class ClientWorldEntities {
   constructor(private readonly options: ClientWorldEntitiesOptions) {}
 
   public tickSlimeNetwork(frameDelta: number): void {
-    this.slimes.forEach(({ sync }) => {
-      sync.tickAuthority(frameDelta);
+    this.slimes.forEach(({ slime }) => {
+      slime.tickAuthority(frameDelta);
     });
   }
 
@@ -82,29 +80,26 @@ export class ClientWorldEntities {
     }
     const x = state.x ?? 0;
     const y = state.y ?? 0;
-    const slime = new Slime(
+    const isAuthority = state.ownerId === this.options.myPlayerId;
+    const slime = new NetworkSlime(
       entityId,
       state.ownerId,
       ex.vec(x, y),
       dummyTileMap,
       terrain.tileCollisionWorld(),
-    );
-    const isAuthority = state.ownerId === this.options.myPlayerId;
-    const sync = new SlimeNetworkSync(
-      slime,
       isAuthority ? this.options.client : undefined,
       isAuthority,
     );
     this.options.engine.add(slime);
-    const entry = { slime, sync };
+    const entry = { slime };
     this.slimes.set(entityId, entry);
     this.registerSlimeCombat(slime);
     this.applySlimeState(entry, state);
   }
 
   private applySlimeState(entry: SlimeEntry, state: EntityPatch): void {
-    entry.sync.applyCombatPatch(state);
-    entry.sync.applyRemoteSimulation(state);
+    entry.slime.applyCombatPatch(state);
+    entry.slime.applyRemoteSimulation(state);
   }
 
   private removeSlime(entityId: string): void {
@@ -117,7 +112,7 @@ export class ClientWorldEntities {
     this.slimes.delete(entityId);
   }
 
-  private registerSlimeCombat(slime: Slime): void {
+  private registerSlimeCombat(slime: NetworkSlime): void {
     this.options.worldLivingEntities.register({
       entityId: slime.entityId(),
       living: slime,

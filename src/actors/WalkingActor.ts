@@ -83,7 +83,17 @@ export abstract class WalkingActor extends LivingActor {
 
   protected tryJump() {}
 
+  protected onJumpStarted() {}
+
   protected onLand() {}
+
+  protected startJump(jumpSpeed: number): boolean {
+    if (!this.jump(jumpSpeed)) {
+      return false;
+    }
+    this.onJumpStarted();
+    return true;
+  }
 
   protected syncCollisionToSprite() {
     const center = this.locomotionVisuals().bodyGraphicCenter();

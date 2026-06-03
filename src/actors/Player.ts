@@ -117,7 +117,15 @@ export class Player extends WalkingActor {
     if (this.isPaused) {
       return false;
     }
-    return this.visuals.playHandAttack(getHandAttackAnimation(hand));
+    if (!this.visuals.playHandAttack(getHandAttackAnimation(hand))) {
+      return false;
+    }
+    this.onAttackStarted(hand);
+    return true;
+  }
+
+  protected onAttackStarted(_hand: PlayerHand) {
+    void _hand;
   }
 
   public cancelActiveSwordAttack() {
@@ -248,8 +256,8 @@ export class Player extends WalkingActor {
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
-  private onJump() {
-    if (!this.jump(this.walkingTuning.jumpSpeed)) {
+  protected onJump() {
+    if (!this.startJump(this.walkingTuning.jumpSpeed)) {
       return;
     }
     this.jumpHoldTimeRemainingMs = playerJumpHoldDurationMs;
