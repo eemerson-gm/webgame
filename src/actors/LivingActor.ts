@@ -1,5 +1,9 @@
 import * as ex from "excalibur";
 import { DamageFlash } from "./DamageableActor";
+import {
+  remotePositionSnapDistancePx,
+  remotePositionTolerancePx,
+} from "./RemoteNetworkSync";
 import type {
   CollisionBounds,
   EntitySeparationBody,
@@ -13,13 +17,29 @@ export type LivingVitality = {
   damageBlinkFrameMs: number;
 };
 
+export type LivingKnockback = {
+  horizontalSpeed: number;
+  verticalSpeed: number;
+  durationMs: number;
+  friction: number;
+};
+
+export const defaultLivingKnockback: LivingKnockback = {
+  horizontalSpeed: 2.2,
+  verticalSpeed: -1.4,
+  durationMs: 240,
+  friction: 0.94,
+};
+
 export type LivingSeparationKind = "player" | "entity";
 
 export abstract class LivingActor extends WalkingActor {
   public health: number;
   public readonly maxHealth: number;
   protected damageImmunityTimeRemainingMs: number = 0;
+  private knockbackTimeRemainingMs: number = 0;
   private readonly damageImmunityDurationMs: number;
+  private readonly knockback: LivingKnockback;
   private readonly damageFlash: DamageFlash;
 
   constructor(
@@ -30,11 +50,13 @@ export abstract class LivingActor extends WalkingActor {
     tuning: WalkingTuning,
     vitality: LivingVitality,
     collisionWorld?: TileCollisionWorld,
+    knockback: LivingKnockback = defaultLivingKnockback,
   ) {
     super(pos, tilemap, size, collisionBounds, tuning, collisionWorld);
     this.maxHealth = vitality.maxHealth;
     this.health = vitality.maxHealth;
     this.damageImmunityDurationMs = vitality.damageImmunityDurationMs;
+    this.knockback = knockback;
     this.damageFlash = new DamageFlash(this, {
       durationMs: vitality.damageImmunityDurationMs,
       blinkFrameMs: vitality.damageBlinkFrameMs,
@@ -48,6 +70,10 @@ export abstract class LivingActor extends WalkingActor {
   protected tickDamageFeedback(delta: number) {
     this.damageImmunityTimeRemainingMs = Math.max(
       this.damageImmunityTimeRemainingMs - delta,
+      0,
+    );
+    this.knockbackTimeRemainingMs = Math.max(
+      this.knockbackTimeRemainingMs - delta,
       0,
     );
     this.damageFlash.tick(delta);
@@ -79,6 +105,111 @@ export abstract class LivingActor extends WalkingActor {
     return this.health > 0;
   }
 
+  protected canReceiveKnockback() {
+    return this.isLivingActive();
+  }
+
+  protected override isKnockbackActive() {
+    return this.knockbackTimeRemainingMs > 0;
+  }
+
+  protected override stepKnockbackPhysics(delta: number) {
+    const dt = delta / 1000;
+    this.applyGravity(this.walkingTuning.gravity, dt);
+    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
+    this.hspeed *= this.knockback.friction;
+  }
+
+  public knockBackFromFacing(facingLeft: boolean) {
+    if (!this.canReceiveKnockback()) {
+      return;
+    }
+    const direction = facingLeft ? -1 : 1;
+    this.applyKnockbackImpulse(direction);
+  }
+
+  public knockBackFromAttacker(attacker: ex.Actor) {
+    if (!this.canReceiveKnockback()) {
+      return;
+    }
+    if (
+      "isFacingLeft" in attacker &&
+      typeof attacker.isFacingLeft === "function"
+    ) {
+      this.knockBackFromFacing(attacker.isFacingLeft());
+      return;
+    }
+    const attackerCenterX = attacker.pos.x + attacker.width / 2;
+    const direction = this.centerX() < attackerCenterX ? -1 : 1;
+    this.applyKnockbackImpulse(direction);
+  }
+
+  public takeDamageFrom(attacker: ex.Actor, damage: number = 1): boolean {
+    if (!this.canTakeDamage()) {
+      return false;
+    }
+    const depleted = this.applyDamage(damage);
+    if (depleted) {
+      return true;
+    }
+    this.knockBackFromAttacker(attacker);
+    return true;
+  }
+
+  public syncHealth(health: unknown) {
+    this.syncLivingHealth(health);
+  }
+
+  protected applySyncedNetworkPosition(
+    partial: { x?: number | string; y?: number | string },
+    applyVisualCorrection: (
+      position: ex.Vector,
+      snapDistancePx: number,
+      correctionOptions?: { forceHardSnap?: boolean },
+    ) => void,
+    afterSync?: () => void,
+    options?: {
+      resetVelocity?: boolean;
+      forceHardSnap?: boolean;
+    },
+  ): void {
+    const hasX = partial.x !== undefined;
+    const hasY = partial.y !== undefined;
+    if (!hasX && !hasY) {
+      return;
+    }
+    const nextX = hasX ? Number(partial.x) : this.pos.x;
+    const nextY = hasY ? Number(partial.y) : this.pos.y;
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) {
+      return;
+    }
+    const target = ex.vec(nextX, nextY);
+    if (this.pos.distance(target) < remotePositionTolerancePx) {
+      return;
+    }
+    if (options?.resetVelocity !== false) {
+      this.hspeed = 0;
+      this.vspeed = 0;
+    }
+    applyVisualCorrection(target, remotePositionSnapDistancePx, {
+      forceHardSnap: options?.forceHardSnap,
+    });
+    afterSync?.();
+  }
+
+  protected applyKnockbackImpulse(direction: number) {
+    this.hspeed = this.knockback.horizontalSpeed * direction;
+    this.vspeed = this.knockback.verticalSpeed;
+    this.knockbackTimeRemainingMs = this.knockback.durationMs;
+    this.onKnockbackApplied();
+  }
+
+  protected onKnockbackApplied() {}
+
+  protected clearKnockback() {
+    this.knockbackTimeRemainingMs = 0;
+  }
+
   protected applyDamage(damage: number): boolean {
     if (!this.canTakeDamage()) {
       return false;
@@ -102,6 +233,7 @@ export abstract class LivingActor extends WalkingActor {
     this.health = Math.max(0, Math.min(nextHealth, this.maxHealth));
     if (this.health < previousHealth) {
       this.damageFlash.start();
+      this.damageImmunityTimeRemainingMs = this.damageImmunityDurationMs;
     }
   }
 

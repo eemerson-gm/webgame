@@ -1,7 +1,6 @@
+import { networkPositionBackupIntervalMs } from "../actors/RemoteNetworkSync";
 import type { GameClient } from "./GameClient";
 import { messageTypes } from "./GameWire";
-
-const positionBackupIntervalMs = 75;
 
 export type SlimeWanderSnapshot = {
   readonly wanderSign: number;
@@ -53,11 +52,11 @@ export class SlimeNetworkClient {
 
   public tickPositionBackup(delta: number, x: number, y: number): void {
     this.positionBackupElapsedMs += delta;
-    if (this.positionBackupElapsedMs < positionBackupIntervalMs) {
+    if (this.positionBackupElapsedMs < networkPositionBackupIntervalMs) {
       return;
     }
     this.positionBackupElapsedMs =
-      this.positionBackupElapsedMs % positionBackupIntervalMs;
+      this.positionBackupElapsedMs % networkPositionBackupIntervalMs;
     this.sendImmediate({
       entityId: this.entityId,
       x,

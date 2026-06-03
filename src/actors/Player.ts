@@ -31,10 +31,6 @@ const jumpHoldDurationMs = 220;
 const jumpHeldGravityMultiplier = 0.3;
 const jumpReleasedGravityMultiplier = 1.15;
 const jumpFallGravityMultiplier = 0.85;
-const playerKnockbackHorizontalSpeed = 2.2;
-const playerKnockbackVerticalSpeed = -1.4;
-const playerKnockbackDurationMs = 240;
-const playerKnockbackFriction = 0.94;
 const playerVitality: LivingVitality = {
   maxHealth: 6,
   damageImmunityDurationMs: 500,
@@ -44,9 +40,6 @@ const positionPrecision = 1000;
 const cameraFollowResponsiveness = 10;
 const cameraSnapDistance = TILE_PX * 8;
 const cameraPixelSnapScale = 3;
-const remotePlayerPositionTolerance = 0.5;
-const remotePlayerSnapDistance = TILE_PX * 2;
-
 const playerWalkingTuning: WalkingTuning = {
   walkSpeed: 1.2,
   walkAcceleration: 0.25,
@@ -102,7 +95,6 @@ export class Player extends LivingActor {
   isPaused: boolean = false;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
-  private knockbackTimeRemainingMs: number = 0;
   private lastAppliedRemoteAttackCycle: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
@@ -207,24 +199,79 @@ export class Player extends LivingActor {
       this.syncHealth(payload.health);
     }
     this.applyRemoteAttackFromPayload(payload);
+    if (this.applyRemoteJumpStart(payload)) {
+      return;
+    }
     this.applyRemotePositionFromPayload(payload);
+    this.applyRemoteVelocityFromPayload(payload);
+  }
+
+  private applyRemoteJumpStart(payload: PlayerState): boolean {
+    if (payload.keyJump !== true || this.isJumping || !this.isGrounded) {
+      return false;
+    }
+    const verticalSpeed = Number(payload.verticalSpeed);
+    if (!Number.isFinite(verticalSpeed) || verticalSpeed >= 0) {
+      return false;
+    }
+    if (payload.x === undefined || payload.y === undefined) {
+      return false;
+    }
+    this.applySyncedNetworkPosition(
+      { x: payload.x, y: payload.y },
+      (position, snapDistance, correctionOptions) => {
+        this.applyRemotePositionCorrection(
+          position,
+          snapDistance,
+          correctionOptions,
+        );
+      },
+      () => {
+        this.syncPhysicsInterpolationToCurrentPosition();
+      },
+      {
+        resetVelocity: false,
+        forceHardSnap: true,
+      },
+    );
+    this.applyRemoteVelocityFromPayload(payload);
+    this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
+    this.isGrounded = false;
+    this.isJumping = true;
+    this.syncLocomotionVisuals(this.inputState.horizontalSign());
+    return true;
+  }
+
+  private applyRemoteVelocityFromPayload(payload: PlayerState): void {
+    if (payload.horizontalSpeed !== undefined) {
+      const horizontalSpeed = Number(payload.horizontalSpeed);
+      if (Number.isFinite(horizontalSpeed)) {
+        this.hspeed = horizontalSpeed;
+      }
+    }
+    if (payload.verticalSpeed !== undefined) {
+      const verticalSpeed = Number(payload.verticalSpeed);
+      if (Number.isFinite(verticalSpeed)) {
+        this.vspeed = verticalSpeed;
+      }
+    }
   }
 
   private applyRemotePositionFromPayload(payload: PlayerState): void {
-    if (payload.x === undefined && payload.y === undefined) {
-      return;
-    }
-    const nextPosition = ex.vec(
-      payload.x === undefined ? this.pos.x : Number(payload.x),
-      payload.y === undefined ? this.pos.y : Number(payload.y),
+    this.applySyncedNetworkPosition(
+      { x: payload.x, y: payload.y },
+      (position, snapDistance, correctionOptions) => {
+        this.applyRemotePositionCorrection(
+          position,
+          snapDistance,
+          correctionOptions,
+        );
+      },
+      () => {
+        this.syncPhysicsInterpolationToCurrentPosition();
+      },
+      { resetVelocity: false },
     );
-    if (!Number.isFinite(nextPosition.x) || !Number.isFinite(nextPosition.y)) {
-      return;
-    }
-    if (this.pos.distance(nextPosition) < remotePlayerPositionTolerance) {
-      return;
-    }
-    this.applyRemotePositionCorrection(nextPosition, remotePlayerSnapDistance);
   }
 
   public applyRemoteAttackFromPayload(payload: PlayerState) {
@@ -378,7 +425,13 @@ export class Player extends LivingActor {
       this.hspeed < targetHspeed
         ? Math.min(this.hspeed + approachAmount, targetHspeed)
         : Math.max(this.hspeed - approachAmount, targetHspeed);
-    this.applyGravity(this.walkGravityForStep(deltaMs), dt);
+    if (this.isGrounded) {
+      if (this.vspeed > 0) {
+        this.vspeed = 0;
+      }
+    } else {
+      this.applyGravity(this.walkGravityForStep(deltaMs), dt);
+    }
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
@@ -400,7 +453,13 @@ export class Player extends LivingActor {
       return;
     }
     this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
-    this.playerNetwork.onJump();
+    const position = this.currentPosition();
+    this.playerNetwork.onJump({
+      x: position.x,
+      y: position.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+    });
   }
 
   private snapToGroundPixel() {
@@ -433,6 +492,7 @@ export class Player extends LivingActor {
     this.jumpHoldTimeRemainingMs = 0;
     this.snapToGroundPixel();
     if (this.client) {
+      this.syncPhysicsInterpolationToCurrentPosition();
       const position = this.currentPosition();
       this.playerNetwork.onLanded(position.x, position.y);
     }
@@ -442,44 +502,12 @@ export class Player extends LivingActor {
     this.visuals.setEquippedWeaponSprite(sprite);
   }
 
-  public knockBackFromFacing(facingLeft: boolean) {
-    if (this.isPaused) {
-      return;
-    }
-    const direction = facingLeft ? -1 : 1;
-    this.hspeed = playerKnockbackHorizontalSpeed * direction;
-    this.vspeed = playerKnockbackVerticalSpeed;
-    this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
-    this.jumpHoldTimeRemainingMs = 0;
+  protected override canReceiveKnockback() {
+    return !this.isPaused && super.canReceiveKnockback();
   }
 
-  public knockBackFrom(actor: ex.Actor) {
-    if (this.isPaused) {
-      return;
-    }
-    const actorCenterX = actor.pos.x + actor.width / 2;
-    const direction = this.centerX() < actorCenterX ? -1 : 1;
-    this.hspeed = playerKnockbackHorizontalSpeed * direction;
-    this.vspeed = playerKnockbackVerticalSpeed;
-    this.knockbackTimeRemainingMs = playerKnockbackDurationMs;
+  protected override onKnockbackApplied() {
     this.jumpHoldTimeRemainingMs = 0;
-  }
-
-  public takeDamageFrom(actor: ex.Actor, damage: number = 1) {
-    if (!this.canTakeDamage()) {
-      return false;
-    }
-    const depleted = this.applyDamage(damage);
-    if (depleted) {
-      return true;
-    }
-    if (actor instanceof Player) {
-      this.knockBackFromFacing(actor.isFacingLeft());
-    }
-    if (!(actor instanceof Player)) {
-      this.knockBackFrom(actor);
-    }
-    return true;
   }
 
   public isSwordAttackActive() {
@@ -506,11 +534,12 @@ export class Player extends LivingActor {
   public applyRemotePositionCorrection(
     position: ex.Vector,
     snapDistance: number,
+    options?: { forceHardSnap?: boolean },
   ) {
     if (this.isLocal) {
       return;
     }
-    this.visuals.applyRemotePositionCorrection(position, snapDistance);
+    this.visuals.applyRemotePositionCorrection(position, snapDistance, options);
     this.syncPhysicsInterpolationToCurrentPosition();
   }
 
@@ -518,16 +547,12 @@ export class Player extends LivingActor {
     return this.facingLeft;
   }
 
-  public syncHealth(health: unknown) {
-    this.syncLivingHealth(health);
-  }
-
   private respawnAtJoinPosition() {
     this.health = this.maxHealth;
     this.pos = ex.vec(this.spawnPosition.x, this.spawnPosition.y);
     this.hspeed = 0;
     this.vspeed = 0;
-    this.knockbackTimeRemainingMs = 0;
+    this.clearKnockback();
     this.jumpHoldTimeRemainingMs = 0;
     this.syncPhysicsInterpolationToCurrentPosition();
   }
@@ -563,7 +588,7 @@ export class Player extends LivingActor {
     this.keyDown = false;
     this.hspeed = 0;
     this.vspeed = 0;
-    this.knockbackTimeRemainingMs = 0;
+    this.clearKnockback();
     this.jumpHoldTimeRemainingMs = 0;
     this.syncPhysicsInterpolationToCurrentPosition();
   }
@@ -623,16 +648,6 @@ export class Player extends LivingActor {
     return this.jumpHoldTimeRemainingMs > 0;
   }
 
-  private moveWithKnockback(delta: number, dt: number) {
-    this.knockbackTimeRemainingMs = Math.max(
-      this.knockbackTimeRemainingMs - delta,
-      0,
-    );
-    this.applyGravity(this.walkingTuning.gravity, dt);
-    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
-    this.hspeed *= playerKnockbackFriction;
-  }
-
   private syncPhysicsInterpolationToCurrentPosition() {
     this.previousPhysicsPosition = this.pos.clone();
     this.currentPhysicsPosition = this.pos.clone();
@@ -660,17 +675,16 @@ export class Player extends LivingActor {
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
     const wasJumping = this.isJumping;
-    const isKnockbackActive = this.knockbackTimeRemainingMs > 0;
-    if (isKnockbackActive) {
-      this.moveWithKnockback(delta, dt);
+    if (this.isKnockbackActive()) {
+      this.stepKnockbackPhysics(delta);
     }
-    if (!isKnockbackActive) {
+    if (!this.isKnockbackActive()) {
       this.moveWithWalkingGravity(dt, keySign, delta);
     }
-    if (!isKnockbackActive && this.isGrounded && this.keyJump) {
+    if (!this.isKnockbackActive() && this.isGrounded && this.keyJump) {
       this.onJump();
     }
-    if (!isKnockbackActive && wasJumping && this.isGrounded) {
+    if (!this.isKnockbackActive() && wasJumping && this.isGrounded) {
       this.onWalkingLand();
     }
     this.syncLocomotionVisuals(keySign);
@@ -678,7 +692,7 @@ export class Player extends LivingActor {
 
   override onPostUpdate(engine: ex.Engine, delta: number) {
     const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
-    this.visuals.updateVisualCorrection(frameDelta);
+    this.visuals.update(frameDelta);
     this.syncCollisionToSprite();
     if (!this.isPaused) {
       if (this.client) {

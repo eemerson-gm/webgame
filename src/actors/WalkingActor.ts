@@ -122,7 +122,20 @@ export abstract class WalkingActor extends MovingActor {
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
+  protected isKnockbackActive(): boolean {
+    return false;
+  }
+
+  protected stepKnockbackPhysics(_delta: number) {
+    void _delta;
+  }
+
   protected stepWalkingPhysics(moveSign: number, delta: number) {
+    if (this.isKnockbackActive()) {
+      this.stepKnockbackPhysics(delta);
+      this.syncLocomotionVisuals(0);
+      return;
+    }
     const dt = delta / 1000;
     const wasJumping = this.isJumping;
     this.moveWithWalkingGravity(dt, moveSign, delta);

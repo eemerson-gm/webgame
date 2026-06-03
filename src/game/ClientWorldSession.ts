@@ -6,6 +6,7 @@ import { ClientWorldEntities } from "./ClientWorldEntities";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameWire";
 import type {
+  EntityPatch,
   EntityState,
   PlayerState,
   WorldTerrain,
@@ -214,6 +215,10 @@ export class ClientWorldSession {
       [messageTypes.updateEntities]: (msg) => {
         this.applyEntitiesSnapshot(msg.payload);
       },
+      [messageTypes.updateEntity]: (msg) => {
+        const { entityId, ...patch } = msg.payload;
+        this.worldEntities?.applyEntityPatch(entityId, patch);
+      },
       [messageTypes.pong]: (msg) => {
         this.applyPongUpdate(msg.payload);
       },
@@ -403,7 +408,7 @@ export class ClientWorldSession {
   }
 
   private applyEntitiesSnapshot(payload: {
-    entitiesData?: Record<string, EntityState>;
+    entitiesData?: Record<string, EntityPatch>;
     removedEntityIds?: string[];
   }): void {
     this.worldEntities?.applyEntitiesSnapshot(payload);

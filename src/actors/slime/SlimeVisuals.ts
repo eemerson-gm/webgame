@@ -3,6 +3,7 @@ import { spriteResourcesByKey } from "@/resource";
 import { TILE_PX } from "@/world/worldConfig";
 import type { JsonSpriteAnimationSpec } from "@/animations/jsonSpriteAnimation/types";
 import { JsonLocomotionVisuals } from "@/actors/walking/JsonLocomotionVisuals";
+import { RemotePositionVisualCorrection } from "@/actors/walking/RemotePositionVisualCorrection";
 import type { LocomotionVisual } from "@/actors/walking/LocomotionVisuals";
 import idleJson from "@/data/animations/slime/slime_idle.json";
 import walkJson from "@/data/animations/slime/slime_walk.json";
@@ -12,13 +13,10 @@ export type SlimeVisual = LocomotionVisual;
 
 export const slimeGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
 const slimeDrawZ = 3;
-const remoteVisualCorrectionDurationMs = 120;
 
 export class SlimeVisuals {
   private readonly locomotion: JsonLocomotionVisuals;
-  private visualCorrectionOffset: ex.Vector = ex.vec(0, 0);
-  private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
-  private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
+  private readonly remotePositionCorrection: RemotePositionVisualCorrection;
   private renderOffset: ex.Vector = ex.vec(0, 0);
 
   constructor(private readonly actor: ex.Actor) {
@@ -31,6 +29,13 @@ export class SlimeVisuals {
       walkSpec: walkJson as unknown as JsonSpriteAnimationSpec,
       jumpSpec: jumpJson as unknown as JsonSpriteAnimationSpec,
       drawZ: slimeDrawZ,
+    });
+    this.remotePositionCorrection = new RemotePositionVisualCorrection({
+      actor: this.actor,
+      getBaseDrawOffset: () => this.bodyGraphicCenter().add(this.renderOffset),
+      onOffsetChanged: () => {
+        this.syncLocomotionOffset();
+      },
     });
   }
 
@@ -58,71 +63,21 @@ export class SlimeVisuals {
   public applyRemotePositionCorrection(
     position: ex.Vector,
     snapDistance: number,
+    options?: { forceHardSnap?: boolean },
   ) {
-    const targetPos = ex.vec(position.x, position.y);
-    const distance = this.actor.pos.distance(targetPos);
-    if (distance < 0.001) {
-      return;
-    }
-    if (distance >= snapDistance) {
-      this.actor.pos = targetPos;
-      this.resetVisualCorrection();
-      return;
-    }
-    const visualAnchor = this.visualWorldPosition();
-    this.actor.pos = targetPos;
-    const startOffset = visualAnchor.sub(
-      this.actor.pos.add(this.visualDrawOffset()),
-    );
-    this.visualCorrectionStartOffset = startOffset;
-    this.visualCorrectionElapsedMs = 0;
-    this.applyVisualCorrectionOffset(startOffset);
+    this.remotePositionCorrection.apply(position, snapDistance, options);
   }
 
   public update(delta: number) {
-    this.updateVisualCorrection(delta);
+    this.remotePositionCorrection.tick(delta);
     this.locomotion.update(delta);
-  }
-
-  private visualWorldPosition() {
-    return this.actor.pos.add(this.visualDrawOffset());
-  }
-
-  private visualDrawOffset() {
-    return this.bodyGraphicCenter()
-      .add(this.visualCorrectionOffset)
-      .add(this.renderOffset);
-  }
-
-  private resetVisualCorrection() {
-    this.visualCorrectionStartOffset = ex.vec(0, 0);
-    this.visualCorrectionElapsedMs = remoteVisualCorrectionDurationMs;
-    this.applyVisualCorrectionOffset(ex.vec(0, 0));
-  }
-
-  private applyVisualCorrectionOffset(offset: ex.Vector) {
-    this.visualCorrectionOffset = offset;
-    this.syncLocomotionOffset();
   }
 
   private syncLocomotionOffset() {
     this.locomotion.setRenderExtraOffset(
-      this.visualCorrectionOffset.add(this.renderOffset),
-    );
-  }
-
-  private updateVisualCorrection(delta: number) {
-    if (this.visualCorrectionElapsedMs >= remoteVisualCorrectionDurationMs) {
-      return;
-    }
-    const elapsedMs = Math.min(
-      this.visualCorrectionElapsedMs + delta,
-      remoteVisualCorrectionDurationMs,
-    );
-    const remainingRatio = 1 - elapsedMs / remoteVisualCorrectionDurationMs;
-    this.visualCorrectionElapsedMs = elapsedMs;
-    this.applyVisualCorrectionOffset(
-      this.visualCorrectionStartOffset.scale(remainingRatio),
+      this.remotePositionCorrection
+        .correctionOffset()
+        .add(this.renderOffset),
     );
   }
 }

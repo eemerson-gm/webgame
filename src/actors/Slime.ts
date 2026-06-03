@@ -5,7 +5,7 @@ import {
   SlimeNetworkClient,
   type SlimeWanderSnapshot,
 } from "../classes/SlimeNetworkClient";
-import type { EntityState } from "../classes/GameWire";
+import type { EntityPatch } from "../classes/GameWire";
 import {
   LivingActor,
   type LivingSeparationKind,
@@ -16,7 +16,6 @@ import {
   type WalkingTuning,
 } from "./WalkingActor";
 import {
-  moveHorizontallyUntilBlocked,
   tileMeeting,
   type EntityPhysicsOptions,
   type TileCollisionWorld,
@@ -24,8 +23,6 @@ import {
 } from "./MovingActor";
 import { SlimeVisuals } from "./slime/SlimeVisuals";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
-import type { Player } from "./Player";
-
 const slimeWalkingTuning: WalkingTuning = {
   walkSpeed: 0.55,
   walkAcceleration: 0.15,
@@ -42,14 +39,8 @@ const slimeVitality: LivingVitality = {
   damageBlinkFrameMs: 90,
 };
 
-const slimeKnockbackHorizontalSpeed = 1.6;
-const slimeKnockbackVerticalSpeed = -1.2;
-
 const wanderDecisionMinMs = 1200;
 const wanderDecisionMaxMs = 2000;
-const remotePlayerPositionTolerance = 0.5;
-const remotePlayerSnapDistance = TILE_PX * 2;
-const maxGroundedNetworkSnapUpPx = 1;
 const positionPrecision = 1000;
 
 const syncedPositionValue = (value: number) =>
@@ -150,28 +141,25 @@ export class Slime extends LivingActor {
     return super.overlapsWorldBounds(bounds);
   }
 
-  public knockBackFromFacing(facingLeft: boolean) {
-    const direction = facingLeft ? -1 : 1;
-    this.hspeed = slimeKnockbackHorizontalSpeed * direction;
-    this.vspeed = slimeKnockbackVerticalSpeed;
+  public applyCombatPatch(patch: EntityPatch): void {
+    if (patch.health !== undefined) {
+      this.syncHealth(patch.health);
+      if (this.health <= 0) {
+        this.die();
+        return;
+      }
+    }
+    if (patch.knockbackFromLeft !== undefined) {
+      this.knockBackFromFacing(patch.knockbackFromLeft);
+    }
+  }
+
+  protected override onKnockbackApplied() {
     this.isGrounded = false;
     this.isJumping = true;
   }
 
-  public knockBackFrom(player: Player) {
-    this.knockBackFromFacing(player.isFacingLeft());
-  }
-
-  public takeDamageFrom(player: Player, damage: number = 1) {
-    void player;
-    void damage;
-    return false;
-  }
-
-  public applyRemoteUpdate(payload: EntityState): void {
-    if (this.isAuthority) {
-      return;
-    }
+  public applyRemoteSimulation(payload: EntityPatch): void {
     if (payload.wanderSign !== undefined) {
       this.wanderSign = payload.wanderSign;
     }
@@ -179,57 +167,15 @@ export class Slime extends LivingActor {
       this.facingLeft = payload.facingLeft;
       this.visuals.updateFacing(payload.facingLeft);
     }
-    if (payload.health !== undefined) {
-      this.health = payload.health;
-      if (this.health <= 0) {
-        this.die();
-        return;
-      }
+    if (payload.jump === true && !this.isJumping) {
+      this.applyRemoteJumpStart();
     }
-    if (payload.jump === true && this.isGrounded && !this.isJumping) {
-      this.jump(this.walkingTuning.jumpSpeed);
-    }
-    this.applyRemotePositionFromPayload(payload);
-  }
-
-  private applyRemotePositionFromPayload(payload: EntityState): void {
-    const hasX = payload.x !== undefined;
-    const hasY = payload.y !== undefined;
-    if (!hasX && !hasY) {
-      return;
-    }
-    const nextX = hasX ? Number(payload.x) : this.pos.x;
-    const nextY = hasY ? Number(payload.y) : this.pos.y;
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) {
-      return;
-    }
-    const syncPosition = ex.vec(
-      nextX,
-      hasY && this.shouldApplyNetworkY(nextY) ? nextY : this.pos.y,
+    this.applySyncedNetworkPosition(
+      { x: payload.x, y: payload.y },
+      (position, snapDistance) => {
+        this.visuals.applyRemotePositionCorrection(position, snapDistance);
+      },
     );
-    if (this.pos.distance(syncPosition) < remotePlayerPositionTolerance) {
-      return;
-    }
-    this.visuals.applyRemotePositionCorrection(
-      syncPosition,
-      remotePlayerSnapDistance,
-    );
-  }
-
-  /**
-   * Peers simulate jump arcs locally. Network Y is only for grounded drift and
-   * landing — never while airborne (floor teleport) or large upward snaps
-   * (use jump event + physics instead).
-   */
-  private shouldApplyNetworkY(nextY: number): boolean {
-    if (this.isJumping || !this.isGrounded) {
-      return false;
-    }
-    const deltaY = nextY - this.pos.y;
-    if (deltaY > maxGroundedNetworkSnapUpPx) {
-      return false;
-    }
-    return Math.abs(deltaY) <= TILE_PX;
   }
 
   protected onHealthDepleted() {
@@ -248,7 +194,7 @@ export class Slime extends LivingActor {
   }
 
   protected tryJump() {
-    if (!this.isAuthority || this.isDead || this.wanderSign === 0) {
+    if (this.isDead || this.wanderSign === 0) {
       return;
     }
     const physicsOptions = this.followPhysicsOptions();
@@ -258,7 +204,18 @@ export class Slime extends LivingActor {
     if (!this.jump(this.walkingTuning.jumpSpeed)) {
       return;
     }
-    this.slimeNetwork?.onJump();
+    if (this.isAuthority) {
+      this.slimeNetwork?.onJump();
+    }
+  }
+
+  private applyRemoteJumpStart() {
+    if (this.jump(this.walkingTuning.jumpSpeed)) {
+      return;
+    }
+    this.vspeed = this.walkingTuning.jumpSpeed;
+    this.isGrounded = false;
+    this.isJumping = true;
   }
 
   protected override onWalkingLand() {
@@ -303,26 +260,21 @@ export class Slime extends LivingActor {
     moveSign: number,
     physicsOptions: EntityPhysicsOptions,
   ) {
-    if (!this.isGrounded || !this.isHorizontallyBlocked(moveSign, physicsOptions)) {
+    if (!this.isGrounded) {
       return false;
     }
     if (tileMeeting(this.pos.x, this.pos.y - TILE_PX, physicsOptions)) {
       return false;
     }
     const probeX = this.pos.x + moveSign * TILE_PX;
-    return !tileMeeting(probeX, this.pos.y - TILE_PX, physicsOptions);
+    return this.hasWallAhead(probeX, physicsOptions);
   }
 
-  private isHorizontallyBlocked(
-    moveSign: number,
-    physicsOptions: EntityPhysicsOptions,
-  ) {
-    return moveHorizontallyUntilBlocked(
-      this.pos.x,
-      this.pos.y,
-      moveSign,
-      physicsOptions,
-    ).isBlocked;
+  private hasWallAhead(probeX: number, physicsOptions: EntityPhysicsOptions) {
+    if (!tileMeeting(probeX, this.pos.y, physicsOptions)) {
+      return false;
+    }
+    return !tileMeeting(probeX, this.pos.y - TILE_PX, physicsOptions);
   }
 
   private currentPosition() {

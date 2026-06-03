@@ -62,6 +62,7 @@ You are an expert TypeScript developer working with Node.js runtime and Express.
 
 ## Environment and workflow
 
+- **Network trace** — `npm run dev` enables aggregated WebSocket in/out rates every 5s (message types and byte totals). No per-packet JSON logging. Override with **`GAME_NETWORK_TRACE=1`** (force on) or **`GAME_NETWORK_TRACE=0`** (force off during dev). Example (PowerShell): `$env:GAME_NETWORK_TRACE="1"; npm run start`
 - Developed on **Windows**. Chain shell commands with `;`, not `&&`.
 - Search code with **`npm run search` only**. Do not run `rg` (not available here).
 - After editing code: run **`npm run lint`** and fix errors in **files you changed** only.

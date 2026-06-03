@@ -85,8 +85,12 @@ const slimeEntityStateSchema = z.object({
   jump: z.boolean().optional(),
 });
 
+const slimeEntityPatchSchema = slimeEntityStateSchema.partial().extend({
+  knockbackFromLeft: z.boolean().optional(),
+});
+
 const entitiesSnapshotSchema = z.object({
-  entitiesData: z.record(z.string(), slimeEntityStateSchema),
+  entitiesData: z.record(z.string(), slimeEntityPatchSchema),
   removedEntityIds: z.array(z.string()).optional(),
   replaceExisting: z.boolean().optional(),
 });
@@ -142,11 +146,13 @@ const entityUpdatePayloadSchema = z.object({
   x: z.number().optional(),
   y: z.number().optional(),
   jump: z.boolean().optional(),
+  knockbackFromLeft: z.boolean().optional(),
 });
 
 const entityDamagePayloadSchema = z.object({
   entityId: z.string(),
   damage: z.number().optional(),
+  facingLeft: z.boolean().optional(),
 });
 
 const clientSendSchema = z.discriminatedUnion("type", [
@@ -243,6 +249,10 @@ const serverToClientSchema = z.discriminatedUnion("type", [
     payload: entitiesSnapshotSchema,
   }),
   z.object({
+    type: z.literal(messageTypes.updateEntity),
+    payload: entityUpdatePayloadSchema,
+  }),
+  z.object({
     type: z.literal(messageTypes.pong),
     payload: z.object({
       sentAt: z.number().optional(),
@@ -311,6 +321,7 @@ export type PlayerState = z.infer<typeof playerStateSchema>;
 export type WorldTerrain = z.infer<typeof worldTerrainSchema>;
 export type TerrainTileKind = z.infer<typeof terrainTileKindSchema>;
 export type EntityState = z.infer<typeof slimeEntityStateSchema>;
+export type EntityPatch = z.infer<typeof slimeEntityPatchSchema>;
 export type SlimeEntityState = EntityState;
 export type WorldSummary = z.infer<typeof worldSummarySchema>;
 export type ClientSend = z.infer<typeof clientSendSchema>;

@@ -18,6 +18,7 @@ import {
   type WorldSummary,
   type WorldTerrain,
 } from "./GameWire";
+import { NetworkDiagnostics } from "./NetworkDiagnostics";
 
 type WorldRoom = {
   id: string;
@@ -60,6 +61,7 @@ export class GameServer {
   private socketWorldIds: Record<string, string>;
   private worlds: Record<string, WorldRoom>;
   private readonly wire = new GameWire();
+  private readonly networkDiagnostics = new NetworkDiagnostics();
 
   constructor(server: Server) {
     this.wss = new WebSocketServer({ server, perMessageDeflate: true });
@@ -93,7 +95,9 @@ export class GameServer {
   }
 
   public listen(): void {
-    console.log("[WS] Waiting for connections...");
+    const traceLabel = NetworkDiagnostics.enablementLabel();
+    const traceHint = traceLabel ? ` (network trace: ${traceLabel})` : "";
+    console.log(`[WS] Waiting for connections...${traceHint}`);
     this.wss.on("connection", (socket) => {
       this.attachClient(socket);
     });
@@ -129,7 +133,9 @@ export class GameServer {
   }
 
   private sendToSocket(socket: WebSocket, message: ServerToClient): void {
-    socket.send(this.wire.encodeServer(message));
+    const encoded = this.wire.encodeServer(message);
+    this.networkDiagnostics.recordOutbound(message.type, encoded.length);
+    socket.send(encoded);
   }
 
   private sendToRoomPlayer(
@@ -166,8 +172,8 @@ export class GameServer {
   private attachClient(socket: WebSocket): void {
     const playerId = (this.nextPlayerIndex++).toString();
     this.lobbySockets[playerId] = socket;
-    console.log(
-      `[${playerId}]: Lobby connected (${Object.keys(this.lobbySockets).length} clients)`,
+    this.networkDiagnostics.logLifecycle(
+      `${playerId} lobby connected (${Object.keys(this.lobbySockets).length} clients)`,
     );
     this.sendWorldsUpdatedTo(socket);
     socket.on("message", (data) => this.handleSocketMessage(playerId, data));
@@ -271,8 +277,8 @@ export class GameServer {
       x: room.playerSpawn.x,
       y: room.playerSpawn.y,
     };
-    console.log(
-      `[${playerId}]: Joined ${room.name} (${Object.keys(room.playerSockets).length} players)`,
+    this.networkDiagnostics.logLifecycle(
+      `${playerId} joined ${room.name} (${Object.keys(room.playerSockets).length} players)`,
     );
     this.sendToRoomPlayer(room, playerId, {
       type: messageTypes.connected,
@@ -311,20 +317,18 @@ export class GameServer {
     if (!message) {
       return;
     }
+    this.networkDiagnostics.recordInbound(message.type, json.length);
     if (this.handleLobbyMessage(playerId, message)) {
-      console.log(`[${playerId}]: ${json}`);
       return;
     }
     const room = this.worldRoomForPlayer(playerId);
     if (!room) {
       console.error("World message before join:", message.type);
-      console.log(`[${playerId}]: ${json}`);
       return;
     }
     const rule = relayRules[message.type];
     if (!rule) {
       console.error("Unknown message type:", message.type);
-      console.log(`[${playerId}]: ${json}`);
       return;
     }
     const wasPaused = room.playersData[playerId]?.isPaused === true;
@@ -335,11 +339,9 @@ export class GameServer {
       room.playersData[playerId] = merge(room.playersData[playerId], playerPatch);
     }
     if (this.isPausedInteraction(room, playerId, message.type)) {
-      console.log(`[${playerId}]: Paused interaction blocked`);
       return;
     }
     if (this.handleEntityMessage(room, playerId, message)) {
-      console.log(`[${playerId}]: ${json}`);
       return;
     }
     if (this.isServerOnlyStatePatch(message)) {
@@ -356,7 +358,6 @@ export class GameServer {
       return;
     }
     this.deliverRelay(room, playerId, rule, outbound);
-    console.log(`[${playerId}]: ${json}`);
   }
 
   private shouldResumePlayer(message: ClientToServer): boolean {
@@ -420,13 +421,16 @@ export class GameServer {
       }
       const mergedEntity = merge({}, entity, patch) as EntityState;
       const storedEntity: EntityState = { ...mergedEntity };
+      const relayPatch = { ...patch };
       if (patch.jump !== undefined) {
         delete (storedEntity as EntityState & { jump?: boolean }).jump;
       }
+      if (patch.knockbackFromLeft !== undefined) {
+        delete (storedEntity as EntityState & { knockbackFromLeft?: boolean })
+          .knockbackFromLeft;
+      }
       room.entitiesData[entityId] = storedEntity;
-      this.broadcastEntitySnapshot(room, {
-        entitiesData: { [entityId]: mergedEntity },
-      });
+      this.broadcastEntityPatch(room, entityId, relayPatch, "others", playerId);
       return true;
     }
     if (message.type === messageTypes.damageEntity) {
@@ -448,11 +452,15 @@ export class GameServer {
         });
         return true;
       }
-      const nextEntity: EntityState = { ...entity, health: nextHealth };
-      room.entitiesData[entityId] = nextEntity;
-      this.broadcastEntitySnapshot(room, {
-        entitiesData: { [entityId]: nextEntity },
-      });
+      room.entitiesData[entityId] = { ...entity, health: nextHealth };
+      const combatPatch: {
+        health: number;
+        knockbackFromLeft?: boolean;
+      } = { health: nextHealth };
+      if (message.payload.facingLeft !== undefined) {
+        combatPatch.knockbackFromLeft = message.payload.facingLeft;
+      }
+      this.broadcastEntityPatch(room, entityId, combatPatch, "all");
       return true;
     }
     return false;
@@ -472,6 +480,30 @@ export class GameServer {
         removedEntityIds: payload.removedEntityIds,
       },
     });
+  }
+
+  private broadcastEntityPatch(
+    room: WorldRoom,
+    entityId: string,
+    patch: Omit<EntityState, "type" | "ownerId"> & {
+      jump?: boolean;
+      knockbackFromLeft?: boolean;
+    },
+    audience: "all" | "others",
+    fromPlayerId?: string,
+  ): void {
+    const message: ServerToClient = {
+      type: messageTypes.updateEntity,
+      payload: { entityId, ...patch },
+    };
+    if (audience === "all") {
+      this.sendToRoomAll(room, message);
+      return;
+    }
+    if (!fromPlayerId) {
+      return;
+    }
+    this.sendToRoomOthers(room, fromPlayerId, message);
   }
 
   private buildRelayOutbound(
@@ -540,16 +572,16 @@ export class GameServer {
     if (!room) {
       delete this.lobbySockets[playerId];
       this.broadcastWorldsUpdatedToLobby();
-      console.log(
-        `[${playerId}]: Lobby disconnected (${Object.keys(this.lobbySockets).length} clients)`,
+      this.networkDiagnostics.logLifecycle(
+        `${playerId} lobby disconnected (${Object.keys(this.lobbySockets).length} clients)`,
       );
       return;
     }
     delete room.playerSockets[playerId];
     delete room.playersData[playerId];
     delete this.socketWorldIds[playerId];
-    console.log(
-      `[${playerId}]: Disconnected from ${room.name} (${Object.keys(room.playerSockets).length} players)`,
+    this.networkDiagnostics.logLifecycle(
+      `${playerId} left ${room.name} (${Object.keys(room.playerSockets).length} players)`,
     );
     this.sendToRoomOthers(room, playerId, {
       type: messageTypes.disconnected,

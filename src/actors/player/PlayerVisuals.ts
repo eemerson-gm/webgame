@@ -4,6 +4,7 @@ import { TILE_PX } from "@/world/worldConfig";
 import { JsonSpriteAnimation } from "@/animations/jsonSpriteAnimation/JsonSpriteAnimation";
 import type { JsonSpriteAnimationSpec } from "@/animations/jsonSpriteAnimation/types";
 import { JsonLocomotionVisuals } from "@/actors/walking/JsonLocomotionVisuals";
+import { RemotePositionVisualCorrection } from "@/actors/walking/RemotePositionVisualCorrection";
 import type { LocomotionVisual } from "@/actors/walking/LocomotionVisuals";
 import idleJson from "@/data/animations/player/player_idle.json";
 import walkJson from "@/data/animations/player/player_walk.json";
@@ -18,7 +19,6 @@ export type PlayerLocomotionVisual = Exclude<PlayerVisual, "sword">;
 const sleepBubbleAnchor = ex.vec(0.5, 1);
 const sleepBubbleOffset = ex.vec(TILE_PX / 2, -2);
 export const playerGraphicOffset = ex.vec(TILE_PX / 2, TILE_PX / 2);
-const remoteVisualCorrectionDurationMs = 120;
 const swordFacingLockRatio = 0.15;
 
 export class PlayerVisuals {
@@ -37,9 +37,7 @@ export class PlayerVisuals {
 
   public readonly sleepBubbleActor: ex.Actor;
 
-  private visualCorrectionOffset: ex.Vector = ex.vec(0, 0);
-  private visualCorrectionStartOffset: ex.Vector = ex.vec(0, 0);
-  private visualCorrectionElapsedMs: number = remoteVisualCorrectionDurationMs;
+  private readonly remotePositionCorrection: RemotePositionVisualCorrection;
   private renderOffset: ex.Vector = ex.vec(0, 0);
 
   constructor(private readonly actor: ex.Actor) {
@@ -82,6 +80,20 @@ export class PlayerVisuals {
       loop: false,
     });
     this.activeAnimation = this.locomotion.activeLocomotionAnimation();
+    this.remotePositionCorrection = new RemotePositionVisualCorrection({
+      actor: this.actor,
+      getBaseDrawOffset: () => this.bodyGraphicCenter().add(this.renderOffset),
+      onOffsetChanged: () => {
+        this.syncOffsets();
+      },
+      onHardSnap: () => {
+        this.activeAnimation.update(
+          0,
+          this.facingLeft,
+          this.animationBaseOffset(),
+        );
+      },
+    });
   }
 
   public initialize() {
@@ -112,7 +124,7 @@ export class PlayerVisuals {
 
   private animationBaseOffset() {
     return playerGraphicOffset
-      .add(this.visualCorrectionOffset)
+      .add(this.remotePositionCorrection.correctionOffset())
       .add(this.renderOffset);
   }
 
@@ -238,40 +250,9 @@ export class PlayerVisuals {
   public applyRemotePositionCorrection(
     position: ex.Vector,
     snapDistance: number,
+    options?: { forceHardSnap?: boolean },
   ) {
-    const targetPos = ex.vec(position.x, position.y);
-    const distance = this.actor.pos.distance(targetPos);
-    if (distance < 0.001) {
-      return;
-    }
-    if (distance >= snapDistance) {
-      this.actor.pos = targetPos;
-      this.resetVisualCorrection();
-      this.activeAnimation.update(0, this.facingLeft, this.animationBaseOffset());
-      return;
-    }
-    const visualAnchor = this.visualWorldPosition();
-    this.actor.pos = targetPos;
-    const startOffset = visualAnchor.sub(this.actor.pos.add(this.visualDrawOffset()));
-    this.visualCorrectionStartOffset = startOffset;
-    this.visualCorrectionElapsedMs = 0;
-    this.applyVisualCorrectionOffset(startOffset);
-  }
-
-  private resetVisualCorrection() {
-    this.visualCorrectionStartOffset = ex.vec(0, 0);
-    this.visualCorrectionElapsedMs = remoteVisualCorrectionDurationMs;
-    this.applyVisualCorrectionOffset(ex.vec(0, 0));
-  }
-
-  public visualWorldPosition() {
-    return this.actor.pos.add(this.visualDrawOffset());
-  }
-
-  private visualDrawOffset() {
-    return this.bodyGraphicCenter()
-      .add(this.visualCorrectionOffset)
-      .add(this.renderOffset);
+    this.remotePositionCorrection.apply(position, snapDistance, options);
   }
 
   public applyRenderOffset(offset: ex.Vector) {
@@ -280,32 +261,15 @@ export class PlayerVisuals {
   }
 
   private syncOffsets() {
-    const bubbleOffset = this.visualCorrectionOffset.add(this.renderOffset);
+    const bubbleOffset = this.remotePositionCorrection
+      .correctionOffset()
+      .add(this.renderOffset);
     this.sleepBubbleActor.graphics.offset = bubbleOffset;
     this.activeAnimation.update(0, this.facingLeft, this.animationBaseOffset());
   }
 
-  private applyVisualCorrectionOffset(offset: ex.Vector) {
-    this.visualCorrectionOffset = offset;
-    this.syncOffsets();
-  }
-
   public update(delta: number) {
-    this.updateVisualCorrection(delta);
-  }
-
-  public updateVisualCorrection(delta: number) {
-    if (this.visualCorrectionElapsedMs < remoteVisualCorrectionDurationMs) {
-      const elapsedMs = Math.min(
-        this.visualCorrectionElapsedMs + delta,
-        remoteVisualCorrectionDurationMs,
-      );
-      const remainingRatio = 1 - elapsedMs / remoteVisualCorrectionDurationMs;
-      this.visualCorrectionElapsedMs = elapsedMs;
-      this.applyVisualCorrectionOffset(
-        this.visualCorrectionStartOffset.scale(remainingRatio),
-      );
-    }
+    this.remotePositionCorrection.tick(delta);
     this.activeAnimation.update(
       delta,
       this.facingLeft,

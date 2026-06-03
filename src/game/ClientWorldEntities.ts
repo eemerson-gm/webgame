@@ -1,7 +1,11 @@
 import * as ex from "excalibur";
 import { Slime } from "../actors/Slime";
 import { GameClient } from "../classes/GameClient";
-import { messageTypes, type EntityState } from "../classes/GameWire";
+import {
+  messageTypes,
+  type EntityPatch,
+  type EntityState,
+} from "../classes/GameWire";
 import type { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
 
@@ -20,7 +24,7 @@ export class ClientWorldEntities {
   constructor(private readonly options: ClientWorldEntitiesOptions) {}
 
   public applyEntitiesSnapshot(payload: {
-    entitiesData?: Record<string, EntityState>;
+    entitiesData?: Record<string, EntityPatch>;
     removedEntityIds?: string[];
   }): void {
     payload.removedEntityIds?.forEach((entityId) => {
@@ -30,16 +34,32 @@ export class ClientWorldEntities {
       return;
     }
     Object.entries(payload.entitiesData).forEach(([entityId, state]) => {
-      if (state.type !== "slime") {
-        return;
-      }
       const existing = this.slimes.get(entityId);
       if (existing) {
         this.applySlimeState(existing, state);
         return;
       }
-      this.spawnSlime(entityId, state);
+      if (state.type !== "slime" || state.ownerId === undefined) {
+        return;
+      }
+      this.spawnSlime(entityId, {
+        type: "slime",
+        ownerId: state.ownerId,
+        ...state,
+      });
     });
+  }
+
+  public applyEntityPatch(entityId: string, patch: EntityPatch): void {
+    const existing = this.slimes.get(entityId);
+    if (existing) {
+      this.applySlimeState(existing, patch);
+      return;
+    }
+    if (patch.type !== "slime" || patch.ownerId === undefined) {
+      return;
+    }
+    this.spawnSlime(entityId, { type: "slime", ownerId: patch.ownerId, ...patch });
   }
 
   private spawnSlime(entityId: string, state: EntityState): void {
@@ -65,14 +85,12 @@ export class ClientWorldEntities {
     this.applySlimeState(slime, state);
   }
 
-  private applySlimeState(slime: Slime, state: EntityState): void {
+  private applySlimeState(slime: Slime, state: EntityPatch): void {
+    slime.applyCombatPatch(state);
     if (slime.hasAuthority()) {
-      if (state.health !== undefined) {
-        slime.syncHealth(state.health);
-      }
       return;
     }
-    slime.applyRemoteUpdate(state);
+    slime.applyRemoteSimulation(state);
   }
 
   private removeSlime(entityId: string): void {
@@ -89,12 +107,13 @@ export class ClientWorldEntities {
     this.options.worldLivingEntities.register({
       entityId: slime.entityId(),
       living: slime,
-      onWeaponHit: () => {
+      onWeaponHit: (attacker) => {
         this.options.client.send({
           type: messageTypes.damageEntity,
           payload: {
             entityId: slime.entityId(),
             damage: 1,
+            facingLeft: attacker.isFacingLeft(),
           },
         });
       },

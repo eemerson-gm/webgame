@@ -1,7 +1,6 @@
+import { networkPositionBackupIntervalMs } from "../actors/RemoteNetworkSync";
 import type { GameClient } from "./GameClient";
 import { messageTypes, type PlayerState } from "./GameWire";
-
-const positionBackupIntervalMs = 75;
 
 export type PlayerNetworkSnapshot = {
   readonly keyLeft: boolean;
@@ -29,29 +28,28 @@ export class PlayerNetworkClient {
   constructor(private client?: GameClient) {}
 
   public onInputChanged(snapshot: PlayerNetworkSnapshot): void {
-    const keysPayload: PlayerState = {
+    this.sendImmediate({
       keyLeft: snapshot.keyLeft,
       keyRight: snapshot.keyRight,
       keyJump: snapshot.keyJump,
       keyDown: snapshot.keyDown,
       facingLeft: snapshot.facingLeft,
       attackCycle: snapshot.attackCycle,
-    };
-    if (snapshot.isGrounded) {
-      this.sendImmediate({
-        ...keysPayload,
-        x: snapshot.x,
-        y: snapshot.y,
-        horizontalSpeed: snapshot.horizontalSpeed,
-        verticalSpeed: snapshot.verticalSpeed,
-      });
-      return;
-    }
-    this.sendImmediate(keysPayload);
+      x: snapshot.x,
+      y: snapshot.y,
+      horizontalSpeed: snapshot.horizontalSpeed,
+      verticalSpeed: snapshot.verticalSpeed,
+    });
   }
 
-  public onJump(): void {
-    this.sendImmediate({ keyJump: true });
+  public onJump(snapshot: Pick<PlayerNetworkSnapshot, "x" | "y" | "horizontalSpeed" | "verticalSpeed">): void {
+    this.sendImmediate({
+      keyJump: true,
+      x: snapshot.x,
+      y: snapshot.y,
+      horizontalSpeed: snapshot.horizontalSpeed,
+      verticalSpeed: snapshot.verticalSpeed,
+    });
   }
 
   public onAttack(attackCycle: number, facingLeft: boolean): void {
@@ -85,11 +83,11 @@ export class PlayerNetworkClient {
       return;
     }
     this.positionBackupElapsedMs += delta;
-    if (this.positionBackupElapsedMs < positionBackupIntervalMs) {
+    if (this.positionBackupElapsedMs < networkPositionBackupIntervalMs) {
       return;
     }
     this.positionBackupElapsedMs =
-      this.positionBackupElapsedMs % positionBackupIntervalMs;
+      this.positionBackupElapsedMs % networkPositionBackupIntervalMs;
     this.sendImmediate({ x, y });
   }
 
