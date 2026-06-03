@@ -21,6 +21,10 @@ import {
 import { HUDManager } from "../ui/HUDManager";
 import { MainMenuUI } from "../ui/MainMenuUI";
 import { PlayerListUI } from "../ui/PlayerListUI";
+import {
+  physicsFixedStepMs,
+  physicsMaxFrameDeltaMs,
+} from "../world/physicsConfig";
 import { TILE_PX } from "../world/worldConfig";
 
 type GameViewSize = {
@@ -49,6 +53,7 @@ export class ClientWorldSession {
   private terrain: TerrainTileMap | null = null;
   private dummyTileMap: ex.TileMap | null = null;
   private pingIntervalId: number | null = null;
+  private separationAccumulatorMs: number = 0;
 
   private constructor(
     engine: ex.Engine,
@@ -187,7 +192,7 @@ export class ClientWorldSession {
     this.refreshPlayerList();
     this.engine.on("preupdate", () => {
       this.trySpawnSlimeAtCursor();
-      this.separateEntityActors();
+      this.tickEntitySeparation(this.engine.clock.elapsed());
     });
     this.engine.on("postupdate", () => {
       this.resolveLocalWeaponCombat();
@@ -305,6 +310,16 @@ export class ClientWorldSession {
         y: worldPos.y,
       },
     });
+  }
+
+  private tickEntitySeparation(delta: number): void {
+    const frameDelta = Math.min(delta, physicsMaxFrameDeltaMs);
+    this.separationAccumulatorMs += frameDelta;
+    if (this.separationAccumulatorMs < physicsFixedStepMs) {
+      return;
+    }
+    this.separationAccumulatorMs -= physicsFixedStepMs;
+    this.separateEntityActors();
   }
 
   private separateEntityActors(): void {

@@ -1,4 +1,8 @@
 import * as ex from "excalibur";
+import {
+  physicsFixedStepMs,
+  physicsMaxFrameDeltaMs,
+} from "../world/physicsConfig";
 import { TILE_PX } from "../world/worldConfig";
 import { MovingActor } from "./MovingActor";
 import type { CollisionBounds, TileCollisionWorld } from "./MovingActor";
@@ -34,14 +38,11 @@ export type WalkingTuning = {
   positionScale: number;
 };
 
-const walkingFixedStepMs = 1000 / 60;
-const walkingMaxFrameDeltaMs = walkingFixedStepMs * 5;
-
 export abstract class WalkingActor extends MovingActor {
   protected readonly walkingTuning: WalkingTuning;
   protected physicsAccumulatorMs: number = 0;
-  protected readonly fixedStepMs: number = walkingFixedStepMs;
-  protected readonly maxFrameDeltaMs: number = walkingMaxFrameDeltaMs;
+  protected readonly fixedStepMs: number = physicsFixedStepMs;
+  protected readonly maxFrameDeltaMs: number = physicsMaxFrameDeltaMs;
 
   constructor(
     pos: ex.Vector,
@@ -75,7 +76,9 @@ export abstract class WalkingActor extends MovingActor {
 
   protected tryJump() {}
 
-  protected onWalkingLand() {}
+  protected onWalkingLand() {
+    this.snapToGroundPixel();
+  }
 
   protected syncCollisionToSprite() {
     const center = this.locomotionVisuals().bodyGraphicCenter();
@@ -137,10 +140,10 @@ export abstract class WalkingActor extends MovingActor {
       return;
     }
     const dt = delta / 1000;
-    const wasJumping = this.isJumping;
+    const wasGrounded = this.isGrounded;
     this.moveWithWalkingGravity(dt, moveSign, delta);
     this.tryJump();
-    if (wasJumping && this.isGrounded) {
+    if (!wasGrounded && this.isGrounded) {
       this.onWalkingLand();
     }
     this.syncLocomotionVisuals(moveSign);

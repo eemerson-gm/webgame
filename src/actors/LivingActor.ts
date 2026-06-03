@@ -9,6 +9,7 @@ import type {
   EntitySeparationBody,
   TileCollisionWorld,
 } from "./MovingActor";
+import { PHYSICS_REFERENCE_HZ } from "../world/physicsConfig";
 import { WalkingActor, type WalkingTuning } from "./WalkingActor";
 
 export type LivingVitality = {
@@ -117,7 +118,8 @@ export abstract class LivingActor extends WalkingActor {
     const dt = delta / 1000;
     this.applyGravity(this.walkingTuning.gravity, dt);
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
-    this.hspeed *= this.knockback.friction;
+    const stepsAtReferenceRate = delta / (1000 / PHYSICS_REFERENCE_HZ);
+    this.hspeed *= Math.pow(this.knockback.friction, stepsAtReferenceRate);
   }
 
   public knockBackFromFacing(facingLeft: boolean) {

@@ -35,10 +35,6 @@ export class PlayerNetworkClient {
       keyDown: snapshot.keyDown,
       facingLeft: snapshot.facingLeft,
       attackCycle: snapshot.attackCycle,
-      x: snapshot.x,
-      y: snapshot.y,
-      horizontalSpeed: snapshot.horizontalSpeed,
-      verticalSpeed: snapshot.verticalSpeed,
     });
   }
 

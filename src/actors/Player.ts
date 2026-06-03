@@ -704,8 +704,8 @@ export class Player extends LivingActor {
         this.stepInterpolatedPlayerPhysics(keySign);
         this.physicsAccumulatorMs -= this.fixedStepMs;
       }
+      this.syncRenderInterpolation();
       if (this.client) {
-        this.syncRenderInterpolation();
         this.syncLocalInputToNetwork();
         const position = this.currentPosition();
         this.playerNetwork.tickPositionBackup(

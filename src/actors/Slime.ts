@@ -197,7 +197,7 @@ export class Slime extends LivingActor {
     if (this.isDead || this.wanderSign === 0) {
       return;
     }
-    const physicsOptions = this.followPhysicsOptions();
+    const physicsOptions = this.entityPhysicsOptions();
     if (!this.shouldJumpForTileAhead(this.wanderSign, physicsOptions)) {
       return;
     }
@@ -247,13 +247,6 @@ export class Slime extends LivingActor {
     this.collisionBounds.height = 0;
     this.pos = ex.vec(-100_000, -100_000);
     this.kill();
-  }
-
-  private followPhysicsOptions(): EntityPhysicsOptions {
-    return {
-      collisionBounds: this.collisionBounds,
-      world: this.tileCollisionWorld(),
-    };
   }
 
   private shouldJumpForTileAhead(
