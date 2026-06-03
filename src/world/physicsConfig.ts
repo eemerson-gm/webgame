@@ -1,8 +1,5 @@
-/** Fixed simulation rate for walking physics and entity separation. */
-export const PHYSICS_TICK_HZ = 30;
-
-/** Reference rate used when normalizing per-step effects (e.g. knockback friction). */
-export const PHYSICS_REFERENCE_HZ = 60;
+/** Fixed simulation rate for walking physics, entity separation, and per-step formulas. */
+export const PHYSICS_TICK_HZ = 60;
 
 export const physicsFixedStepMs = 1000 / PHYSICS_TICK_HZ;
 
