@@ -218,8 +218,8 @@ export class Slime extends LivingActor {
     this.isJumping = true;
   }
 
-  protected override onWalkingLand() {
-    super.onWalkingLand();
+  protected override onLand() {
+    super.onLand();
     if (!this.isAuthority) {
       return;
     }

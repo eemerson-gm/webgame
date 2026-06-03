@@ -2,7 +2,6 @@ import * as ex from "excalibur";
 import { GameClient } from "../classes/GameClient";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
-import { tileMeeting } from "./MovingActor";
 import type { PlayerState } from "../classes/GameWire";
 import type { TileCollisionWorld } from "./MovingActor";
 import {
@@ -462,37 +461,9 @@ export class Player extends LivingActor {
     });
   }
 
-  private snapToGroundPixel() {
-    const groundedY =
-      [Math.ceil(this.pos.y), Math.round(this.pos.y), Math.floor(this.pos.y)]
-        .filter((y, index, values) => values.indexOf(y) === index)
-        .find((y) => this.canStandAtY(y) && this.isGroundedAtY(y)) ??
-      this.pos.y;
-    if (groundedY === this.pos.y) {
-      return;
-    }
-    this.pos.y = groundedY;
-  }
-
-  private canStandAtY(y: number) {
-    return !tileMeeting(this.pos.x, y, {
-      collisionBounds: this.collisionBounds,
-      world: this.tileCollisionWorld(),
-    });
-  }
-
-  private isGroundedAtY(y: number) {
-    return tileMeeting(this.pos.x, y + 1, {
-      collisionBounds: this.collisionBounds,
-      world: this.tileCollisionWorld(),
-    });
-  }
-
-  protected override onWalkingLand() {
+  protected override onLand() {
     this.jumpHoldTimeRemainingMs = 0;
-    this.snapToGroundPixel();
     if (this.client) {
-      this.syncPhysicsInterpolationToCurrentPosition();
       const position = this.currentPosition();
       this.playerNetwork.onLanded(position.x, position.y);
     }
@@ -674,7 +645,7 @@ export class Player extends LivingActor {
 
   private stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
-    const wasJumping = this.isJumping;
+    const wasGrounded = this.isGrounded;
     if (this.isKnockbackActive()) {
       this.stepKnockbackPhysics(delta);
     }
@@ -684,8 +655,8 @@ export class Player extends LivingActor {
     if (!this.isKnockbackActive() && this.isGrounded && this.keyJump) {
       this.onJump();
     }
-    if (!this.isKnockbackActive() && wasJumping && this.isGrounded) {
-      this.onWalkingLand();
+    if (!wasGrounded && this.isGrounded) {
+      this.onLand();
     }
     this.syncLocomotionVisuals(keySign);
   }
@@ -693,7 +664,6 @@ export class Player extends LivingActor {
   override onPostUpdate(engine: ex.Engine, delta: number) {
     const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
     this.visuals.update(frameDelta);
-    this.syncCollisionToSprite();
     if (!this.isPaused) {
       if (this.client) {
         this.updateControls(engine);
@@ -715,6 +685,7 @@ export class Player extends LivingActor {
         );
       }
     }
+    this.syncCollisionToSprite();
     this.tickDamageFeedback(frameDelta);
   }
 }

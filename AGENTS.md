@@ -14,9 +14,20 @@ You are an expert TypeScript developer working with Node.js runtime and Express.
 - Prefer `unknown` over `any` — it forces type narrowing before use and catches bugs at compile time.
 - Avoid `any` — use `unknown` with type guards when the type is truly unknown.
 - Use discriminated unions for state management over boolean flags.
-- Prefer small, focused functions under 30 lines. Extract helpers when logic grows.
+- Prefer small, focused functions under 30 lines. Extract only when the same non-trivial logic is reused in multiple places, or a single function is genuinely getting long—not to wrap a one-off `if` or a few lines used once.
 - Use `readonly` for arrays and properties that should not be mutated.
 - Prefer explicit return types on exported functions for documentation and faster type-checking.
+
+### Do not paper over bugs with helpers
+
+When something behaves wrong, fix it at the layer that owns the behavior (collision, physics step order, sync protocol)—do not add a small helper, flag, or post-step patch to mask the symptom.
+
+- **Do not** extract helpers to “clarify” a single condition, dedupe one `if`, or give a workaround a longer name (`notifyLandIf…`, `snapTo…`, `flush…`).
+- **Do not** stack state flags on top of a shaky inference (e.g. extra grounded/airborne checks beside tile probes) instead of making land/ground truth come from the collision result.
+- **If you want to extract a function**, treat that as a signal the design may be wrong; prefer fixing the underlying flow first.
+- **OK to extract:** real extension points (`protected onLand()` overrides), public API, or the same non-trivial block copied in 2+ call sites.
+
+Match existing code: keep logic inline in physics/update steps unless extraction is clearly justified.
 
 ### OOP Design Patterns
 

@@ -76,9 +76,7 @@ export abstract class WalkingActor extends MovingActor {
 
   protected tryJump() {}
 
-  protected onWalkingLand() {
-    this.snapToGroundPixel();
-  }
+  protected onLand() {}
 
   protected syncCollisionToSprite() {
     const center = this.locomotionVisuals().bodyGraphicCenter();
@@ -133,26 +131,26 @@ export abstract class WalkingActor extends MovingActor {
     void _delta;
   }
 
-  protected stepWalkingPhysics(moveSign: number, delta: number) {
+  protected stepLocomotionPhysics(moveSign: number, delta: number) {
+    const wasGrounded = this.isGrounded;
     if (this.isKnockbackActive()) {
       this.stepKnockbackPhysics(delta);
       this.syncLocomotionVisuals(0);
-      return;
+    } else {
+      const dt = delta / 1000;
+      this.moveWithWalkingGravity(dt, moveSign, delta);
+      this.tryJump();
+      this.syncLocomotionVisuals(moveSign);
     }
-    const dt = delta / 1000;
-    const wasGrounded = this.isGrounded;
-    this.moveWithWalkingGravity(dt, moveSign, delta);
-    this.tryJump();
     if (!wasGrounded && this.isGrounded) {
-      this.onWalkingLand();
+      this.onLand();
     }
-    this.syncLocomotionVisuals(moveSign);
   }
 
   protected runFixedWalkingSteps(moveSign: number, frameDelta: number) {
     this.physicsAccumulatorMs += frameDelta;
     while (this.physicsAccumulatorMs >= this.fixedStepMs) {
-      this.stepWalkingPhysics(moveSign, this.fixedStepMs);
+      this.stepLocomotionPhysics(moveSign, this.fixedStepMs);
       this.physicsAccumulatorMs -= this.fixedStepMs;
     }
   }
@@ -160,8 +158,8 @@ export abstract class WalkingActor extends MovingActor {
   protected tickWalkingFrame(delta: number) {
     const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
     this.locomotionVisuals().update(frameDelta);
-    this.syncCollisionToSprite();
     const moveSign = this.horizontalMoveSign();
     this.runFixedWalkingSteps(moveSign, frameDelta);
+    this.syncCollisionToSprite();
   }
 }

@@ -564,26 +564,6 @@ export class MovingActor extends ex.Actor {
     return tileMeeting(x, y, this.entityPhysicsOptions());
   }
 
-  protected canStandAtY(y: number) {
-    return !this.entityTileMeeting(this.pos.x, y);
-  }
-
-  protected isGroundedAtY(y: number) {
-    return this.entityTileMeeting(this.pos.x, y + 1);
-  }
-
-  protected snapToGroundPixel() {
-    const groundedY =
-      [Math.ceil(this.pos.y), Math.round(this.pos.y), Math.floor(this.pos.y)]
-        .filter((y, index, values) => values.indexOf(y) === index)
-        .find((y) => this.canStandAtY(y) && this.isGroundedAtY(y)) ??
-      this.pos.y;
-    if (groundedY === this.pos.y) {
-      return;
-    }
-    this.pos.y = groundedY;
-  }
-
   private entityPhysicsState(): EntityPhysicsState {
     return {
       x: this.pos.x,
