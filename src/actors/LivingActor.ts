@@ -1,16 +1,11 @@
 import * as ex from "excalibur";
 import { DamageFlash } from "./DamageableActor";
-import {
-  remotePositionSnapDistancePx,
-  remotePositionTolerancePx,
-} from "./RemoteNetworkSync";
 import type {
   CollisionBounds,
   EntitySeparationBody,
   TileCollisionWorld,
 } from "./MovingActor";
-import { PHYSICS_TICK_HZ } from "../world/physicsConfig";
-import { WalkingActor, type WalkingTuning } from "./WalkingActor";
+import { MovingActor } from "./MovingActor";
 
 export type LivingVitality = {
   maxHealth: number;
@@ -34,13 +29,13 @@ export const defaultLivingKnockback: LivingKnockback = {
 
 export type LivingSeparationKind = "player" | "entity";
 
-export abstract class LivingActor extends WalkingActor {
+export abstract class LivingActor extends MovingActor {
   public health: number;
   public readonly maxHealth: number;
   protected damageImmunityTimeRemainingMs: number = 0;
-  private knockbackTimeRemainingMs: number = 0;
+  protected knockbackTimeRemainingMs: number = 0;
   private readonly damageImmunityDurationMs: number;
-  private readonly knockback: LivingKnockback;
+  protected readonly knockback: LivingKnockback;
   private readonly damageFlash: DamageFlash;
 
   constructor(
@@ -48,12 +43,11 @@ export abstract class LivingActor extends WalkingActor {
     tilemap: ex.TileMap,
     size: ex.Vector,
     collisionBounds: CollisionBounds,
-    tuning: WalkingTuning,
     vitality: LivingVitality,
     collisionWorld?: TileCollisionWorld,
     knockback: LivingKnockback = defaultLivingKnockback,
   ) {
-    super(pos, tilemap, size, collisionBounds, tuning, collisionWorld);
+    super(pos, tilemap, size, collisionBounds, collisionWorld);
     this.maxHealth = vitality.maxHealth;
     this.health = vitality.maxHealth;
     this.damageImmunityDurationMs = vitality.damageImmunityDurationMs;
@@ -110,16 +104,8 @@ export abstract class LivingActor extends WalkingActor {
     return this.isLivingActive();
   }
 
-  protected override isKnockbackActive() {
+  protected isKnockbackActive() {
     return this.knockbackTimeRemainingMs > 0;
-  }
-
-  protected override stepKnockbackPhysics(delta: number) {
-    const dt = delta / 1000;
-    this.applyGravity(this.walkingTuning.gravity, dt);
-    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
-    const stepsAtReferenceRate = delta / (1000 / PHYSICS_TICK_HZ);
-    this.hspeed *= Math.pow(this.knockback.friction, stepsAtReferenceRate);
   }
 
   public knockBackFromFacing(facingLeft: boolean) {
@@ -160,43 +146,6 @@ export abstract class LivingActor extends WalkingActor {
 
   public syncHealth(health: unknown) {
     this.syncLivingHealth(health);
-  }
-
-  protected applySyncedNetworkPosition(
-    partial: { x?: number | string; y?: number | string },
-    applyVisualCorrection: (
-      position: ex.Vector,
-      snapDistancePx: number,
-      correctionOptions?: { forceHardSnap?: boolean },
-    ) => void,
-    afterSync?: () => void,
-    options?: {
-      resetVelocity?: boolean;
-      forceHardSnap?: boolean;
-    },
-  ): void {
-    const hasX = partial.x !== undefined;
-    const hasY = partial.y !== undefined;
-    if (!hasX && !hasY) {
-      return;
-    }
-    const nextX = hasX ? Number(partial.x) : this.pos.x;
-    const nextY = hasY ? Number(partial.y) : this.pos.y;
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) {
-      return;
-    }
-    const target = ex.vec(nextX, nextY);
-    if (this.pos.distance(target) < remotePositionTolerancePx) {
-      return;
-    }
-    if (options?.resetVelocity !== false) {
-      this.hspeed = 0;
-      this.vspeed = 0;
-    }
-    applyVisualCorrection(target, remotePositionSnapDistancePx, {
-      forceHardSnap: options?.forceHardSnap,
-    });
-    afterSync?.();
   }
 
   protected applyKnockbackImpulse(direction: number) {

@@ -2,10 +2,15 @@ import * as ex from "excalibur";
 import {
   physicsFixedStepMs,
   physicsMaxFrameDeltaMs,
+  PHYSICS_TICK_HZ,
 } from "../world/physicsConfig";
 import { TILE_PX } from "../world/worldConfig";
-import { MovingActor } from "./MovingActor";
 import type { CollisionBounds, TileCollisionWorld } from "./MovingActor";
+import {
+  LivingActor,
+  type LivingKnockback,
+  type LivingVitality,
+} from "./LivingActor";
 import type { LocomotionVisual, LocomotionVisualsHost } from "./walking/LocomotionVisuals";
 
 const approach = (start: number, end: number, amount: number) => {
@@ -38,7 +43,7 @@ export type WalkingTuning = {
   positionScale: number;
 };
 
-export abstract class WalkingActor extends MovingActor {
+export abstract class WalkingActor extends LivingActor {
   protected readonly walkingTuning: WalkingTuning;
   protected physicsAccumulatorMs: number = 0;
   protected readonly fixedStepMs: number = physicsFixedStepMs;
@@ -50,9 +55,11 @@ export abstract class WalkingActor extends MovingActor {
     size: ex.Vector,
     collisionBounds: CollisionBounds,
     tuning: WalkingTuning,
+    vitality: LivingVitality,
     collisionWorld?: TileCollisionWorld,
+    knockback?: LivingKnockback,
   ) {
-    super(pos, tilemap, size, collisionBounds, collisionWorld);
+    super(pos, tilemap, size, collisionBounds, vitality, collisionWorld, knockback);
     this.walkingTuning = tuning;
   }
 
@@ -123,12 +130,12 @@ export abstract class WalkingActor extends MovingActor {
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
-  protected isKnockbackActive(): boolean {
-    return false;
-  }
-
-  protected stepKnockbackPhysics(_delta: number) {
-    void _delta;
+  protected stepKnockbackPhysics(delta: number) {
+    const dt = delta / 1000;
+    this.applyGravity(this.walkingTuning.gravity, dt);
+    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
+    const stepsAtReferenceRate = delta / (1000 / PHYSICS_TICK_HZ);
+    this.hspeed *= Math.pow(this.knockback.friction, stepsAtReferenceRate);
   }
 
   protected stepLocomotionPhysics(moveSign: number, delta: number) {

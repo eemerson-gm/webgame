@@ -26,7 +26,9 @@ import {
   physicsMaxFrameDeltaMs,
 } from "../world/physicsConfig";
 import { TILE_PX } from "../world/worldConfig";
-
+import { PlayerNetworkSync } from "./network/PlayerNetworkSync";
+import { LocalPlayerView } from "./localPlayerView";
+import type { PlayerHand } from "../combat/playerHands";
 type GameViewSize = {
   width: number;
   height: number;
@@ -48,8 +50,10 @@ export class ClientWorldSession {
   private readonly worldLivingEntities = new ClientWorldLivingEntities();
 
   private localPlayer: Player | null = null;
+  private localPlayerSync: PlayerNetworkSync | null = null;
   private worldEntities: ClientWorldEntities | null = null;
   private readonly remotePlayers: Record<string, Player> = {};
+  private readonly remotePlayerSyncs: Record<string, PlayerNetworkSync> = {};
   private terrain: TerrainTileMap | null = null;
   private dummyTileMap: ex.TileMap | null = null;
   private pingIntervalId: number | null = null;
@@ -97,6 +101,7 @@ export class ClientWorldSession {
   public removeRemotePlayer(playerId: string): void {
     this.remotePlayers[playerId]?.kill();
     delete this.remotePlayers[playerId];
+    delete this.remotePlayerSyncs[playerId];
     this.worldLivingEntities.unregister(playerId);
     this.playerListUi.removePlayer(playerId);
     this.refreshPlayerList();
@@ -149,10 +154,16 @@ export class ClientWorldSession {
     this.localPlayer = new Player(
       playerSpawn,
       dummyTileMap,
-      this.client,
       terrain.tileCollisionWorld(),
     );
     this.engine.add(this.localPlayer);
+    this.localPlayerSync = new PlayerNetworkSync(this.localPlayer, this.client);
+    new LocalPlayerView(this.localPlayer).attach(
+      this.engine,
+      (hand: PlayerHand) => {
+        this.localPlayerSync?.tryLocalAttack(hand);
+      },
+    );
     const localPlayerId = this.client.clientId;
     if (localPlayerId) {
       this.registerPlayerLivingEntity(localPlayerId, this.localPlayer);
@@ -196,6 +207,12 @@ export class ClientWorldSession {
     });
     this.engine.on("postupdate", () => {
       this.resolveLocalWeaponCombat();
+      const frameDelta = Math.min(
+        this.engine.clock.elapsed(),
+        physicsMaxFrameDeltaMs,
+      );
+      this.localPlayerSync?.tickLocal(this.engine, frameDelta);
+      this.worldEntities?.tickSlimeNetwork(frameDelta);
     });
     this.registerWorldHandlers();
   }
@@ -250,14 +267,14 @@ export class ClientWorldSession {
     if (id.length === 0) {
       return;
     }
-    const player = this.spawnRemotePlayer(
+    this.spawnRemotePlayer(
       terrain,
       dummyTileMap,
       id,
       Number(playerState.x),
       Number(playerState.y),
     );
-    player.applyRemoteUpdate(playerState);
+    this.remotePlayerSyncs[id]?.applyRemote(playerState);
     this.playerListUi.setPing(id, playerState.pingMs ?? 0);
     this.refreshPlayerList();
   }
@@ -269,15 +286,16 @@ export class ClientWorldSession {
     x: number,
     y: number,
   ): Player {
-    this.remotePlayers[playerId] = new Player(
+    const player = new Player(
       ex.vec(x, y),
       dummyTileMap,
-      undefined,
       terrain.tileCollisionWorld(),
     );
-    this.engine.add(this.remotePlayers[playerId]);
-    this.registerPlayerLivingEntity(playerId, this.remotePlayers[playerId]);
-    return this.remotePlayers[playerId];
+    this.remotePlayers[playerId] = player;
+    this.remotePlayerSyncs[playerId] = new PlayerNetworkSync(player);
+    this.engine.add(player);
+    this.registerPlayerLivingEntity(playerId, player);
+    return player;
   }
 
   private registerPlayerLivingEntity(entityId: string, player: Player) {
@@ -381,23 +399,17 @@ export class ClientWorldSession {
     if (playerId.length === 0) {
       return;
     }
-    const player = this.remotePlayers[playerId];
-    if (!player) {
-      return;
-    }
     const localPlayerId = this.client.clientId;
     const isLocalPlayerUpdate =
       localPlayerId !== undefined && playerId === localPlayerId;
     if (isLocalPlayerUpdate) {
-      if (playerState.isPaused !== undefined) {
-        player.setPaused(playerState.isPaused);
-      }
-      if (playerState.health !== undefined) {
-        player.syncHealth(playerState.health);
-      }
+      this.localPlayerSync?.applyLocalState(playerState);
       return;
     }
-    player.applyRemoteUpdate(playerState);
+    if (!this.remotePlayers[playerId]) {
+      return;
+    }
+    this.remotePlayerSyncs[playerId]?.applyRemote(playerState);
   }
 
   private joinExistingRemotePlayers(
@@ -411,14 +423,14 @@ export class ClientWorldSession {
       }
       const x = Number(row.x);
       const y = Number(row.y);
-      const player = this.spawnRemotePlayer(
+      this.spawnRemotePlayer(
         terrain,
         dummyTileMap,
         peerId,
         x,
         y,
       );
-      player.applyRemoteUpdate(row);
+      this.remotePlayerSyncs[peerId]?.applyRemote(row);
     });
   }
 
@@ -517,7 +529,7 @@ export class ClientWorldSession {
   }
 
   private syncLocalPauseState(isPaused: boolean = document.hidden): void {
-    this.localPlayer?.syncPauseState(isPaused);
+    this.localPlayerSync?.syncPauseState(isPaused);
   }
 
   private addLocalPauseListeners(): void {

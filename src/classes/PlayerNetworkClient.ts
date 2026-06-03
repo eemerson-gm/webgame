@@ -1,4 +1,4 @@
-import { networkPositionBackupIntervalMs } from "../actors/RemoteNetworkSync";
+import { networkPositionBackupIntervalMs } from "../game/networkSyncConfig";
 import type { GameClient } from "./GameClient";
 import { messageTypes, type PlayerState } from "./GameWire";
 
@@ -26,6 +26,10 @@ export class PlayerNetworkClient {
   private positionBackupElapsedMs: number = 0;
 
   constructor(private client?: GameClient) {}
+
+  public hasClient(): boolean {
+    return this.client !== undefined;
+  }
 
   public onInputChanged(snapshot: PlayerNetworkSnapshot): void {
     this.sendImmediate({

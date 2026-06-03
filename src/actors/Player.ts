@@ -1,15 +1,13 @@
 import * as ex from "excalibur";
-import { GameClient } from "../classes/GameClient";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
-import type { PlayerState } from "../classes/GameWire";
 import type { TileCollisionWorld } from "./MovingActor";
 import {
-  LivingActor,
   type LivingSeparationKind,
   type LivingVitality,
 } from "./LivingActor";
 import {
+  WalkingActor,
   collisionOffsetForGraphicCenter,
   type WalkingTuning,
 } from "./WalkingActor";
@@ -18,15 +16,11 @@ import {
   PlayerVisuals,
   type PlayerLocomotionVisual,
 } from "./player/PlayerVisuals";
-import {
-  PlayerNetworkClient,
-  type PlayerNetworkSnapshot,
-} from "../classes/PlayerNetworkClient";
 import { getHandAttackAnimation, type PlayerHand } from "../combat/playerHands";
 import { Resources } from "../resource";
 
 const runSpeedMultiplier = 2;
-const jumpHoldDurationMs = 220;
+export const playerJumpHoldDurationMs = 220;
 const jumpHeldGravityMultiplier = 0.3;
 const jumpReleasedGravityMultiplier = 1.15;
 const jumpFallGravityMultiplier = 0.85;
@@ -35,10 +29,6 @@ const playerVitality: LivingVitality = {
   damageImmunityDurationMs: 500,
   damageBlinkFrameMs: 90,
 };
-const positionPrecision = 1000;
-const cameraFollowResponsiveness = 10;
-const cameraSnapDistance = TILE_PX * 8;
-const cameraPixelSnapScale = 3;
 const playerWalkingTuning: WalkingTuning = {
   walkSpeed: 1.2,
   walkAcceleration: 0.25,
@@ -49,63 +39,19 @@ const playerWalkingTuning: WalkingTuning = {
   positionScale: 100,
 };
 
-const syncedPositionValue = (value: number) =>
-  Math.round(value * positionPrecision) / positionPrecision;
-
-const snappedCameraFocus = (focus: ex.Vector) =>
-  ex.vec(
-    Math.round(focus.x * cameraPixelSnapScale) / cameraPixelSnapScale,
-    Math.round(focus.y * cameraPixelSnapScale) / cameraPixelSnapScale,
-  );
-
-type CameraFocusTarget = {
-  cameraFocusPosition: () => ex.Vector;
-};
-
-class SmoothCameraFollowStrategy {
-  constructor(
-    public readonly target: CameraFocusTarget,
-    private readonly responsiveness: number,
-    private readonly snapDistance: number,
-  ) {}
-
-  public readonly action = (
-    target: CameraFocusTarget,
-    camera: ex.Camera,
-    _engine: ex.Engine,
-    elapsed: number,
-  ): ex.Vector => {
-    const currentFocus = camera.getFocus();
-    const targetFocus = target.cameraFocusPosition();
-    if (currentFocus.distance(targetFocus) >= this.snapDistance) {
-      return snappedCameraFocus(targetFocus);
-    }
-    const blend =
-      1 - Math.exp((-this.responsiveness * Math.max(elapsed, 0)) / 1000);
-    return snappedCameraFocus(
-      currentFocus.add(targetFocus.sub(currentFocus).scale(blend)),
-    );
-  };
-}
-
-export class Player extends LivingActor {
-  private client?: GameClient;
-  isLocal: boolean = false;
+export class Player extends WalkingActor {
   isPaused: boolean = false;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
-  private lastAppliedRemoteAttackCycle: number = 0;
   private jumpHoldTimeRemainingMs: number = 0;
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
   private previousPhysicsPosition: ex.Vector;
   private currentPhysicsPosition: ex.Vector;
   private visuals: PlayerVisuals;
-  private playerNetwork: PlayerNetworkClient;
 
   constructor(
     pos: ex.Vector,
     tilemap: ex.TileMap,
-    client?: GameClient,
     collisionWorld?: TileCollisionWorld,
   ) {
     const width = TILE_PX;
@@ -119,15 +65,33 @@ export class Player extends LivingActor {
       playerVitality,
       collisionWorld,
     );
-    this.client = client;
-    this.isLocal = client !== undefined;
     this.spawnPosition = ex.vec(pos.x, pos.y);
     this.previousPhysicsPosition = pos.clone();
     this.currentPhysicsPosition = pos.clone();
-
     this.visuals = new PlayerVisuals(this);
-    this.playerNetwork = new PlayerNetworkClient(client);
     this.setEquippedWeaponSprite(Resources.WoodSword);
+  }
+
+  public readLocalControls(engine: ex.Engine) {
+    if (this.isPaused) {
+      return;
+    }
+    this.inputState.readKeyboard(engine);
+  }
+
+  public inputStateHasChanged() {
+    return this.inputState.hasChanged();
+  }
+
+  public rememberInputState() {
+    this.inputState.remember();
+  }
+
+  public attemptAttack(hand: PlayerHand) {
+    if (this.isPaused) {
+      return false;
+    }
+    return this.triggerAttack(hand);
   }
 
   protected separationKind(): LivingSeparationKind {
@@ -156,6 +120,10 @@ export class Player extends LivingActor {
     return this.visuals.playHandAttack(getHandAttackAnimation(hand));
   }
 
+  public cancelActiveSwordAttack() {
+    this.visuals.endSwordAttackForResync();
+  }
+
   public syncFacingFromKeys() {
     const moveSign = this.inputState.horizontalSign();
     if (moveSign === 0) {
@@ -165,130 +133,9 @@ export class Player extends LivingActor {
     this.visuals.updateFacing(this.facingLeft);
   }
 
-  public syncFacingFromNetwork(facingLeft: boolean | undefined) {
-    if (facingLeft !== undefined) {
-      this.facingLeft = facingLeft;
-      this.visuals.updateFacing(facingLeft);
-      return;
-    }
-    this.syncFacingFromKeys();
-  }
-
-  public applyRemoteUpdate(payload: PlayerState): void {
-    if (this.isLocal) {
-      return;
-    }
-    if (payload.isPaused !== undefined) {
-      this.setPaused(payload.isPaused);
-    }
-    if (payload.keyLeft !== undefined) {
-      this.keyLeft = payload.keyLeft;
-    }
-    if (payload.keyRight !== undefined) {
-      this.keyRight = payload.keyRight;
-    }
-    if (payload.keyJump !== undefined) {
-      this.keyJump = payload.keyJump;
-    }
-    if (payload.keyDown !== undefined) {
-      this.keyDown = payload.keyDown;
-    }
-    this.syncFacingFromNetwork(payload.facingLeft);
-    if (payload.health !== undefined) {
-      this.syncHealth(payload.health);
-    }
-    this.applyRemoteAttackFromPayload(payload);
-    if (this.applyRemoteJumpStart(payload)) {
-      return;
-    }
-    this.applyRemotePositionFromPayload(payload);
-    this.applyRemoteVelocityFromPayload(payload);
-  }
-
-  private applyRemoteJumpStart(payload: PlayerState): boolean {
-    if (payload.keyJump !== true || this.isJumping || !this.isGrounded) {
-      return false;
-    }
-    const verticalSpeed = Number(payload.verticalSpeed);
-    if (!Number.isFinite(verticalSpeed) || verticalSpeed >= 0) {
-      return false;
-    }
-    if (payload.x === undefined || payload.y === undefined) {
-      return false;
-    }
-    this.applySyncedNetworkPosition(
-      { x: payload.x, y: payload.y },
-      (position, snapDistance, correctionOptions) => {
-        this.applyRemotePositionCorrection(
-          position,
-          snapDistance,
-          correctionOptions,
-        );
-      },
-      () => {
-        this.syncPhysicsInterpolationToCurrentPosition();
-      },
-      {
-        resetVelocity: false,
-        forceHardSnap: true,
-      },
-    );
-    this.applyRemoteVelocityFromPayload(payload);
-    this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
-    this.isGrounded = false;
-    this.isJumping = true;
-    this.syncLocomotionVisuals(this.inputState.horizontalSign());
-    return true;
-  }
-
-  private applyRemoteVelocityFromPayload(payload: PlayerState): void {
-    if (payload.horizontalSpeed !== undefined) {
-      const horizontalSpeed = Number(payload.horizontalSpeed);
-      if (Number.isFinite(horizontalSpeed)) {
-        this.hspeed = horizontalSpeed;
-      }
-    }
-    if (payload.verticalSpeed !== undefined) {
-      const verticalSpeed = Number(payload.verticalSpeed);
-      if (Number.isFinite(verticalSpeed)) {
-        this.vspeed = verticalSpeed;
-      }
-    }
-  }
-
-  private applyRemotePositionFromPayload(payload: PlayerState): void {
-    this.applySyncedNetworkPosition(
-      { x: payload.x, y: payload.y },
-      (position, snapDistance, correctionOptions) => {
-        this.applyRemotePositionCorrection(
-          position,
-          snapDistance,
-          correctionOptions,
-        );
-      },
-      () => {
-        this.syncPhysicsInterpolationToCurrentPosition();
-      },
-      { resetVelocity: false },
-    );
-  }
-
-  public applyRemoteAttackFromPayload(payload: PlayerState) {
-    this.syncFacingFromNetwork(payload.facingLeft);
-    const attackCycle = Number(payload.attackCycle);
-    if (Number.isFinite(attackCycle) && attackCycle > 0) {
-      if (attackCycle > this.lastAppliedRemoteAttackCycle) {
-        this.lastAppliedRemoteAttackCycle = attackCycle;
-        if (this.isSwordAttackActive()) {
-          this.visuals.endSwordAttackForResync();
-        }
-        this.triggerAttack("handLeft");
-        return;
-      }
-    }
-    if (payload.keyAttack) {
-      this.triggerAttack("handLeft");
-    }
+  public setFacingLeft(facingLeft: boolean) {
+    this.facingLeft = facingLeft;
+    this.visuals.updateFacing(facingLeft);
   }
 
   get keyLeft() {
@@ -327,39 +174,6 @@ export class Player extends LivingActor {
     this.visuals.initialize();
     this.syncCollisionToSprite();
     this.initializeLivingActor(engine);
-    if (this.client && this.scene) {
-      const collisionWorld = this.tileCollisionWorld();
-      const worldWidthPx = collisionWorld.columns * collisionWorld.tileWidth;
-      const worldHeightPx = collisionWorld.rows * collisionWorld.tileHeight;
-      const worldBounds = new ex.BoundingBox(0, 0, worldWidthPx, worldHeightPx);
-      this.scene.camera.addStrategy(
-        new SmoothCameraFollowStrategy(
-          this,
-          cameraFollowResponsiveness,
-          cameraSnapDistance,
-        ),
-      );
-      this.scene.camera.strategy.limitCameraBounds(worldBounds);
-      engine.input.pointers.primary.on("down", (evt) => {
-        if (evt.button === ex.PointerButton.Right) {
-          this.useEquippedHand("handRight");
-          return;
-        }
-        if (evt.button === ex.PointerButton.Left) {
-          this.useEquippedHand("handLeft");
-        }
-      });
-      engine.canvas.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-      });
-    }
-  }
-
-  private useEquippedHand(hand: PlayerHand) {
-    if (!this.client || this.isPaused) {
-      return;
-    }
-    this.tryAttack(hand);
   }
 
   protected locomotionVisuals(): LocomotionVisualsHost {
@@ -434,39 +248,15 @@ export class Player extends LivingActor {
     this.moveWithVelocity(this.walkingTuning.positionScale, dt);
   }
 
-  private tryAttack(hand: PlayerHand) {
-    if (!this.client || this.isPaused) {
-      return;
-    }
-    if (!this.triggerAttack(hand)) {
-      return;
-    }
-    this.playerNetwork.onAttack(
-      this.swordAttackCycle(),
-      this.isFacingLeft(),
-    );
-  }
-
   private onJump() {
     if (!this.jump(this.walkingTuning.jumpSpeed)) {
       return;
     }
-    this.jumpHoldTimeRemainingMs = jumpHoldDurationMs;
-    const position = this.currentPosition();
-    this.playerNetwork.onJump({
-      x: position.x,
-      y: position.y,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-    });
+    this.jumpHoldTimeRemainingMs = playerJumpHoldDurationMs;
   }
 
   protected override onLand() {
     this.jumpHoldTimeRemainingMs = 0;
-    if (this.client) {
-      const position = this.currentPosition();
-      this.playerNetwork.onLanded(position.x, position.y);
-    }
   }
 
   public setEquippedWeaponSprite(sprite: ex.ImageSource) {
@@ -502,16 +292,20 @@ export class Player extends LivingActor {
     this.syncPhysicsInterpolationToCurrentPosition();
   }
 
-  public applyRemotePositionCorrection(
+  public applyPositionCorrection(
     position: ex.Vector,
     snapDistance: number,
     options?: { forceHardSnap?: boolean },
   ) {
-    if (this.isLocal) {
-      return;
-    }
     this.visuals.applyRemotePositionCorrection(position, snapDistance, options);
     this.syncPhysicsInterpolationToCurrentPosition();
+  }
+
+  public startJumpHold(durationMs: number) {
+    this.jumpHoldTimeRemainingMs = durationMs;
+    this.isGrounded = false;
+    this.isJumping = true;
+    this.syncLocomotionVisuals(this.inputState.horizontalSign());
   }
 
   public isFacingLeft() {
@@ -534,17 +328,14 @@ export class Player extends LivingActor {
       .add(ex.vec(this.width / 2, this.height / 2));
   }
 
-  public syncPauseState(isPaused: boolean) {
-    this.setPaused(isPaused);
-    if (!this.client) {
-      return;
-    }
-    const position = this.currentPosition();
-    this.playerNetwork.onPaused({
-      isPaused,
-      x: position.x,
-      y: position.y,
-    });
+  public worldPixelBounds() {
+    const world = this.tileCollisionWorld();
+    return new ex.BoundingBox(
+      0,
+      0,
+      world.columns * world.tileWidth,
+      world.rows * world.tileHeight,
+    );
   }
 
   public setPaused(isPaused: boolean) {
@@ -564,48 +355,6 @@ export class Player extends LivingActor {
     this.syncPhysicsInterpolationToCurrentPosition();
   }
 
-  private currentPosition() {
-    return {
-      x: syncedPositionValue(this.pos.x),
-      y: syncedPositionValue(this.pos.y),
-    };
-  }
-
-  private networkSnapshot(): PlayerNetworkSnapshot {
-    const position = this.currentPosition();
-    return {
-      keyLeft: this.keyLeft,
-      keyRight: this.keyRight,
-      keyJump: this.keyJump,
-      keyDown: this.keyDown,
-      facingLeft: this.isFacingLeft(),
-      isGrounded: this.isGrounded,
-      x: position.x,
-      y: position.y,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-      attackCycle: this.swordAttackCycle(),
-    };
-  }
-
-  private syncLocalInputToNetwork(): void {
-    if (!this.client || !this.inputState.hasChanged()) {
-      return;
-    }
-    this.playerNetwork.onInputChanged(this.networkSnapshot());
-    this.inputState.remember();
-  }
-
-  private updateControls(engine: ex.Engine) {
-    if (!this.client) {
-      return;
-    }
-    if (this.isPaused) {
-      return;
-    }
-    this.inputState.readKeyboard(engine);
-  }
-
   private shouldHoldJump() {
     if (!this.keyJump) {
       return false;
@@ -619,7 +368,7 @@ export class Player extends LivingActor {
     return this.jumpHoldTimeRemainingMs > 0;
   }
 
-  private syncPhysicsInterpolationToCurrentPosition() {
+  public syncPhysicsInterpolationToCurrentPosition() {
     this.previousPhysicsPosition = this.pos.clone();
     this.currentPhysicsPosition = this.pos.clone();
     this.renderInterpolationOffset = ex.vec(0, 0);
@@ -661,13 +410,10 @@ export class Player extends LivingActor {
     this.syncLocomotionVisuals(keySign);
   }
 
-  override onPostUpdate(engine: ex.Engine, delta: number) {
+  override onPostUpdate(_engine: ex.Engine, delta: number) {
     const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
     this.visuals.update(frameDelta);
     if (!this.isPaused) {
-      if (this.client) {
-        this.updateControls(engine);
-      }
       const keySign = this.inputState.horizontalSign();
       this.physicsAccumulatorMs += frameDelta;
       while (this.physicsAccumulatorMs >= this.fixedStepMs) {
@@ -675,15 +421,6 @@ export class Player extends LivingActor {
         this.physicsAccumulatorMs -= this.fixedStepMs;
       }
       this.syncRenderInterpolation();
-      if (this.client) {
-        this.syncLocalInputToNetwork();
-        const position = this.currentPosition();
-        this.playerNetwork.tickPositionBackup(
-          frameDelta,
-          position.x,
-          position.y,
-        );
-      }
     }
     this.syncCollisionToSprite();
     this.tickDamageFeedback(frameDelta);

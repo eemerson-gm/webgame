@@ -1,4 +1,4 @@
-import { networkPositionBackupIntervalMs } from "../actors/RemoteNetworkSync";
+import { networkPositionBackupIntervalMs } from "../game/networkSyncConfig";
 import type { GameClient } from "./GameClient";
 import { messageTypes } from "./GameWire";
 

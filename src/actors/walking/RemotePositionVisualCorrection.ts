@@ -1,5 +1,5 @@
 import * as ex from "excalibur";
-import { remotePositionSnapDistancePx } from "../RemoteNetworkSync";
+import { remotePositionSnapDistancePx } from "../../game/networkSyncConfig";
 
 const remoteVisualCorrectionDurationMs = 120;
 

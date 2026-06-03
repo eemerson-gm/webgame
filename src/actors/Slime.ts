@@ -1,28 +1,18 @@
 import * as ex from "excalibur";
 import { TILE_PX } from "../world/worldConfig";
-import type { GameClient } from "../classes/GameClient";
 import {
-  SlimeNetworkClient,
-  type SlimeWanderSnapshot,
-} from "../classes/SlimeNetworkClient";
-import type { EntityPatch } from "../classes/GameWire";
-import {
-  LivingActor,
   type LivingSeparationKind,
   type LivingVitality,
 } from "./LivingActor";
 import {
+  WalkingActor,
   collisionOffsetForGraphicCenter,
   type WalkingTuning,
 } from "./WalkingActor";
-import {
-  tileMeeting,
-  type EntityPhysicsOptions,
-  type TileCollisionWorld,
-  type WorldBounds,
-} from "./MovingActor";
+import type { TileCollisionWorld, WorldBounds } from "./MovingActor";
 import { SlimeVisuals } from "./slime/SlimeVisuals";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
+
 const slimeWalkingTuning: WalkingTuning = {
   walkSpeed: 0.55,
   walkAcceleration: 0.15,
@@ -41,10 +31,6 @@ const slimeVitality: LivingVitality = {
 
 const wanderDecisionMinMs = 1200;
 const wanderDecisionMaxMs = 2000;
-const positionPrecision = 1000;
-
-const syncedPositionValue = (value: number) =>
-  Math.round(value * positionPrecision) / positionPrecision;
 
 const randomWanderSign = () => {
   const choices = [-1, 0, 1] as const;
@@ -55,12 +41,10 @@ const randomWanderDelayMs = () =>
   wanderDecisionMinMs +
   Math.floor(Math.random() * (wanderDecisionMaxMs - wanderDecisionMinMs));
 
-export class Slime extends LivingActor {
+export class Slime extends WalkingActor {
   private readonly visuals: SlimeVisuals;
   private readonly slimeId: string;
   private readonly ownerId: string;
-  private readonly isAuthority: boolean;
-  private readonly slimeNetwork: SlimeNetworkClient | null;
   private wanderSign: number = 0;
   private wanderDecisionElapsedMs: number = 0;
   private wanderDecisionDelayMs: number = randomWanderDelayMs();
@@ -69,11 +53,9 @@ export class Slime extends LivingActor {
   constructor(
     entityId: string,
     ownerId: string,
-    myPlayerId: string,
     pos: ex.Vector,
     tilemap: ex.TileMap,
     collisionWorld: TileCollisionWorld,
-    client?: GameClient,
   ) {
     const width = TILE_PX;
     const height = TILE_PX;
@@ -88,11 +70,6 @@ export class Slime extends LivingActor {
     );
     this.slimeId = entityId;
     this.ownerId = ownerId;
-    this.isAuthority = client !== undefined && ownerId === myPlayerId;
-    this.slimeNetwork =
-      this.isAuthority && client
-        ? new SlimeNetworkClient(client, entityId)
-        : null;
     this.visuals = new SlimeVisuals(this);
   }
 
@@ -104,8 +81,17 @@ export class Slime extends LivingActor {
     return this.ownerId;
   }
 
-  public hasAuthority() {
-    return this.isAuthority;
+  public getWanderSign() {
+    return this.wanderSign;
+  }
+
+  public setWanderSign(sign: number) {
+    this.wanderSign = sign;
+  }
+
+  public setFacingLeft(facingLeft: boolean) {
+    this.facingLeft = facingLeft;
+    this.visuals.updateFacing(facingLeft);
   }
 
   public syncHealth(health: unknown) {
@@ -141,41 +127,9 @@ export class Slime extends LivingActor {
     return super.overlapsWorldBounds(bounds);
   }
 
-  public applyCombatPatch(patch: EntityPatch): void {
-    if (patch.health !== undefined) {
-      this.syncHealth(patch.health);
-      if (this.health <= 0) {
-        this.die();
-        return;
-      }
-    }
-    if (patch.knockbackFromLeft !== undefined) {
-      this.knockBackFromFacing(patch.knockbackFromLeft);
-    }
-  }
-
   protected override onKnockbackApplied() {
     this.isGrounded = false;
     this.isJumping = true;
-  }
-
-  public applyRemoteSimulation(payload: EntityPatch): void {
-    if (payload.wanderSign !== undefined) {
-      this.wanderSign = payload.wanderSign;
-    }
-    if (payload.facingLeft !== undefined) {
-      this.facingLeft = payload.facingLeft;
-      this.visuals.updateFacing(payload.facingLeft);
-    }
-    if (payload.jump === true && !this.isJumping) {
-      this.applyRemoteJumpStart();
-    }
-    this.applySyncedNetworkPosition(
-      { x: payload.x, y: payload.y },
-      (position, snapDistance) => {
-        this.visuals.applyRemotePositionCorrection(position, snapDistance);
-      },
-    );
   }
 
   protected onHealthDepleted() {
@@ -197,19 +151,13 @@ export class Slime extends LivingActor {
     if (this.isDead || this.wanderSign === 0) {
       return;
     }
-    const physicsOptions = this.entityPhysicsOptions();
-    if (!this.shouldJumpForTileAhead(this.wanderSign, physicsOptions)) {
+    if (!this.shouldJumpForTileAhead(this.wanderSign)) {
       return;
     }
-    if (!this.jump(this.walkingTuning.jumpSpeed)) {
-      return;
-    }
-    if (this.isAuthority) {
-      this.slimeNetwork?.onJump();
-    }
+    this.jump(this.walkingTuning.jumpSpeed);
   }
 
-  private applyRemoteJumpStart() {
+  public simulateJumpStart() {
     if (this.jump(this.walkingTuning.jumpSpeed)) {
       return;
     }
@@ -218,13 +166,16 @@ export class Slime extends LivingActor {
     this.isJumping = true;
   }
 
+  public applyPositionCorrection(
+    position: ex.Vector,
+    snapDistance: number,
+    options?: { forceHardSnap?: boolean },
+  ) {
+    this.visuals.applyRemotePositionCorrection(position, snapDistance, options);
+  }
+
   protected override onLand() {
     super.onLand();
-    if (!this.isAuthority) {
-      return;
-    }
-    const position = this.currentPosition();
-    this.slimeNetwork?.onLanded(position.x, position.y);
   }
 
   override onInitialize(engine: ex.Engine) {
@@ -233,7 +184,7 @@ export class Slime extends LivingActor {
     this.initializeLivingActor(engine);
   }
 
-  private die() {
+  public die() {
     if (this.isDead) {
       return;
     }
@@ -249,46 +200,25 @@ export class Slime extends LivingActor {
     this.kill();
   }
 
-  private shouldJumpForTileAhead(
-    moveSign: number,
-    physicsOptions: EntityPhysicsOptions,
-  ) {
+  private shouldJumpForTileAhead(moveSign: number) {
     if (!this.isGrounded) {
       return false;
     }
-    if (tileMeeting(this.pos.x, this.pos.y - TILE_PX, physicsOptions)) {
+    if (this.entityTileMeeting(this.pos.x, this.pos.y - TILE_PX)) {
       return false;
     }
     const probeX = this.pos.x + moveSign * TILE_PX;
-    return this.hasWallAhead(probeX, physicsOptions);
+    return this.hasWallAhead(probeX);
   }
 
-  private hasWallAhead(probeX: number, physicsOptions: EntityPhysicsOptions) {
-    if (!tileMeeting(probeX, this.pos.y, physicsOptions)) {
+  private hasWallAhead(probeX: number) {
+    if (!this.entityTileMeeting(probeX, this.pos.y)) {
       return false;
     }
-    return !tileMeeting(probeX, this.pos.y - TILE_PX, physicsOptions);
+    return !this.entityTileMeeting(probeX, this.pos.y - TILE_PX);
   }
 
-  private currentPosition() {
-    return {
-      x: syncedPositionValue(this.pos.x),
-      y: syncedPositionValue(this.pos.y),
-    };
-  }
-
-  private wanderSnapshot(): SlimeWanderSnapshot {
-    const position = this.currentPosition();
-    return {
-      wanderSign: this.wanderSign,
-      facingLeft: this.facingLeft,
-      isGrounded: this.isGrounded,
-      x: position.x,
-      y: position.y,
-    };
-  }
-
-  private tickWanderDecision(delta: number) {
+  public tickWanderDecision(delta: number) {
     this.wanderDecisionElapsedMs += delta;
     if (this.wanderDecisionElapsedMs < this.wanderDecisionDelayMs) {
       return;
@@ -307,7 +237,10 @@ export class Slime extends LivingActor {
       this.facingLeft = false;
     }
     this.visuals.updateFacing(this.facingLeft);
-    this.slimeNetwork?.onWanderChanged(this.wanderSnapshot());
+  }
+
+  public isFacingLeft() {
+    return this.facingLeft;
   }
 
   override onPostUpdate(_engine: ex.Engine, delta: number) {
@@ -316,10 +249,5 @@ export class Slime extends LivingActor {
       return;
     }
     this.tickWalkingFrame(delta);
-    if (this.isAuthority) {
-      this.tickWanderDecision(delta);
-      const position = this.currentPosition();
-      this.slimeNetwork?.tickPositionBackup(delta, position.x, position.y);
-    }
   }
 }

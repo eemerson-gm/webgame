@@ -8,6 +8,7 @@ import {
 } from "../classes/GameWire";
 import type { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
 import type { TerrainTileMap } from "../classes/TerrainTileMap";
+import { SlimeNetworkSync } from "./network/SlimeNetworkSync";
 
 type ClientWorldEntitiesOptions = {
   engine: ex.Engine;
@@ -18,10 +19,21 @@ type ClientWorldEntitiesOptions = {
   worldLivingEntities: ClientWorldLivingEntities;
 };
 
+type SlimeEntry = {
+  slime: Slime;
+  sync: SlimeNetworkSync;
+};
+
 export class ClientWorldEntities {
-  private readonly slimes: Map<string, Slime> = new Map();
+  private readonly slimes: Map<string, SlimeEntry> = new Map();
 
   constructor(private readonly options: ClientWorldEntitiesOptions) {}
+
+  public tickSlimeNetwork(frameDelta: number): void {
+    this.slimes.forEach(({ sync }) => {
+      sync.tickAuthority(frameDelta);
+    });
+  }
 
   public applyEntitiesSnapshot(payload: {
     entitiesData?: Record<string, EntityPatch>;
@@ -73,33 +85,35 @@ export class ClientWorldEntities {
     const slime = new Slime(
       entityId,
       state.ownerId,
-      this.options.myPlayerId,
       ex.vec(x, y),
       dummyTileMap,
       terrain.tileCollisionWorld(),
-      this.options.client,
+    );
+    const isAuthority = state.ownerId === this.options.myPlayerId;
+    const sync = new SlimeNetworkSync(
+      slime,
+      isAuthority ? this.options.client : undefined,
+      isAuthority,
     );
     this.options.engine.add(slime);
-    this.slimes.set(entityId, slime);
+    const entry = { slime, sync };
+    this.slimes.set(entityId, entry);
     this.registerSlimeCombat(slime);
-    this.applySlimeState(slime, state);
+    this.applySlimeState(entry, state);
   }
 
-  private applySlimeState(slime: Slime, state: EntityPatch): void {
-    slime.applyCombatPatch(state);
-    if (slime.hasAuthority()) {
-      return;
-    }
-    slime.applyRemoteSimulation(state);
+  private applySlimeState(entry: SlimeEntry, state: EntityPatch): void {
+    entry.sync.applyCombatPatch(state);
+    entry.sync.applyRemoteSimulation(state);
   }
 
   private removeSlime(entityId: string): void {
-    const slime = this.slimes.get(entityId);
-    if (!slime) {
+    const entry = this.slimes.get(entityId);
+    if (!entry) {
       return;
     }
     this.options.worldLivingEntities.unregister(entityId);
-    slime.kill();
+    entry.slime.kill();
     this.slimes.delete(entityId);
   }
 
