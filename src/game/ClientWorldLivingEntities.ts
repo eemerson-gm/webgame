@@ -2,6 +2,15 @@ import type { LivingActor } from "../actors/LivingActor";
 import type { EntitySeparationBody } from "../actors/MovingActor";
 import type { Player } from "../actors/Player";
 import type { WeaponHitTarget } from "../combat/WeaponCombat";
+import {
+  separateEntityBodies,
+  type TileCollisionWorld,
+} from "../physics/entityPhysics";
+import {
+  entitySeparationMaxMoveX,
+  entitySeparationPadding,
+  entitySeparationPasses,
+} from "./sim/simConfig";
 
 export type LivingEntityRegistration = {
   entityId: string;
@@ -58,5 +67,29 @@ export class ClientWorldLivingEntities {
       .map((entry) =>
         entry.living.separationEntry(entry.entityId, entry.canSeparate),
       );
+  }
+
+  /** Same separation pass as server (`WorldRoomSimulator.separateEntities`). */
+  public applyEntitySeparation(world: TileCollisionWorld): void {
+    const entries = this.entitySeparationEntries();
+    if (entries.length < 2) {
+      return;
+    }
+    const separated = separateEntityBodies(
+      entries.map((entry) => entry.body),
+      {
+        world,
+        padding: entitySeparationPadding,
+        maxMoveX: entitySeparationMaxMoveX,
+        passes: entitySeparationPasses,
+      },
+    );
+    const byId = new Map(separated.map((body) => [body.id, body]));
+    for (const entry of entries) {
+      const body = byId.get(entry.body.id);
+      if (body) {
+        entry.applySeparatedX(body.x);
+      }
+    }
   }
 }

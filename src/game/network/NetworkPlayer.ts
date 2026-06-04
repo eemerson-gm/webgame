@@ -1,21 +1,32 @@
 import type { Engine } from "excalibur";
 import * as ex from "excalibur";
-import type { PlayerState } from "../../classes/GameWire";
+import type {
+  AuthoritativePlayerSnapshot,
+  PlayerState,
+} from "../../classes/GameWire";
 import {
   PlayerNetworkClient,
-  type PlayerNetworkSnapshot,
+  type PlayerInputSample,
 } from "../../classes/PlayerNetworkClient";
 import type { GameClient } from "../../classes/GameClient";
 import type { PlayerHand } from "../../combat/playerHands";
-import { Player, playerJumpHoldDurationMs } from "../../actors/Player";
+import { Player } from "../../actors/Player";
 import type { TileCollisionWorld } from "../../actors/MovingActor";
-import { quantizePosition } from "./positionQuantize";
-import { RemotePositionSync } from "./RemotePositionSync";
+import { PlayerInputBuffer } from "./PlayerInputBuffer";
+import {
+  OwnerAuthoritativePolicy,
+  ServerCorrectedPolicy,
+} from "./NetworkAuthorityPolicy";
+import { NetworkCorrectionController } from "./NetworkCorrectionController";
 
 export class NetworkPlayer extends Player {
   private readonly network: PlayerNetworkClient;
-  private readonly positionSync: RemotePositionSync;
-  private lastAppliedRemoteAttackCycle: number = 0;
+  private readonly ownerAuthority = new OwnerAuthoritativePolicy();
+  private readonly serverAuthority: ServerCorrectedPolicy;
+  private readonly inputBuffer = new PlayerInputBuffer();
+  private attackPulse: boolean = false;
+  private lastRemoteAttackCycle: number = 0;
+  private hasRemoteAttackCycle: boolean = false;
 
   constructor(
     pos: ex.Vector,
@@ -25,14 +36,8 @@ export class NetworkPlayer extends Player {
   ) {
     super(pos, tilemap, collisionWorld);
     this.network = new PlayerNetworkClient(client);
-    this.positionSync = new RemotePositionSync(
-      this,
-      (position, snapDistance, correctionOptions) => {
-        this.applyPositionCorrection(position, snapDistance, correctionOptions);
-      },
-      () => {
-        this.syncPhysicsInterpolationToCurrentPosition();
-      },
+    this.serverAuthority = new ServerCorrectedPolicy(
+      new NetworkCorrectionController(this),
     );
   }
 
@@ -44,196 +49,135 @@ export class NetworkPlayer extends Player {
     if (!this.isLocal()) {
       return;
     }
-    this.attemptAttack(hand);
-  }
-
-  protected override onLand(): void {
-    super.onLand();
-    if (!this.network.hasClient()) {
+    if (!this.attemptAttack(hand)) {
       return;
     }
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.onLanded(position.x, position.y);
+    this.sendOwnerInput({ keyAttack: true });
   }
 
-  protected override onJumpStarted(): void {
-    super.onJumpStarted();
-    if (!this.network.hasClient()) {
-      return;
-    }
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.onJump({
-      x: position.x,
-      y: position.y,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-    });
+  protected override shouldRunLocalPhysics(): boolean {
+    return true;
   }
 
   protected override onAttackStarted(hand: PlayerHand): void {
     super.onAttackStarted(hand);
-    if (!this.network.hasClient()) {
+    if (!this.isLocal()) {
       return;
     }
-    this.network.onAttack(this.swordAttackCycle(), this.isFacingLeft());
+    this.attackPulse = true;
   }
 
   public applyRemote(payload: PlayerState): void {
     if (this.isLocal()) {
       return;
     }
-    if (payload.isPaused !== undefined) {
-      this.setPaused(payload.isPaused);
-    }
-    if (payload.keyLeft !== undefined) {
-      this.keyLeft = payload.keyLeft;
-    }
-    if (payload.keyRight !== undefined) {
-      this.keyRight = payload.keyRight;
-    }
-    if (payload.keyJump !== undefined) {
-      this.keyJump = payload.keyJump;
-    }
-    if (payload.keyDown !== undefined) {
-      this.keyDown = payload.keyDown;
-    }
-    if (payload.facingLeft !== undefined) {
-      this.setFacingLeft(payload.facingLeft);
-    } else {
-      this.syncFacingFromKeys();
-    }
-    if (payload.health !== undefined) {
-      this.syncHealth(payload.health);
-    }
-    this.applyRemoteAttack(payload);
-    if (this.applyRemoteJumpStart(payload)) {
+    this.applyRemoteOutcomes(payload);
+  }
+
+  public applyAuthoritativeSnapshot(snapshot: AuthoritativePlayerSnapshot): void {
+    if (this.isLocal()) {
+      this.applyLocalAuthoritativeSnapshot(snapshot);
       return;
     }
-    this.applyRemotePosition(payload);
-    this.applyRemoteVelocity(payload);
+    this.applyRemotePhysicsSnapshot(snapshot);
   }
 
   public applyLocalState(payload: PlayerState): void {
-    if (payload.isPaused !== undefined) {
-      this.setPaused(payload.isPaused);
-    }
-    if (payload.health !== undefined) {
-      this.syncHealth(payload.health);
-    }
-  }
-
-  public syncPauseState(isPaused: boolean): void {
-    this.setPaused(isPaused);
-    if (!this.isLocal()) {
+    if (this.isLocal()) {
+      this.applyLocalAuthoritativeOutcomes(payload);
       return;
     }
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.onPaused({
-      isPaused,
-      x: position.x,
-      y: position.y,
-    });
+    this.applyRemoteOutcomes(payload);
   }
 
-  public tickLocal(engine: Engine, frameDelta: number): void {
+  public tickLocal(engine: Engine): void {
     if (!this.isLocal()) {
       return;
     }
     this.readLocalControls(engine);
-    this.syncLocalInputIfChanged();
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.tickPositionBackup(frameDelta, position.x, position.y);
+    this.sendOwnerInput();
+    this.attackPulse = false;
   }
 
-  private applyRemoteJumpStart(payload: PlayerState): boolean {
-    if (payload.keyJump !== true || this.isJumping || !this.isGrounded) {
-      return false;
-    }
-    const verticalSpeed = Number(payload.verticalSpeed);
-    if (!Number.isFinite(verticalSpeed) || verticalSpeed >= 0) {
-      return false;
-    }
-    if (payload.x === undefined || payload.y === undefined) {
-      return false;
-    }
-    this.positionSync.applyPartial(
-      { x: payload.x, y: payload.y },
-      {
-        resetVelocity: false,
-        forceHardSnap: true,
-      },
-    );
-    this.applyRemoteVelocity(payload);
-    this.startJumpHold(playerJumpHoldDurationMs);
-    return true;
-  }
-
-  private applyRemoteVelocity(payload: PlayerState): void {
-    if (payload.horizontalSpeed !== undefined) {
-      const horizontalSpeed = Number(payload.horizontalSpeed);
-      if (Number.isFinite(horizontalSpeed)) {
-        this.hspeed = horizontalSpeed;
-      }
-    }
-    if (payload.verticalSpeed !== undefined) {
-      const verticalSpeed = Number(payload.verticalSpeed);
-      if (Number.isFinite(verticalSpeed)) {
-        this.vspeed = verticalSpeed;
-      }
-    }
-  }
-
-  private applyRemotePosition(payload: PlayerState): void {
-    this.positionSync.applyPartial(
-      { x: payload.x, y: payload.y },
-      { resetVelocity: false },
-    );
-  }
-
-  private applyRemoteAttack(payload: PlayerState): void {
-    if (payload.facingLeft !== undefined) {
-      this.setFacingLeft(payload.facingLeft);
-    } else {
-      this.syncFacingFromKeys();
-    }
-    const attackCycle = Number(payload.attackCycle);
-    if (Number.isFinite(attackCycle) && attackCycle > 0) {
-      if (attackCycle > this.lastAppliedRemoteAttackCycle) {
-        this.lastAppliedRemoteAttackCycle = attackCycle;
-        if (this.isSwordAttackActive()) {
-          this.cancelActiveSwordAttack();
-        }
-        this.triggerAttack("handLeft");
-        return;
-      }
-    }
-    if (payload.keyAttack) {
-      this.triggerAttack("handLeft");
-    }
-  }
-
-  private syncLocalInputIfChanged(): void {
-    if (!this.inputStateHasChanged()) {
+  private sendOwnerInput(overrides?: Partial<PlayerInputSample>): void {
+    if (!this.isLocal()) {
       return;
     }
-    this.network.onInputChanged(this.networkSnapshot());
-    this.rememberInputState();
+    const sample: PlayerInputSample = {
+      ...this.inputSample(),
+      ...overrides,
+    };
+    const sequence = this.network.sendInput(sample);
+    if (sequence > 0) {
+      this.inputBuffer.push(sequence, sample);
+    }
   }
 
-  private networkSnapshot(): PlayerNetworkSnapshot {
-    const position = quantizePosition(this.pos.x, this.pos.y);
+  private applyLocalAuthoritativeSnapshot(
+    snapshot: AuthoritativePlayerSnapshot,
+  ): void {
+    this.inputBuffer.acknowledgeThrough(snapshot.lastProcessedInputSequence);
+    this.applyLocalAuthoritativeOutcomes(snapshot);
+    this.ownerAuthority.applySnapshotPosition(snapshot);
+  }
+
+  private applyLocalAuthoritativeOutcomes(state: { health?: number }): void {
+    if (state.health !== undefined) {
+      this.syncHealth(state.health);
+    }
+  }
+
+  private applyRemoteOutcomes(state: { health?: number }): void {
+    if (state.health !== undefined) {
+      this.syncHealth(state.health);
+    }
+  }
+
+  private applyRemotePhysicsSnapshot(snapshot: AuthoritativePlayerSnapshot): void {
+    this.applyMovementInput(snapshot);
+    this.applyRemoteOutcomes(snapshot);
+
+    this.applyRemoteAttackFromSnapshot(snapshot);
+
+    this.serverAuthority.applySnapshotPosition(snapshot);
+  }
+
+  private applyRemoteAttackFromSnapshot(snapshot: AuthoritativePlayerSnapshot): void {
+    if (!this.hasRemoteAttackCycle) {
+      this.hasRemoteAttackCycle = true;
+      this.lastRemoteAttackCycle = snapshot.attackCycle;
+      return;
+    }
+    if (snapshot.attackCycle <= this.lastRemoteAttackCycle) {
+      return;
+    }
+    this.lastRemoteAttackCycle = snapshot.attackCycle;
+    this.triggerAttack("handLeft");
+  }
+
+  private applyMovementInput(snapshot: AuthoritativePlayerSnapshot): void {
+    this.applyInputSample({
+      keyLeft: snapshot.keyLeft,
+      keyRight: snapshot.keyRight,
+      keyJump: snapshot.keyJump,
+      keyDown: snapshot.keyDown,
+      facingLeft: snapshot.facingLeft,
+    });
+  }
+
+  private inputSample(): PlayerInputSample {
     return {
+      x: this.pos.x,
+      y: this.pos.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
       keyLeft: this.keyLeft,
       keyRight: this.keyRight,
       keyJump: this.keyJump,
       keyDown: this.keyDown,
+      keyAttack: this.attackPulse,
       facingLeft: this.isFacingLeft(),
-      isGrounded: this.isGrounded,
-      x: position.x,
-      y: position.y,
-      horizontalSpeed: this.hspeed,
-      verticalSpeed: this.vspeed,
-      attackCycle: this.swordAttackCycle(),
+      isPaused: false,
     };
   }
 }

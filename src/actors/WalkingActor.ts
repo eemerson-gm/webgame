@@ -5,7 +5,9 @@ import {
   PHYSICS_TICK_HZ,
 } from "../world/physicsConfig";
 import { TILE_PX } from "../world/worldConfig";
-import type { CollisionBounds, TileCollisionWorld } from "./MovingActor";
+import type { CollisionBounds, TileCollisionWorld } from "../physics/entityPhysics";
+export type { WalkingTuning } from "../physics/entityPhysics";
+import type { WalkingTuning } from "../physics/entityPhysics";
 import {
   LivingActor,
   type LivingKnockback,
@@ -32,16 +34,6 @@ export const collisionOffsetForGraphicCenter = (center: ex.Vector): CollisionBou
   height: collisionHeight,
   edgeInset: collisionEdgeInset,
 });
-
-export type WalkingTuning = {
-  walkSpeed: number;
-  walkAcceleration: number;
-  stopDeceleration: number;
-  turnAcceleration: number;
-  gravity: number;
-  jumpSpeed: number;
-  positionScale: number;
-};
 
 export abstract class WalkingActor extends LivingActor {
   protected readonly walkingTuning: WalkingTuning;

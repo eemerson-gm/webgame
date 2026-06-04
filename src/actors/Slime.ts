@@ -2,52 +2,28 @@ import * as ex from "excalibur";
 import { TILE_PX } from "../world/worldConfig";
 import {
   type LivingSeparationKind,
-  type LivingVitality,
 } from "./LivingActor";
 import {
   WalkingActor,
   collisionOffsetForGraphicCenter,
-  type WalkingTuning,
 } from "./WalkingActor";
 import type { TileCollisionWorld, WorldBounds } from "./MovingActor";
 import { SlimeVisuals } from "./slime/SlimeVisuals";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
-
-const slimeWalkingTuning: WalkingTuning = {
-  walkSpeed: 0.55,
-  walkAcceleration: 0.15,
-  stopDeceleration: 0.14,
-  turnAcceleration: 0.2,
-  gravity: 0.2,
-  jumpSpeed: -2.6,
-  positionScale: 100,
-};
-
-const slimeVitality: LivingVitality = {
-  maxHealth: 3,
-  damageImmunityDurationMs: 500,
-  damageBlinkFrameMs: 90,
-};
-
-const wanderDecisionMinMs = 1200;
-const wanderDecisionMaxMs = 2000;
-
-const randomWanderSign = () => {
-  const choices = [-1, 0, 1] as const;
-  return choices[Math.floor(Math.random() * choices.length)];
-};
-
-const randomWanderDelayMs = () =>
-  wanderDecisionMinMs +
-  Math.floor(Math.random() * (wanderDecisionMaxMs - wanderDecisionMinMs));
+import { NetworkedEntityState } from "../game/sim/NetworkedEntityState";
+import { SlimeLocomotionSimulator } from "../game/sim/locomotion/SlimeLocomotionSimulator";
+import { slimeVitality, slimeWalkingTuning } from "../game/sim/simConfig";
 
 export class Slime extends WalkingActor {
   private readonly visuals: SlimeVisuals;
   private readonly slimeId: string;
   private readonly ownerId: string;
+  private readonly simState = new NetworkedEntityState();
+  private readonly locomotion = new SlimeLocomotionSimulator(
+    this.simState,
+    slimeWalkingTuning,
+  );
   private wanderSign: number = 0;
-  private wanderDecisionElapsedMs: number = 0;
-  private wanderDecisionDelayMs: number = randomWanderDelayMs();
   private isDead: boolean = false;
 
   constructor(
@@ -140,6 +116,10 @@ export class Slime extends WalkingActor {
     return this.visuals;
   }
 
+  protected override syncCollisionToSprite() {
+    void 0;
+  }
+
   protected horizontalMoveSign() {
     if (this.isDead) {
       return 0;
@@ -151,10 +131,18 @@ export class Slime extends WalkingActor {
     if (this.isDead || this.wanderSign === 0) {
       return;
     }
-    if (!this.shouldJumpForTileAhead(this.wanderSign)) {
+    this.syncSimStateFromActor();
+    if (
+      !this.locomotion.shouldJumpForTileAhead(
+        this.wanderSign,
+        this.tileCollisionWorld(),
+        this.collisionBounds,
+      )
+    ) {
       return;
     }
-    this.startJump(this.walkingTuning.jumpSpeed);
+    this.locomotion.tryJump();
+    this.syncActorFromSimState();
   }
 
   public simulateJumpStart() {
@@ -198,46 +186,6 @@ export class Slime extends WalkingActor {
     this.kill();
   }
 
-  private shouldJumpForTileAhead(moveSign: number) {
-    if (!this.isGrounded) {
-      return false;
-    }
-    if (this.entityTileMeeting(this.pos.x, this.pos.y - TILE_PX)) {
-      return false;
-    }
-    const probeX = this.pos.x + moveSign * TILE_PX;
-    return this.hasWallAhead(probeX);
-  }
-
-  private hasWallAhead(probeX: number) {
-    if (!this.entityTileMeeting(probeX, this.pos.y)) {
-      return false;
-    }
-    return !this.entityTileMeeting(probeX, this.pos.y - TILE_PX);
-  }
-
-  public tickWanderDecision(delta: number) {
-    this.wanderDecisionElapsedMs += delta;
-    if (this.wanderDecisionElapsedMs < this.wanderDecisionDelayMs) {
-      return;
-    }
-    this.wanderDecisionElapsedMs = 0;
-    this.wanderDecisionDelayMs = randomWanderDelayMs();
-    const nextSign = randomWanderSign();
-    if (nextSign === this.wanderSign) {
-      return;
-    }
-    this.wanderSign = nextSign;
-    if (nextSign < 0) {
-      this.facingLeft = true;
-    }
-    if (nextSign > 0) {
-      this.facingLeft = false;
-    }
-    this.visuals.updateFacing(this.facingLeft);
-    this.onWanderChanged();
-  }
-
   public isFacingLeft() {
     return this.facingLeft;
   }
@@ -248,5 +196,27 @@ export class Slime extends WalkingActor {
       return;
     }
     this.tickWalkingFrame(delta);
+  }
+
+  private syncSimStateFromActor() {
+    this.simState.apply({
+      x: this.pos.x,
+      y: this.pos.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      width: this.width,
+      height: this.height,
+      isGrounded: this.isGrounded,
+      isJumping: this.isJumping,
+    });
+  }
+
+  private syncActorFromSimState() {
+    this.pos.x = this.simState.x;
+    this.pos.y = this.simState.y;
+    this.hspeed = this.simState.horizontalSpeed;
+    this.vspeed = this.simState.verticalSpeed;
+    this.isGrounded = this.simState.isGrounded;
+    this.isJumping = this.simState.isJumping;
   }
 }

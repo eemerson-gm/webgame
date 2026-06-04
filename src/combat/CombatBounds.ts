@@ -1,5 +1,5 @@
 import * as ex from "excalibur";
-import type { CollisionBounds } from "../actors/MovingActor";
+import type { CollisionBounds } from "../physics/entityPhysics";
 
 export type AxisAlignedBox = {
   left: number;

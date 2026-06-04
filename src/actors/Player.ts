@@ -2,14 +2,10 @@ import * as ex from "excalibur";
 import { TILE_PX } from "../world/worldConfig";
 import { PlayerInputState } from "./PlayerInputState";
 import type { TileCollisionWorld } from "./MovingActor";
-import {
-  type LivingSeparationKind,
-  type LivingVitality,
-} from "./LivingActor";
+import { type LivingSeparationKind } from "./LivingActor";
 import {
   WalkingActor,
   collisionOffsetForGraphicCenter,
-  type WalkingTuning,
 } from "./WalkingActor";
 import type { LocomotionVisualsHost } from "./walking/LocomotionVisuals";
 import {
@@ -18,32 +14,26 @@ import {
 } from "./player/PlayerVisuals";
 import { getHandAttackAnimation, type PlayerHand } from "../combat/playerHands";
 import { Resources } from "../resource";
+import { NetworkedEntityState } from "../game/sim/NetworkedEntityState";
+import { PlayerLocomotionSimulator } from "../game/sim/locomotion/PlayerLocomotionSimulator";
+import {
+  playerJumpHoldDurationMs,
+  playerVitality,
+  playerWalkingTuning,
+} from "../game/sim/simConfig";
 
 const runSpeedMultiplier = 2;
-export const playerJumpHoldDurationMs = 220;
-const jumpHeldGravityMultiplier = 0.3;
-const jumpReleasedGravityMultiplier = 1.15;
-const jumpFallGravityMultiplier = 0.85;
-const playerVitality: LivingVitality = {
-  maxHealth: 6,
-  damageImmunityDurationMs: 500,
-  damageBlinkFrameMs: 90,
-};
-const playerWalkingTuning: WalkingTuning = {
-  walkSpeed: 1.2,
-  walkAcceleration: 0.25,
-  stopDeceleration: 0.22,
-  turnAcceleration: 0.32,
-  gravity: 0.2,
-  jumpSpeed: -2.8,
-  positionScale: 100,
-};
+export { playerJumpHoldDurationMs };
 
 export class Player extends WalkingActor {
   isPaused: boolean = false;
   private readonly inputState: PlayerInputState = new PlayerInputState();
   private readonly spawnPosition: ex.Vector;
-  private jumpHoldTimeRemainingMs: number = 0;
+  private readonly simState = new NetworkedEntityState();
+  private readonly locomotion = new PlayerLocomotionSimulator(
+    this.simState,
+    playerWalkingTuning,
+  );
   private renderInterpolationOffset: ex.Vector = ex.vec(0, 0);
   private previousPhysicsPosition: ex.Vector;
   private currentPhysicsPosition: ex.Vector;
@@ -188,6 +178,10 @@ export class Player extends WalkingActor {
     return this.visuals;
   }
 
+  protected override syncCollisionToSprite() {
+    void 0;
+  }
+
   protected horizontalMoveSign() {
     return this.inputState.horizontalSign();
   }
@@ -214,57 +208,41 @@ export class Player extends WalkingActor {
     this.visuals.updateFacing(this.facingLeft);
   }
 
-  protected override walkGravityForStep(deltaMs: number) {
-    if (!this.isJumping) {
-      this.jumpHoldTimeRemainingMs = 0;
-      return this.walkingTuning.gravity;
-    }
-    if (this.shouldHoldJump()) {
-      this.jumpHoldTimeRemainingMs = Math.max(
-        this.jumpHoldTimeRemainingMs - deltaMs,
-        0,
-      );
-      return this.walkingTuning.gravity * jumpHeldGravityMultiplier;
-    }
-    this.jumpHoldTimeRemainingMs = 0;
-    if (this.vspeed < 0) {
-      return this.walkingTuning.gravity * jumpReleasedGravityMultiplier;
-    }
-    return this.walkingTuning.gravity * jumpFallGravityMultiplier;
-  }
-
   protected override moveWithWalkingGravity(
     dt: number,
     moveSign: number,
     deltaMs: number,
   ) {
-    const runMult = this.isRunning ? runSpeedMultiplier : 1;
-    const targetHspeed = moveSign * this.walkingTuning.walkSpeed * runMult;
-    const horizontalAcceleration = this.horizontalAccelerationFor(moveSign);
-    const approachAmount = horizontalAcceleration * 60 * dt;
-    this.hspeed =
-      this.hspeed < targetHspeed
-        ? Math.min(this.hspeed + approachAmount, targetHspeed)
-        : Math.max(this.hspeed - approachAmount, targetHspeed);
-    if (this.isGrounded) {
-      if (this.vspeed > 0) {
-        this.vspeed = 0;
-      }
-    } else {
-      this.applyGravity(this.walkGravityForStep(deltaMs), dt);
-    }
-    this.moveWithVelocity(this.walkingTuning.positionScale, dt);
+    void dt;
+    this.syncSimStateFromActor();
+    this.locomotion.stepLocomotion(
+      moveSign,
+      deltaMs,
+      {
+        collisionBounds: this.collisionBounds,
+        world: this.tileCollisionWorld(),
+        dt: deltaMs / 1000,
+        positionScale: this.walkingTuning.positionScale,
+      },
+      {
+        keyJump: this.keyJump,
+        isRunning: this.isRunning,
+        runSpeedMultiplier,
+      },
+    );
+    this.syncActorFromSimState();
   }
 
   protected onJump() {
-    if (!this.startJump(this.walkingTuning.jumpSpeed)) {
+    this.syncSimStateFromActor();
+    if (!this.locomotion.tryJump()) {
       return;
     }
-    this.jumpHoldTimeRemainingMs = playerJumpHoldDurationMs;
+    this.syncActorFromSimState();
   }
 
   protected override onLand() {
-    this.jumpHoldTimeRemainingMs = 0;
+    this.locomotion.jumpHoldTimeRemainingMs = 0;
   }
 
   public setEquippedWeaponSprite(sprite: ex.ImageSource) {
@@ -276,7 +254,7 @@ export class Player extends WalkingActor {
   }
 
   protected override onKnockbackApplied() {
-    this.jumpHoldTimeRemainingMs = 0;
+    this.locomotion.jumpHoldTimeRemainingMs = 0;
   }
 
   public isSwordAttackActive() {
@@ -310,7 +288,7 @@ export class Player extends WalkingActor {
   }
 
   public startJumpHold(durationMs: number) {
-    this.jumpHoldTimeRemainingMs = durationMs;
+    this.locomotion.jumpHoldTimeRemainingMs = durationMs;
     this.isGrounded = false;
     this.isJumping = true;
     this.syncLocomotionVisuals(this.inputState.horizontalSign());
@@ -326,7 +304,7 @@ export class Player extends WalkingActor {
     this.hspeed = 0;
     this.vspeed = 0;
     this.clearKnockback();
-    this.jumpHoldTimeRemainingMs = 0;
+    this.locomotion.jumpHoldTimeRemainingMs = 0;
     this.syncPhysicsInterpolationToCurrentPosition();
   }
 
@@ -359,21 +337,8 @@ export class Player extends WalkingActor {
     this.hspeed = 0;
     this.vspeed = 0;
     this.clearKnockback();
-    this.jumpHoldTimeRemainingMs = 0;
+    this.locomotion.jumpHoldTimeRemainingMs = 0;
     this.syncPhysicsInterpolationToCurrentPosition();
-  }
-
-  private shouldHoldJump() {
-    if (!this.keyJump) {
-      return false;
-    }
-    if (!this.isJumping) {
-      return false;
-    }
-    if (this.vspeed >= 0) {
-      return false;
-    }
-    return this.jumpHoldTimeRemainingMs > 0;
   }
 
   public syncPhysicsInterpolationToCurrentPosition() {
@@ -400,7 +365,53 @@ export class Player extends WalkingActor {
     this.visuals.applyRenderOffset(this.renderInterpolationOffset);
   }
 
-  private stepPlayerPhysics(keySign: number, delta: number) {
+  protected shouldRunLocalPhysics(): boolean {
+    return true;
+  }
+
+  public applyInputSample(sample: {
+    keyLeft: boolean;
+    keyRight: boolean;
+    keyJump: boolean;
+    keyDown: boolean;
+    facingLeft?: boolean;
+  }) {
+    this.keyLeft = sample.keyLeft;
+    this.keyRight = sample.keyRight;
+    this.keyJump = sample.keyJump;
+    this.keyDown = sample.keyDown;
+    if (sample.keyLeft !== sample.keyRight) {
+      this.facingLeft = sample.keyLeft;
+      return;
+    }
+    if (sample.facingLeft !== undefined) {
+      this.facingLeft = sample.facingLeft;
+    }
+  }
+
+  private syncSimStateFromActor() {
+    this.simState.apply({
+      x: this.pos.x,
+      y: this.pos.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      width: this.width,
+      height: this.height,
+      isGrounded: this.isGrounded,
+      isJumping: this.isJumping,
+    });
+  }
+
+  private syncActorFromSimState() {
+    this.pos.x = this.simState.x;
+    this.pos.y = this.simState.y;
+    this.hspeed = this.simState.horizontalSpeed;
+    this.vspeed = this.simState.verticalSpeed;
+    this.isGrounded = this.simState.isGrounded;
+    this.isJumping = this.simState.isJumping;
+  }
+
+  protected stepPlayerPhysics(keySign: number, delta: number) {
     const dt = delta / 1000;
     const wasGrounded = this.isGrounded;
     if (this.isKnockbackActive()) {
@@ -421,7 +432,7 @@ export class Player extends WalkingActor {
   override onPostUpdate(_engine: ex.Engine, delta: number) {
     const frameDelta = Math.min(delta, this.maxFrameDeltaMs);
     this.visuals.update(frameDelta);
-    if (!this.isPaused) {
+    if (this.shouldRunLocalPhysics() && !this.isPaused) {
       const keySign = this.inputState.horizontalSign();
       this.physicsAccumulatorMs += frameDelta;
       while (this.physicsAccumulatorMs >= this.fixedStepMs) {

@@ -1,43 +1,33 @@
 import * as ex from "excalibur";
 import type { Player } from "../actors/Player";
 import { NetworkPlayer } from "./network/NetworkPlayer";
-import { separateEntityBodies } from "../actors/MovingActor";
 import { ClientWorldLivingEntities } from "./ClientWorldLivingEntities";
 import { ClientWorldEntities } from "./ClientWorldEntities";
 import { GameClient } from "../classes/GameClient";
 import { messageTypes } from "../classes/GameWire";
 import type {
+  AuthoritativePlayerSnapshot,
   EntityPatch,
   EntityState,
   PlayerState,
+  WorldSnapshotPayload,
   WorldTerrain,
 } from "../classes/GameWire";
 import { TerrainTileMap } from "../classes/TerrainTileMap";
 import { TileLightingOverlay } from "../classes/TileLightingOverlay";
-import {
-  resolveWeaponHits,
-  WeaponHitMemory,
-  type WeaponHitAttacker,
-} from "../combat/WeaponCombat";
 import { HUDManager } from "../ui/HUDManager";
 import { MainMenuUI } from "../ui/MainMenuUI";
 import { PlayerListUI } from "../ui/PlayerListUI";
-import {
-  physicsFixedStepMs,
-  physicsMaxFrameDeltaMs,
-} from "../world/physicsConfig";
 import { TILE_PX } from "../world/worldConfig";
 import { LocalPlayerView } from "./localPlayerView";
 import type { PlayerHand } from "../combat/playerHands";
+import { ClientEntitySeparation } from "./ClientEntitySeparation";
 type GameViewSize = {
   width: number;
   height: number;
 };
 
 const pingIntervalMs = 2000;
-const entitySeparationPadding = 1;
-const entitySeparationMaxMoveX = 0.3;
-const entitySeparationPasses = 2;
 
 export class ClientWorldSession {
   private readonly engine: ex.Engine;
@@ -46,8 +36,10 @@ export class ClientWorldSession {
   private readonly viewSize: GameViewSize;
   private readonly menuUi: MainMenuUI;
   private readonly playerListUi: PlayerListUI;
-  private readonly weaponHitMemory = new WeaponHitMemory();
   private readonly worldLivingEntities = new ClientWorldLivingEntities();
+  private readonly entitySeparation = new ClientEntitySeparation(
+    this.worldLivingEntities,
+  );
 
   private localPlayer: NetworkPlayer | null = null;
   private worldEntities: ClientWorldEntities | null = null;
@@ -55,7 +47,6 @@ export class ClientWorldSession {
   private terrain: TerrainTileMap | null = null;
   private dummyTileMap: ex.TileMap | null = null;
   private pingIntervalId: number | null = null;
-  private separationAccumulatorMs: number = 0;
 
   private constructor(
     engine: ex.Engine,
@@ -193,23 +184,19 @@ export class ClientWorldSession {
         y: playerSpawn.y,
       },
     });
-    this.addLocalPauseListeners();
-    this.syncLocalPauseState();
     console.log("Players:", playersData);
+    this.applyInitialAuthoritativePlayers(playersData);
     this.joinExistingRemotePlayers(terrain, dummyTileMap, playersData);
     this.refreshPlayerList();
     this.engine.on("preupdate", () => {
       this.trySpawnSlimeAtCursor();
-      this.tickEntitySeparation(this.engine.clock.elapsed());
     });
     this.engine.on("postupdate", () => {
-      this.resolveLocalWeaponCombat();
-      const frameDelta = Math.min(
-        this.engine.clock.elapsed(),
-        physicsMaxFrameDeltaMs,
-      );
-      this.localPlayer?.tickLocal(this.engine, frameDelta);
-      this.worldEntities?.tickSlimeNetwork(frameDelta);
+      this.localPlayer?.tickLocal(this.engine);
+      const world = this.terrain?.tileCollisionWorld();
+      if (world) {
+        this.entitySeparation.tickFrame(this.engine.clock.elapsed(), world);
+      }
     });
     this.registerWorldHandlers();
   }
@@ -241,7 +228,59 @@ export class ClientWorldSession {
       [messageTypes.pong]: (msg) => {
         this.applyPongUpdate(msg.payload);
       },
+      [messageTypes.worldSnapshot]: (msg) => {
+        this.applyWorldSnapshot(msg.payload);
+      },
     });
+  }
+
+  private applyInitialAuthoritativePlayers(
+    playersData: Record<string, PlayerState>,
+  ): void {
+    Object.entries(playersData).forEach(([playerId, row]) => {
+      const snapshot = this.playerStateToAuthoritative(playerId, row);
+      if (playerId === this.myPlayerId) {
+        this.localPlayer?.applyAuthoritativeSnapshot(snapshot);
+        return;
+      }
+      this.remotePlayers[playerId]?.applyAuthoritativeSnapshot(snapshot);
+    });
+  }
+
+  private applyWorldSnapshot(snapshot: WorldSnapshotPayload): void {
+    Object.entries(snapshot.players).forEach(([playerId, playerSnapshot]) => {
+      if (playerId === this.myPlayerId) {
+        this.localPlayer?.applyAuthoritativeSnapshot(playerSnapshot);
+        return;
+      }
+      if (!this.remotePlayers[playerId]) {
+        return;
+      }
+      this.remotePlayers[playerId]?.applyAuthoritativeSnapshot(playerSnapshot);
+    });
+    this.worldEntities?.applyWorldSnapshot(snapshot);
+  }
+
+  private playerStateToAuthoritative(
+    _playerId: string,
+    row: PlayerState,
+  ): AuthoritativePlayerSnapshot {
+    return {
+      x: Number(row.x ?? 0),
+      y: Number(row.y ?? 0),
+      horizontalSpeed: Number(row.horizontalSpeed ?? 0),
+      verticalSpeed: Number(row.verticalSpeed ?? 0),
+      facingLeft: row.facingLeft ?? false,
+      health: Number(row.health ?? 6),
+      isPaused: row.isPaused ?? false,
+      attackCycle: 0,
+      lastProcessedInputSequence: 0,
+      keyLeft: row.keyLeft ?? false,
+      keyRight: row.keyRight ?? false,
+      keyJump: row.keyJump ?? false,
+      keyDown: row.keyDown ?? false,
+      keyAttack: row.keyAttack ?? false,
+    };
   }
 
   private refreshPlayerList(): void {
@@ -298,15 +337,13 @@ export class ClientWorldSession {
     this.worldLivingEntities.register({
       entityId,
       living: player,
-      onWeaponHit: (attacker) => {
-        player.takeDamageFrom(attacker, 1);
-      },
+      onWeaponHit: () => {},
     });
   }
 
   private trySpawnSlimeAtCursor(): void {
     const localPlayer = this.localPlayer;
-    if (!localPlayer || localPlayer.isPaused) {
+    if (!localPlayer || !localPlayer.isAlive()) {
       return;
     }
     if (!this.engine.input.keyboard.wasPressed(ex.Keys.R)) {
@@ -323,70 +360,6 @@ export class ClientWorldSession {
         x: worldPos.x,
         y: worldPos.y,
       },
-    });
-  }
-
-  private tickEntitySeparation(delta: number): void {
-    const frameDelta = Math.min(delta, physicsMaxFrameDeltaMs);
-    this.separationAccumulatorMs += frameDelta;
-    if (this.separationAccumulatorMs < physicsFixedStepMs) {
-      return;
-    }
-    this.separationAccumulatorMs -= physicsFixedStepMs;
-    this.separateEntityActors();
-  }
-
-  private separateEntityActors(): void {
-    const world = this.terrain?.tileCollisionWorld();
-    if (!world) {
-      return;
-    }
-    const entries = this.worldLivingEntities.entitySeparationEntries();
-    const separatedBodies = separateEntityBodies(
-      entries.map((entry) => entry.body),
-      {
-        world,
-        padding: entitySeparationPadding,
-        maxMoveX: entitySeparationMaxMoveX,
-        passes: entitySeparationPasses,
-      },
-    );
-    const separatedBodyById = Object.fromEntries(
-      separatedBodies.map((body) => [body.id, body]),
-    );
-    entries
-      .filter((entry) => entry.body.canSeparate)
-      .forEach((entry) => {
-        const separatedBody = separatedBodyById[entry.body.id];
-        if (!separatedBody) {
-          return;
-        }
-        entry.applySeparatedX(separatedBody.x);
-      });
-  }
-
-  private weaponHitAttackers(): WeaponHitAttacker[] {
-    const localPlayer = this.localPlayer;
-    const localPlayerId = this.client.clientId;
-    if (!localPlayer || !localPlayerId) {
-      return Object.entries(this.remotePlayers).map(([playerId, player]) => ({
-        playerId,
-        player,
-      }));
-    }
-    return [
-      { playerId: localPlayerId, player: localPlayer },
-      ...Object.entries(this.remotePlayers)
-        .filter(([playerId]) => playerId !== localPlayerId)
-        .map(([playerId, player]) => ({ playerId, player })),
-    ];
-  }
-
-  private resolveLocalWeaponCombat(): void {
-    resolveWeaponHits({
-      attackers: this.weaponHitAttackers(),
-      targets: this.worldLivingEntities.weaponHitTargets(),
-      hitMemory: this.weaponHitMemory,
     });
   }
 
@@ -524,17 +497,4 @@ export class ClientWorldSession {
     }, pingIntervalMs);
   }
 
-  private syncLocalPauseState(isPaused: boolean = document.hidden): void {
-    this.localPlayer?.syncPauseState(isPaused);
-  }
-
-  private addLocalPauseListeners(): void {
-    document.addEventListener("visibilitychange", () =>
-      this.syncLocalPauseState(),
-    );
-    window.addEventListener("pagehide", () => this.syncLocalPauseState(true));
-    window.addEventListener("pageshow", () => this.syncLocalPauseState(false));
-    document.addEventListener("freeze", () => this.syncLocalPauseState(true));
-    document.addEventListener("resume", () => this.syncLocalPauseState(false));
-  }
 }

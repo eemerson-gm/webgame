@@ -19,6 +19,8 @@ export const messageTypes = {
   updateEntities: "update_entities",
   ping: "ping",
   pong: "pong",
+  playerInput: "player_input",
+  worldSnapshot: "world_snapshot",
 } as const;
 
 const terrainTileKindSchema = z.enum([
@@ -78,6 +80,8 @@ const slimeEntityStateSchema = z.object({
   type: z.literal("slime"),
   ownerId: z.string(),
   wanderSign: z.number().optional(),
+  wanderDecisionElapsedMs: z.number().optional(),
+  wanderDecisionDelayMs: z.number().optional(),
   facingLeft: z.boolean().optional(),
   health: z.number().optional(),
   x: z.number().optional(),
@@ -141,6 +145,8 @@ const entityCreatePayloadSchema = z.object({
 const entityUpdatePayloadSchema = z.object({
   entityId: z.string(),
   wanderSign: z.number().optional(),
+  wanderDecisionElapsedMs: z.number().optional(),
+  wanderDecisionDelayMs: z.number().optional(),
   facingLeft: z.boolean().optional(),
   health: z.number().optional(),
   x: z.number().optional(),
@@ -153,6 +159,47 @@ const entityDamagePayloadSchema = z.object({
   entityId: z.string(),
   damage: z.number().optional(),
   facingLeft: z.boolean().optional(),
+});
+
+const playerInputPayloadSchema = z.object({
+  sequence: z.number(),
+  x: z.number(),
+  y: z.number(),
+  horizontalSpeed: z.number(),
+  verticalSpeed: z.number(),
+  keyLeft: z.boolean(),
+  keyRight: z.boolean(),
+  keyJump: z.boolean(),
+  keyDown: z.boolean(),
+  keyAttack: z.boolean().optional(),
+  facingLeft: z.boolean(),
+  isPaused: z.boolean(),
+});
+
+const authoritativePlayerSnapshotSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  horizontalSpeed: z.number(),
+  verticalSpeed: z.number(),
+  facingLeft: z.boolean(),
+  health: z.number(),
+  isPaused: z.boolean(),
+  attackCycle: z.number(),
+  lastProcessedInputSequence: z.number(),
+  keyLeft: z.boolean(),
+  keyRight: z.boolean(),
+  keyJump: z.boolean(),
+  keyDown: z.boolean(),
+  keyAttack: z.boolean().optional(),
+});
+
+const authoritativeEntitySnapshotSchema = slimeEntityStateSchema;
+
+const worldSnapshotPayloadSchema = z.object({
+  tick: z.number(),
+  players: z.record(z.string(), authoritativePlayerSnapshotSchema),
+  entities: z.record(z.string(), authoritativeEntitySnapshotSchema),
+  removedEntityIds: z.array(z.string()).optional(),
 });
 
 const clientSendSchema = z.discriminatedUnion("type", [
@@ -209,6 +256,10 @@ const clientSendSchema = z.discriminatedUnion("type", [
     type: z.literal(messageTypes.ping),
     payload: z.object({ sentAt: z.number() }),
   }),
+  z.object({
+    type: z.literal(messageTypes.playerInput),
+    payload: playerInputPayloadSchema,
+  }),
 ]);
 
 const serverToClientSchema = z.discriminatedUnion("type", [
@@ -258,6 +309,10 @@ const serverToClientSchema = z.discriminatedUnion("type", [
       sentAt: z.number().optional(),
       id: z.string().optional(),
     }),
+  }),
+  z.object({
+    type: z.literal(messageTypes.worldSnapshot),
+    payload: worldSnapshotPayloadSchema,
   }),
 ]);
 
@@ -315,9 +370,21 @@ const clientToServerSchema = z.discriminatedUnion("type", [
     type: z.literal(messageTypes.ping),
     payload: z.object({ sentAt: z.number() }),
   }),
+  z.object({
+    type: z.literal(messageTypes.playerInput),
+    payload: playerInputPayloadSchema,
+  }),
 ]);
 
 export type PlayerState = z.infer<typeof playerStateSchema>;
+export type PlayerInputPayload = z.infer<typeof playerInputPayloadSchema>;
+export type AuthoritativePlayerSnapshot = z.infer<
+  typeof authoritativePlayerSnapshotSchema
+>;
+export type AuthoritativeEntitySnapshot = z.infer<
+  typeof authoritativeEntitySnapshotSchema
+>;
+export type WorldSnapshotPayload = z.infer<typeof worldSnapshotPayloadSchema>;
 export type WorldTerrain = z.infer<typeof worldTerrainSchema>;
 export type TerrainTileKind = z.infer<typeof terrainTileKindSchema>;
 export type EntityState = z.infer<typeof slimeEntityStateSchema>;
@@ -396,6 +463,11 @@ export const relayRules: Record<
     outboundType: messageTypes.pong,
   },
   [messageTypes.pong]: undefined,
+  [messageTypes.playerInput]: {
+    audience: "others",
+    drop: true,
+  },
+  [messageTypes.worldSnapshot]: undefined,
 };
 
 export type WorldHandlers = {

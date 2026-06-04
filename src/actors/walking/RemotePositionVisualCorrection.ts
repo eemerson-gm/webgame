@@ -29,6 +29,11 @@ export class RemotePositionVisualCorrection {
     const targetPos = ex.vec(position.x, position.y);
     const distance = this.host.actor.pos.distance(targetPos);
     if (distance < 0.001) {
+      if (options?.forceHardSnap) {
+        this.host.actor.pos = targetPos;
+        this.resetVisualCorrection();
+        this.host.onHardSnap?.();
+      }
       return;
     }
     if (options?.forceHardSnap || distance > snapDistancePx) {

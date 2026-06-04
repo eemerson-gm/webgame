@@ -1,16 +1,21 @@
+import type { Engine } from "excalibur";
 import * as ex from "excalibur";
-import type { EntityPatch } from "../../classes/GameWire";
-import { SlimeNetworkClient } from "../../classes/SlimeNetworkClient";
-import type { GameClient } from "../../classes/GameClient";
+import type {
+  AuthoritativeEntitySnapshot,
+  EntityPatch,
+} from "../../classes/GameWire";
 import { Slime } from "../../actors/Slime";
 import type { TileCollisionWorld } from "../../actors/MovingActor";
-import { quantizePosition } from "./positionQuantize";
-import { RemotePositionSync } from "./RemotePositionSync";
+import { ServerCorrectedPolicy } from "./NetworkAuthorityPolicy";
+import { NetworkCorrectionController } from "./NetworkCorrectionController";
+import { SimulationDriftDiagnostics } from "../sim/SimulationDriftDiagnostics";
+import type { SimulationHashFields } from "../sim/SimulationStateHash";
+
+const driftDiagnostics = new SimulationDriftDiagnostics();
 
 export class NetworkSlime extends Slime {
-  private readonly network: SlimeNetworkClient | null;
-  private readonly positionSync: RemotePositionSync;
-  private readonly isAuthority: boolean;
+  private readonly serverAuthority: ServerCorrectedPolicy;
+  private lastServerTick = 0;
 
   constructor(
     entityId: string,
@@ -18,90 +23,76 @@ export class NetworkSlime extends Slime {
     pos: ex.Vector,
     tilemap: ex.TileMap,
     collisionWorld: TileCollisionWorld,
-    client: GameClient | undefined,
-    isAuthority: boolean,
   ) {
     super(entityId, ownerId, pos, tilemap, collisionWorld);
-    this.isAuthority = isAuthority;
-    this.network =
-      isAuthority && client
-        ? new SlimeNetworkClient(client, entityId)
-        : null;
-    this.positionSync = new RemotePositionSync(
-      this,
-      (position, snapDistance, correctionOptions) => {
-        this.applyPositionCorrection(position, snapDistance, correctionOptions);
-      },
+    this.serverAuthority = new ServerCorrectedPolicy(
+      new NetworkCorrectionController(this),
     );
   }
 
-  protected override onJumpStarted(): void {
-    super.onJumpStarted();
-    if (!this.network) {
-      return;
+  public applyAuthoritativeSnapshot(snapshot: AuthoritativeEntitySnapshot): void {
+    if (snapshot.wanderSign !== undefined) {
+      this.setWanderSign(snapshot.wanderSign);
     }
-    this.network.onJump();
-  }
-
-  protected override onLand(): void {
-    super.onLand();
-    if (!this.network) {
-      return;
+    if (snapshot.facingLeft !== undefined) {
+      this.setFacingLeft(snapshot.facingLeft);
     }
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.onLanded(position.x, position.y);
-  }
-
-  protected override onWanderChanged(): void {
-    super.onWanderChanged();
-    if (!this.network) {
-      return;
-    }
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.onWanderChanged({
-      wanderSign: this.getWanderSign(),
-      facingLeft: this.isFacingLeft(),
-      isGrounded: this.isGrounded,
-      x: position.x,
-      y: position.y,
-    });
-  }
-
-  public applyCombatPatch(patch: EntityPatch): void {
-    if (patch.health !== undefined) {
-      this.syncHealth(patch.health);
+    if (snapshot.health !== undefined) {
+      this.syncHealth(snapshot.health);
       if (this.health <= 0) {
         this.die();
         return;
       }
     }
-    if (patch.knockbackFromLeft !== undefined) {
-      this.knockBackFromFacing(patch.knockbackFromLeft);
+    if (snapshot.x === undefined || snapshot.y === undefined) {
+      return;
     }
+    const localHash: SimulationHashFields = {
+      x: this.pos.x,
+      y: this.pos.y,
+      horizontalSpeed: this.hspeed,
+      verticalSpeed: this.vspeed,
+      isGrounded: this.isGrounded,
+      isJumping: this.isJumping,
+      health: this.health,
+      wanderSign: this.getWanderSign(),
+    };
+    const remoteHash: SimulationHashFields = {
+      x: snapshot.x,
+      y: snapshot.y,
+      horizontalSpeed: 0,
+      verticalSpeed: 0,
+      isGrounded: localHash.isGrounded,
+      isJumping: localHash.isJumping,
+      health: snapshot.health,
+      wanderSign: snapshot.wanderSign,
+    };
+    driftDiagnostics.checkEntity(
+      this.entityId(),
+      this.lastServerTick,
+      localHash,
+      remoteHash,
+    );
+    this.serverAuthority.applySnapshotPosition({
+      x: snapshot.x,
+      y: snapshot.y,
+    });
+    this.syncLocomotionVisuals(this.getWanderSign());
+  }
+
+  public applyWorldSnapshotTick(tick: number): void {
+    this.lastServerTick = tick;
+  }
+
+  public applyCombatPatch(patch: EntityPatch): void {
+    this.applyAuthoritativeSnapshot(patch as AuthoritativeEntitySnapshot);
   }
 
   public applyRemoteSimulation(patch: EntityPatch): void {
-    if (this.isAuthority) {
-      return;
-    }
-    if (patch.wanderSign !== undefined) {
-      this.setWanderSign(patch.wanderSign);
-    }
-    if (patch.facingLeft !== undefined) {
-      this.setFacingLeft(patch.facingLeft);
-    }
-    if (patch.jump === true && !this.isJumping) {
-      this.simulateJumpStart();
-    }
-    this.positionSync.applyPartial({ x: patch.x, y: patch.y });
+    this.applyAuthoritativeSnapshot(patch as AuthoritativeEntitySnapshot);
   }
 
-  public tickAuthority(frameDelta: number): void {
-    if (!this.isAuthority || !this.network) {
-      return;
-    }
-    this.tickWanderDecision(frameDelta);
-    const position = quantizePosition(this.pos.x, this.pos.y);
-    this.network.tickPositionBackup(frameDelta, position.x, position.y);
+  override onPostUpdate(_engine: Engine, delta: number): void {
+    super.onPostUpdate(_engine, delta);
   }
 }

@@ -15,10 +15,13 @@ import {
   type RelayRule,
   type ServerToClient,
   type TerrainTileKind,
+  type WorldSnapshotPayload,
   type WorldSummary,
   type WorldTerrain,
 } from "./GameWire";
 import { NetworkDiagnostics } from "./NetworkDiagnostics";
+import { WorldRoomSimulator } from "../game/sim/WorldRoomSimulator";
+import { physicsFixedStepMs } from "../world/physicsConfig";
 
 type WorldRoom = {
   id: string;
@@ -34,6 +37,7 @@ type WorldRoom = {
   worldTerrainTiles: Record<string, TerrainTileKind>;
   protectedTerrainTiles: Set<string>;
   playerSpawn: { x: number; y: number };
+  simulator: WorldRoomSimulator;
 };
 
 const worldNameAdjectives = [
@@ -62,6 +66,7 @@ export class GameServer {
   private worlds: Record<string, WorldRoom>;
   private readonly wire = new GameWire();
   private readonly networkDiagnostics = new NetworkDiagnostics();
+  private simulationIntervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor(server: Server) {
     this.wss = new WebSocketServer({ server, perMessageDeflate: true });
@@ -70,6 +75,7 @@ export class GameServer {
     this.worlds = {
       public: this.createWorldRoom("public"),
     };
+    this.startSimulationLoop();
   }
 
   private createWorldRoom(id: string, name?: string): WorldRoom {
@@ -77,6 +83,12 @@ export class GameServer {
     const seed = this.randomWorldSeed();
     const generatedWorld = generateWorld(definition, seed);
 
+    const simulator = new WorldRoomSimulator(
+      generatedWorld.columns,
+      generatedWorld.rows,
+      generatedWorld.terrainTiles,
+      seed,
+    );
     return {
       id,
       name: name ?? definition.name,
@@ -91,7 +103,59 @@ export class GameServer {
       worldTerrainTiles: generatedWorld.terrainTiles,
       protectedTerrainTiles: generatedWorld.protectedTerrainTiles,
       playerSpawn: generatedWorld.playerSpawn,
+      simulator,
     };
+  }
+
+  private startSimulationLoop(): void {
+    if (this.simulationIntervalId !== null) {
+      return;
+    }
+    this.simulationIntervalId = setInterval(() => {
+      this.tickAllRooms();
+    }, physicsFixedStepMs);
+  }
+
+  private tickAllRooms(): void {
+    Object.values(this.worlds).forEach((room) => {
+      if (Object.keys(room.playerSockets).length === 0) {
+        room.simulator.stop();
+        return;
+      }
+      room.simulator.start();
+      const snapshot = room.simulator.tickFrame(physicsFixedStepMs);
+      if (!snapshot) {
+        return;
+      }
+      this.syncRoomStateFromSimulator(room, snapshot);
+      this.sendToRoomAll(room, {
+        type: messageTypes.worldSnapshot,
+        payload: snapshot,
+      });
+    });
+  }
+
+  private syncRoomStateFromSimulator(
+    room: WorldRoom,
+    snapshot: WorldSnapshotPayload,
+  ): void {
+    Object.entries(snapshot.players).forEach(([playerId, state]) => {
+      room.playersData[playerId] = {
+        ...room.playersData[playerId],
+        x: state.x,
+        y: state.y,
+        horizontalSpeed: state.horizontalSpeed,
+        verticalSpeed: state.verticalSpeed,
+        facingLeft: state.facingLeft,
+        health: state.health,
+        isPaused: state.isPaused,
+        attackCycle: state.attackCycle,
+      };
+    });
+    room.entitiesData = {};
+    Object.entries(snapshot.entities).forEach(([entityId, entity]) => {
+      room.entitiesData[entityId] = entity;
+    });
   }
 
   public listen(): void {
@@ -271,11 +335,15 @@ export class GameServer {
     delete this.lobbySockets[playerId];
     this.socketWorldIds[playerId] = room.id;
     room.playerSockets[playerId] = socket;
+    const spawnX = room.playerSpawn.x;
+    const spawnY = room.playerSpawn.y;
+    room.simulator.addPlayer(playerId, spawnX, spawnY);
+    room.simulator.start();
     room.playersData[playerId] = {
       isPaused: false,
       health: 6,
-      x: room.playerSpawn.x,
-      y: room.playerSpawn.y,
+      x: spawnX,
+      y: spawnY,
     };
     this.networkDiagnostics.logLifecycle(
       `${playerId} joined ${room.name} (${Object.keys(room.playerSockets).length} players)`,
@@ -289,6 +357,12 @@ export class GameServer {
         world: this.worldPayload(room),
       },
     });
+    const snapshot = room.simulator.buildImmediateSnapshot();
+    this.syncRoomStateFromSimulator(room, snapshot);
+    this.sendToRoomPlayer(room, playerId, {
+      type: messageTypes.worldSnapshot,
+      payload: snapshot,
+    });
     this.broadcastWorldsUpdatedToLobby();
   }
 
@@ -300,6 +374,7 @@ export class GameServer {
     const socket = room.playerSockets[playerId];
     delete room.playerSockets[playerId];
     delete room.playersData[playerId];
+    room.simulator.removePlayer(playerId);
     delete this.socketWorldIds[playerId];
     if (socket) {
       this.lobbySockets[playerId] = socket;
@@ -326,20 +401,33 @@ export class GameServer {
       console.error("World message before join:", message.type);
       return;
     }
+    if (message.type === messageTypes.playerInput) {
+      room.simulator.queuePlayerInput(playerId, message.payload.sequence, {
+        x: message.payload.x,
+        y: message.payload.y,
+        horizontalSpeed: message.payload.horizontalSpeed,
+        verticalSpeed: message.payload.verticalSpeed,
+        keyLeft: message.payload.keyLeft,
+        keyRight: message.payload.keyRight,
+        keyJump: message.payload.keyJump,
+        keyDown: message.payload.keyDown,
+        keyAttack: message.payload.keyAttack ?? false,
+        facingLeft: message.payload.facingLeft,
+        isPaused: false,
+      });
+      return;
+    }
     const rule = relayRules[message.type];
     if (!rule) {
       console.error("Unknown message type:", message.type);
       return;
     }
-    const wasPaused = room.playersData[playerId]?.isPaused === true;
-    const isResuming = wasPaused && this.shouldResumePlayer(message);
     if (rule.mergesState) {
-      const patch = this.wire.playerStatePatch(message);
-      const playerPatch = isResuming ? { ...patch, isPaused: false } : patch;
-      room.playersData[playerId] = merge(room.playersData[playerId], playerPatch);
-    }
-    if (this.isPausedInteraction(room, playerId, message.type)) {
-      return;
+      const patch = this.stripNonAuthoritativePlayerPatch(
+        this.wire.playerStatePatch(message),
+        message.type,
+      );
+      room.playersData[playerId] = merge(room.playersData[playerId], patch);
     }
     if (this.handleEntityMessage(room, playerId, message)) {
       return;
@@ -347,35 +435,11 @@ export class GameServer {
     if (this.isServerOnlyStatePatch(message)) {
       return;
     }
-    const outbound = this.buildRelayOutbound(
-      message,
-      playerId,
-      room,
-      rule,
-      isResuming,
-    );
+    const outbound = this.buildRelayOutbound(message, playerId, room, rule);
     if (!outbound) {
       return;
     }
     this.deliverRelay(room, playerId, rule, outbound);
-  }
-
-  private shouldResumePlayer(message: ClientToServer): boolean {
-    if (message.type !== messageTypes.updatePlayer) {
-      return false;
-    }
-    return message.payload.isPaused !== true;
-  }
-
-  private isPausedInteraction(
-    room: WorldRoom,
-    playerId: string,
-    type: ClientToServer["type"],
-  ): boolean {
-    if (room.playersData[playerId]?.isPaused !== true) {
-      return false;
-    }
-    return type !== messageTypes.updatePlayer;
   }
 
   private isServerOnlyStatePatch(message: ClientToServer): boolean {
@@ -397,70 +461,13 @@ export class GameServer {
       if (message.payload.type !== "slime") {
         return true;
       }
-      const entityId = `slime:${room.nextEntityIndex++}`;
-      const entity: EntityState = {
-        type: "slime",
-        ownerId: playerId,
-        x: message.payload.x,
-        y: message.payload.y,
-        wanderSign: 0,
-        health: 3,
-        facingLeft: false,
-      };
-      room.entitiesData[entityId] = entity;
-      this.broadcastEntitySnapshot(room, {
-        entitiesData: { [entityId]: entity },
-      });
+      room.simulator.createSlime(playerId, message.payload.x, message.payload.y);
       return true;
     }
     if (message.type === messageTypes.updateEntity) {
-      const { entityId, ...patch } = message.payload;
-      const entity = room.entitiesData[entityId];
-      if (!entity || entity.ownerId !== playerId) {
-        return true;
-      }
-      const mergedEntity = merge({}, entity, patch) as EntityState;
-      const storedEntity: EntityState = { ...mergedEntity };
-      const relayPatch = { ...patch };
-      if (patch.jump !== undefined) {
-        delete (storedEntity as EntityState & { jump?: boolean }).jump;
-      }
-      if (patch.knockbackFromLeft !== undefined) {
-        delete (storedEntity as EntityState & { knockbackFromLeft?: boolean })
-          .knockbackFromLeft;
-      }
-      room.entitiesData[entityId] = storedEntity;
-      this.broadcastEntityPatch(room, entityId, relayPatch, "others", playerId);
       return true;
     }
     if (message.type === messageTypes.damageEntity) {
-      const { entityId } = message.payload;
-      const entity = room.entitiesData[entityId];
-      if (!entity) {
-        return true;
-      }
-      const damage = message.payload.damage ?? 1;
-      if (!Number.isFinite(damage) || damage <= 0) {
-        return true;
-      }
-      const currentHealth = entity.health ?? 3;
-      const nextHealth = Math.max(0, currentHealth - damage);
-      if (nextHealth <= 0) {
-        delete room.entitiesData[entityId];
-        this.broadcastEntitySnapshot(room, {
-          removedEntityIds: [entityId],
-        });
-        return true;
-      }
-      room.entitiesData[entityId] = { ...entity, health: nextHealth };
-      const combatPatch: {
-        health: number;
-        knockbackFromLeft?: boolean;
-      } = { health: nextHealth };
-      if (message.payload.facingLeft !== undefined) {
-        combatPatch.knockbackFromLeft = message.payload.facingLeft;
-      }
-      this.broadcastEntityPatch(room, entityId, combatPatch, "all");
       return true;
     }
     return false;
@@ -511,7 +518,6 @@ export class GameServer {
     playerId: string,
     room: WorldRoom,
     rule: RelayRule,
-    isResuming: boolean,
   ): ServerToClient | null {
     if (rule.drop) {
       return null;
@@ -534,10 +540,7 @@ export class GameServer {
         payload,
       };
     }
-    let payload = message.payload;
-    if (message.type === messageTypes.updatePlayer && isResuming) {
-      payload = { ...message.payload, isPaused: false };
-    }
+    const payload = message.payload;
     if (rule.attachPlayerId) {
       return {
         type: outboundType,
@@ -579,6 +582,7 @@ export class GameServer {
     }
     delete room.playerSockets[playerId];
     delete room.playersData[playerId];
+    room.simulator.removePlayer(playerId);
     delete this.socketWorldIds[playerId];
     this.networkDiagnostics.logLifecycle(
       `${playerId} left ${room.name} (${Object.keys(room.playerSockets).length} players)`,
@@ -588,6 +592,28 @@ export class GameServer {
       payload: { id: playerId },
     });
     this.broadcastWorldsUpdatedToLobby();
+  }
+
+  private stripNonAuthoritativePlayerPatch(
+    patch: PlayerState,
+    type: ClientToServer["type"],
+  ): PlayerState {
+    if (type !== messageTypes.updatePlayer) {
+      return patch;
+    }
+    const rest = { ...patch };
+    delete rest.x;
+    delete rest.y;
+    delete rest.horizontalSpeed;
+    delete rest.verticalSpeed;
+    delete rest.keyLeft;
+    delete rest.keyRight;
+    delete rest.keyJump;
+    delete rest.keyDown;
+    delete rest.keyAttack;
+    delete rest.attackCycle;
+    delete rest.facingLeft;
+    return rest;
   }
 
   private worldPayload(room: WorldRoom): WorldTerrain {
