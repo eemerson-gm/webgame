@@ -3,13 +3,8 @@ import {
   collisionBoundsWorldBox,
   type AxisAlignedBox,
 } from "../../physics/entityPhysics";
-import {
-  serverWeaponReachX,
-  serverWeaponReachY,
-  simEntityHeight,
-  simEntityWidth,
-  swordHitMinElapsedRatio,
-} from "./simConfig";
+import { swordWeaponBoxAtElapsed } from "../../combat/swordWeaponHitbox";
+import { swordHitMinElapsedRatio } from "./simConfig";
 import type { SimPlayer } from "./SimPlayer";
 import type { SimSlime } from "./SimSlime";
 
@@ -25,7 +20,12 @@ export class SimCombatSystem {
       if (attacker.swordAttackElapsedRatio() < swordHitMinElapsedRatio) {
         return;
       }
-      const weaponBox = this.weaponBoxForPlayer(attacker);
+      const weaponBox = swordWeaponBoxAtElapsed(
+        attacker.x,
+        attacker.y,
+        attacker.facingLeft,
+        attacker.swordAttackElapsedRatio(),
+      );
       this.syncAttackerCycle(attacker.id, attacker.attackCycle);
       slimes.forEach((slime) => {
         if (!slime.isAlive() || slime.isDead) {
@@ -87,25 +87,6 @@ export class SimCombatSystem {
     }
     this.swingKeys.add(key);
     onHit();
-  }
-
-  private weaponBoxForPlayer(player: SimPlayer): AxisAlignedBox {
-    const centerX = player.x + simEntityWidth / 2;
-    const centerY = player.y + simEntityHeight / 2;
-    if (player.facingLeft) {
-      return {
-        left: centerX - (2 + serverWeaponReachX),
-        right: centerX - 2,
-        top: centerY - serverWeaponReachY / 2,
-        bottom: centerY + serverWeaponReachY / 2,
-      };
-    }
-    return {
-      left: centerX + 2,
-      right: centerX + 2 + serverWeaponReachX,
-      top: centerY - serverWeaponReachY / 2,
-      bottom: centerY + serverWeaponReachY / 2,
-    };
   }
 
   private syncAttackerCycle(attackerId: string, cycle: number) {

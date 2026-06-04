@@ -84,8 +84,5 @@ export const entitySeparationPasses = 2;
 /** Server broadcasts snapshots every N physics ticks (~20 Hz at 60 Hz sim). */
 export const snapshotIntervalTicks = 3;
 
-export const swordAttackDurationMs = 350;
+export { swordAttackDurationMs } from "../../combat/swordWeaponHitbox";
 export const swordHitMinElapsedRatio = 0.1;
-
-export const serverWeaponReachX = 14;
-export const serverWeaponReachY = 10;

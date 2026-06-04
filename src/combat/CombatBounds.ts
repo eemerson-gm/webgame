@@ -43,12 +43,12 @@ export const isWeaponPartActive = (weaponActor: ex.Actor) => {
   return true;
 };
 
-const anchorAdjustedBox = (
+export const axisAlignedBoxFromAnchor = (
   worldX: number,
   worldY: number,
   width: number,
   height: number,
-  anchor: ex.Vector,
+  anchor: { x: number; y: number },
 ): AxisAlignedBox => ({
   left: worldX - width * anchor.x,
   right: worldX + width * (1 - anchor.x),
@@ -76,7 +76,7 @@ export const weaponPartWorldBox = (
   const worldX = host.pos.x + weaponActor.pos.x;
   const worldY = host.pos.y + weaponActor.pos.y;
   const anchor = weaponActor.graphics.anchor;
-  const base = anchorAdjustedBox(
+  const base = axisAlignedBoxFromAnchor(
     worldX,
     worldY,
     weaponActor.width,
